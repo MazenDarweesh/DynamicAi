@@ -17,9 +17,6 @@ namespace SchemaGenerator.Services
     /// </summary>
     public class JsonStateService : IStateService
     {
-        // اسم ملف الحالة. سيتم إنشاؤه بجوار الملف التنفيذي.
-        private const string STATE_FILE_NAME = "process_state.json";
-
         // إعدادات الـ JSON (لجعل الملف مقروءاً)
         private readonly JsonSerializerOptions _jsonOptions;
 
@@ -40,18 +37,18 @@ namespace SchemaGenerator.Services
         /// <summary>
         /// تحميل الحالة الحالية من الملف.
         /// </summary>
-        public async Task<List<ProcessStateEntry>> LoadStateAsync()
+        public async Task<List<ProcessStateEntry>> LoadStateAsync(string stateFilePath)
         {
             // ننتظر حتى نتأكد أن لا أحد يكتب في الملف الآن
             await _fileLock.WaitAsync();
             try
             {
-                if (!File.Exists(STATE_FILE_NAME))
+                if (!File.Exists(stateFilePath)) 
                 {
                     return new List<ProcessStateEntry>();
                 }
+                string json = await File.ReadAllTextAsync(stateFilePath); 
 
-                string json = await File.ReadAllTextAsync(STATE_FILE_NAME);
                 if (string.IsNullOrWhiteSpace(json))
                 {
                     return new List<ProcessStateEntry>();
@@ -76,13 +73,13 @@ namespace SchemaGenerator.Services
         /// <summary>
         /// حفظ القائمة الكاملة للحالة (تستخدم عند المقارنة والبدء).
         /// </summary>
-        public async Task SaveStateAsync(List<ProcessStateEntry> currentState)
+        public async Task SaveStateAsync(string stateFilePath, List<ProcessStateEntry> currentState)
         {
             await _fileLock.WaitAsync();
             try
             {
                 string json = JsonSerializer.Serialize(currentState, _jsonOptions);
-                await File.WriteAllTextAsync(STATE_FILE_NAME, json);
+                await File.WriteAllTextAsync(stateFilePath, json); 
             }
             catch (Exception ex)
             {
@@ -98,21 +95,20 @@ namespace SchemaGenerator.Services
         /// (أهم دالة) - تعديل "سطر واحد" في الحالة وحفظ الملف فوراً.
         /// هذا ما يحقق الحفظ "أول بأول".
         /// </summary>
-        public async Task UpdateEntryAsync(string viewName, Action<ProcessStateEntry> updateAction)
+        public async Task UpdateEntryAsync(string stateFilePath, string viewName, Action<ProcessStateEntry> updateAction)
         {
             await _fileLock.WaitAsync();
             try
             {
-                // 1. نقرأ الحالة الحالية من الملف (وليس من الذاكرة)
-                // هذا يضمن أننا نعدل على آخر نسخة محفوظة
+                // ... (نقرأ الملف) ...
                 List<ProcessStateEntry> currentState;
-                if (!File.Exists(STATE_FILE_NAME))
+                if (!File.Exists(stateFilePath)) 
                 {
                     currentState = new List<ProcessStateEntry>();
                 }
                 else
                 {
-                    string jsonRead = await File.ReadAllTextAsync(STATE_FILE_NAME);
+                    string jsonRead = await File.ReadAllTextAsync(stateFilePath);
                     currentState = string.IsNullOrWhiteSpace(jsonRead)
                         ? new List<ProcessStateEntry>()
                         : JsonSerializer.Deserialize<List<ProcessStateEntry>>(jsonRead, _jsonOptions) ?? new List<ProcessStateEntry>();
@@ -132,7 +128,7 @@ namespace SchemaGenerator.Services
 
                 // 3. نرجع نكتب الملف بالكامل
                 string jsonWrite = JsonSerializer.Serialize(currentState, _jsonOptions);
-                await File.WriteAllTextAsync(STATE_FILE_NAME, jsonWrite);
+                await File.WriteAllTextAsync(stateFilePath, jsonWrite);
             }
             catch (Exception ex)
             {

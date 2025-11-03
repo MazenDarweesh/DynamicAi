@@ -8,7 +8,6 @@ namespace SchemaGenerator
     {
         // --- (1) إضافة خدمة الحالة (الذاكرة) ---
         private readonly IStateService _stateService;
-
         private readonly ISchemaReaderService _reader;
         private readonly ISchemaEnrichmentService _enricher;
         private readonly ISchemaWriterService _writer;
@@ -17,7 +16,9 @@ namespace SchemaGenerator
         // --- (2) تعريف الثوابت ---
         private readonly string _connectionString;
         private string _outputFilePath; // (سيتم تحديده بناءً على اختيار المستخدم)
+        private string _stateFilePath; // <-- (جديد) مسار ملف الحالة
         private const string RESULTS_FILE_NAME = "schema-mapping-pos.json";
+        private const string STATE_FILE_NAME = "process_state.json";
         private const int RATE_LIMIT_SECONDS = 30; // 2 طلب في الدقيقة
 
         public SchemaOrchestrator(
@@ -101,7 +102,7 @@ namespace SchemaGenerator
 
             // === المرحلة 1: الإعداد وفحص الحالة ===
             Console.WriteLine("[Phase 1] Loading state and checking schema hashes...");
-            var currentState = await _stateService.LoadStateAsync();
+            var currentState = await _stateService.LoadStateAsync(_stateFilePath); // <-- (مُعدل)
             var newHashes = await _reader.GetCurrentViewHashesAsync(_connectionString);
 
             string initialAction = "Start from scratch";
@@ -117,6 +118,7 @@ namespace SchemaGenerator
             // === المرحلة 2: تحديد مسار الإخراج ===
             string outputPath = "../../../../Infrastructure/"; // (المسار الأساسي)
             string resultsFileName = RESULTS_FILE_NAME;
+           
 
             if (initialAction == "Start from scratch")
             {
@@ -138,6 +140,8 @@ namespace SchemaGenerator
             }
 
             _outputFilePath = Path.Combine(outputPath, resultsFileName);
+            // --- (جديد) تحديد مسار ملف الحالة ---
+            _stateFilePath = Path.Combine(outputPath, STATE_FILE_NAME);
 
             // --- (استخدام دالة التحقق الخاصة بك) ---
             var (isValid, absolutePath) = ValidateOutputPath(_outputFilePath);
@@ -183,8 +187,7 @@ namespace SchemaGenerator
             }
 
             Console.WriteLine($"Found {changesFound} new or modified views to process.");
-            await _stateService.SaveStateAsync(currentState); // حفظ الحالة بعد المقارنة
-
+            await _stateService.SaveStateAsync(_stateFilePath, currentState); // <-- (مُعدل)
             // === المرحلة 4: المعالجة (The Processing Loop) ===
             var tasksToProcess = currentState
                 .Where(e => e.Status == ProcessStatus.Pending || e.Status == ProcessStatus.Failed)
@@ -206,7 +209,7 @@ namespace SchemaGenerator
                     await Task.Delay(TimeSpan.FromSeconds(RATE_LIMIT_SECONDS));
 
                     // (ب) تأمين المهمة
-                    await _stateService.UpdateEntryAsync(task.ViewName, e => {
+                    await _stateService.UpdateEntryAsync(_stateFilePath, task.ViewName, e => { // <-- (مُعدل)
                         e.Status = ProcessStatus.InProgress;
                         e.LastAttempt = DateTime.UtcNow;
                     });
@@ -226,7 +229,7 @@ namespace SchemaGenerator
                     Console.WriteLine($"[Writer] Result for {viewName} saved.");
 
                     // (هـ) تحديث الحالة للنجاح
-                    await _stateService.UpdateEntryAsync(task.ViewName, e => {
+                    await _stateService.UpdateEntryAsync(_stateFilePath, task.ViewName, e => { // <-- (مُعدل)
                         e.Status = ProcessStatus.Completed;
                         e.LastError = null;
                         e.SchemaHash = newHashes[task.ViewName]; // حفظ الهاش الجديد
@@ -241,7 +244,7 @@ namespace SchemaGenerator
                     Console.ForegroundColor = ConsoleColor.Red;
                     Console.WriteLine($"[State] FAILED: {task.ViewName} | Error: {ex.Message}");
                     Console.ResetColor();
-                    await _stateService.UpdateEntryAsync(task.ViewName, e => {
+                    await _stateService.UpdateEntryAsync(_stateFilePath, task.ViewName, e => { // <-- (مُعدل)
                         e.Status = ProcessStatus.Failed;
                         e.LastError = ex.Message;
                     });

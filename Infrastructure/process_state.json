@@ -1,0 +1,156 @@
+[
+  {
+    "ViewName": "v_ai_AthGroup",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_Branches",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_CashierSessions",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_Contract",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_ConType",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_CustomerAccount",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_CustomerCategory",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_Drawer",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_Employee",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_EmployeeBranches",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_Group",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_Modality",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_ProCompany",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_Product",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_ProductProcess",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_ProductProcessItem",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_ProductStorage",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_ProProcessType",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_Safe",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_SafeSession",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_Storage",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  },
+  {
+    "ViewName": "v_ai_SystemsContract",
+    "Status": "Pending",
+    "SchemaHash": null,
+    "LastError": null,
+    "LastAttempt": null
+  }
+]
