@@ -9,6 +9,9 @@ using Polly;
 using System.Net;
 using Microsoft.Extensions.Http; // (مطلوب لـ AddPolicyHandler)
 using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Embeddings; // (جديد - لخدمة التضمين)
+using Qdrant.Client; // (جديد - لـ Qdrant)
+using Microsoft.Extensions.AI;
 
 // 1. بناء الـ Host (لقراءة الإعدادات و DI)
 var builder = Host.CreateDefaultBuilder(args);
@@ -19,56 +22,66 @@ builder.ConfigureServices((context, services) =>
     // (أ) تسجيل Kernel (الخطوة الأولى)
     services.AddKernel();
 
-    // (ب) تسجيل خدماتنا المقسمة (SOLID)
-    services.AddTransient<ISchemaReaderService, SchemaReaderService>();
-    services.AddTransient<ISchemaEnrichmentService, SchemaEnrichmentService>();
-    services.AddTransient<ISchemaWriterService, SchemaWriterService>();
-    services.AddTransient<IStateService, JsonStateService>(); // <-- خدمة الحالة
+    // --- 2. تسجيل خدماتنا الجديدة (الهيكل) ---
+    // (سننشئ الـ Implementation لاحقاً)
     services.AddTransient<ISchemaOrchestrator, SchemaOrchestrator>();
+    services.AddTransient<IStateService, JsonStateService>(); // (موجودة، سنعدلها)
+    services.AddTransient<ISchemaReaderService, SchemaReaderService>(); // (موجودة، سنعدلها)
 
-    // --- (ج) تسجيل Gemini يدوياً مع HttpClientFactory و Polly ---
+    // (خدمات جديدة بالكامل)
+    //services.AddTransient<IErpMetadataService, ErpMetadataService>();
+    //services.AddTransient<IChangeTrackingStrategy, CdcChangeStrategy>(); // (استخدام CDC مباشرة)
+    //services.AddTransient<IErpDataExtractorService, ErpDataExtractorService>();
+    //services.AddTransient<IVectorDbService, QdrantVectorDbService>();// --- (ج) تسجيل Gemini يدوياً مع HttpClientFactory و Polly ---
 
-    // --- (1) تعديل تعريف سياسة بولي (Polly Policy) ---
-    // (مُعدل) يجب أن نبدأ بـ HandleResult ثم نضيف Or<Exception>
-    IAsyncPolicy<HttpResponseMessage> retryPolicy = Policy
-        // 1. ابدأ بتعريف "النتيجة" التي تعتبر فشلاً
-        .HandleResult<HttpResponseMessage>(r => r.StatusCode == HttpStatusCode.ServiceUnavailable) // (503)
-                                                                                                   // 2. أضف "الاستثناءات" (Exceptions) التي تعتبر فشلاً أيضاً
-        .Or<HttpRequestException>() // (مثل فشل الاتصال أو Timeout)
-        .WaitAndRetryAsync(
-            3, // 3 محاولات
-            retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt) * 5), // 10s, 20s, 40s
-            (outcome, timespan, retryCount, ctx) =>
-            {
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"[Polly] فشل الطلب (503 أو خطأ اتصال). المحاولة رقم {retryCount}. الانتظار {timespan.TotalSeconds} ثانية...");
-                Console.ResetColor();
-            }
-        );
+    // --- 3. تسجيل أدوات (Tools) ---
 
-    // 2. تسجيل "عميل HTTP مُسمى" (Named HttpClient)
-    services.AddHttpClient("GeminiClient", client =>
-    {
-        client.Timeout = TimeSpan.FromSeconds(900); // الـ Timeout الخاص بك
-    })
-    .AddPolicyHandler(retryPolicy); // (هذا السطر سليم 100%)
+    // --- (ج) تسجيل أدوات (Tools) ---
 
+    // 1. تسجيل عميل Qdrant
+    var qdrantHost = context.Configuration["Qdrant:Host"]!;
+    services.AddSingleton(new QdrantClient(qdrantHost));
 
-    // 3. تسجيل خدمة Gemini يدوياً
+    // 2. تسجيل خدمة التضمين (Embedding) (باستخدام الواجهة الجديدة)
     string googleApiKey = context.Configuration["Gemini:ApiKey"]!;
-    string geminiModel = context.Configuration["Gemini:Model"]!;
+
+    // (تحذير تجريبي - كما ذكرت في التوثيق)
+    services.AddKernel()
+        .AddGoogleAIEmbeddingGeneration(
+            modelId: "gemini-embedding-001", // أو "embedding-001"
+            apiKey: googleApiKey
+        );
+    // 3. تسجيل خدمة المحادثة (Chat) (للمشروع الآخر - إذا احتجناه لاحقاً)
+    // (هذا الكود جاهز ومعه Polly، لكن Orchestrator لن يستخدمه حالياً)
+    IAsyncPolicy<HttpResponseMessage> retryPolicy = Policy
+        .HandleResult<HttpResponseMessage>(r => r.StatusCode == HttpStatusCode.ServiceUnavailable)
+        .Or<HttpRequestException>()
+        .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt) * 5),
+            (outcome, timespan, retryCount, ctx) => {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"[Polly] فشل الطلب (503 أو خطأ اتصال). المحاولة رقم {retryCount}...");
+                Console.ResetColor();
+            });
+
+    services.AddHttpClient("GeminiChatClient", client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(900);
+    })
+    .AddPolicyHandler(retryPolicy);
 
     services.AddSingleton<IChatCompletionService>(sp =>
     {
         var clientFactory = sp.GetRequiredService<IHttpClientFactory>();
-        var httpClient = clientFactory.CreateClient("GeminiClient"); // (إنشاء العميل المُعد)
+        var httpClient = clientFactory.CreateClient("GeminiChatClient");
 
         return new GoogleAIGeminiChatCompletionService(
-            modelId: geminiModel,
+            modelId: "gemini-2.5-pro", // (موديل المحادثة)
             apiKey: googleApiKey,
             httpClient: httpClient
         );
     });
+
+    // (ملاحظة: تم حذف تسجيل IChatCompletionService و Polly لأنهما كانا للخدمة الملغاة)
 });
 
 var host = builder.Build();

@@ -1,5 +1,7 @@
 ﻿using Dapper;
 using Microsoft.Data.SqlClient;
+using Microsoft.SqlServer.Management.Common;
+using Microsoft.SqlServer.Management.Smo;
 using SchemaGenerator.Interfaces;
 using SchemaGenerator.Models;
 using System.Security.Cryptography;
@@ -7,99 +9,113 @@ using System.Text;
 
 namespace SchemaGenerator.Services
 {
+    /// <summary>
+    /// التنفيذ الفعلي لـ ISchemaReaderService.
+    /// يستخدم SMO (SQL Server Management Objects) لجلب الـ Scripts الدقيقة،
+    /// ويطبق "التقسيم الذكي" (Smart Chunking) بناءً على النقد.
+    /// </summary>
     public class SchemaReaderService : ISchemaReaderService
     {
-        // القائمة المركزية للاستثناءات
-        private readonly HashSet<string> _excludeList = new HashSet<string>
+        /// <summary>
+        /// (هنا سنضع خريطة التقسيم الدلالي للجداول الضخمة كما اقترح النقد)
+        /// (سنتركها فارغة الآن للـ MVP ونركز على التقسيم البسيط)
+        /// </summary>
+        private readonly Dictionary<string, Dictionary<string, List<string>>> _chunkingMap = new();
+
+        /// <summary>
+        /// يستخرج الـ Scripts الخاصة بالجداول والـ Views المستهدفة.
+        /// </summary>
+        public async Task<List<VectorDocument>> ExtractSchemasAsync(
+            string connectionString,
+            string dbName,
+            List<string> targetViewNames,
+            List<string> targetTableNames)
         {
-            "v_ai___EFMigrationsHistory",
-            "v_ai_sysdiagrams",
-            "v_ai_IntegrationSettings" 
-        };
-        // تم تعديل الدالة الحالية لتستخدم القائمة الجديدة
-        public async Task<List<RawViewInfo>> GetRawSchemaAsync(string connectionString)
-        {
-            var views = new Dictionary<string, RawViewInfo>();
-            await using var connection = new SqlConnection(connectionString);
+            var documents = new List<VectorDocument>();
+            await using var sqlConnection = new SqlConnection(connectionString);
+            ServerConnection serverConnection = new ServerConnection(sqlConnection);
+            Server server = new Server(serverConnection);
+            Database db = server.Databases[dbName];
 
-            var query = @"
-                SELECT v.name AS ViewName, c.name AS ColumnName, t.name AS DataType
-                FROM sys.views v
-                JOIN sys.columns c ON c.object_id = v.object_id
-                JOIN sys.types t ON c.system_type_id = t.system_type_id
-                WHERE v.name LIKE 'v_ai_%' AND v.is_ms_shipped = 0
-                ORDER BY v.name, c.column_id;";
-
-            var results = await connection.QueryAsync(query);
-
-            foreach (var row in results)
+            // إعدادات استخراج الـ Script (كما اتفقنا في النقد)
+            ScriptingOptions options = new ScriptingOptions
             {
-                string viewName = row.ViewName;
+                ScriptDrops = false,
+                Indexes = true,           // (مهم جداً)
+                DriAllConstraints = true, // (مهم جداً - Foreign Keys)
+                NoCollation = false,      // (نحتاج الكوليشن ليفهم الـ AI السياق)
+                ScriptSchema = true,
+                ScriptData = false
+            };
 
-                // تطبيق الفلترة هنا بدلاً من الـ SQL لتوحيد اللوجيك
-                if (_excludeList.Contains(viewName))
+            // 1. استخراج الـ Views المستهدفة
+            foreach (var viewName in targetViewNames.Distinct())
+            {
+                if (db.Views.Contains(viewName))
                 {
-                    continue;
-                }
+                    View view = db.Views[viewName];
+                    if (view.IsSystemObject) continue;
 
-                if (!views.ContainsKey(viewName))
-                {
-                    views[viewName] = new RawViewInfo { ViewName = viewName };
+                    /// <summary>
+                    /// (السطر السحري)
+                    /// 1. view.Script(options): يطلب من SMO توليد الـ "CREATE VIEW..." script بناءً على الإعدادات.
+                    /// 2. .Cast<string>().Join("\n"): الـ Script يأتي كـ "مصفوفة من السطور"،
+                    ///    هذا السطر يجمعها في "نص واحد" (string) مع فواصل أسطر (new lines).
+                    /// </summary>
+                    string script = string.Join("\n", view.Script(options).Cast<string>());
+                    documents.Add(CreateVectorDocument(viewName, script, "View", view.Name));
                 }
-                views[viewName].Columns.Add(new RawColumnInfo
-                {
-                    ColumnName = row.ColumnName,
-                    DataType = row.DataType
-                });
             }
-            return views.Values.ToList();
+
+            // 2. استخراج الجداول المستهدفة
+            foreach (var tableName in targetTableNames.Distinct())
+            {
+                if (db.Tables.Contains(tableName))
+                {
+                    Table table = db.Tables[tableName];
+                    if (table.IsSystemObject) continue;
+
+                    // تطبيق "التقسيم الذكي" (Smart Chunking)
+                    documents.AddRange(ChunkTableScript(table, options));
+                }
+            }
+            return documents;
         }
         /// <summary>
-        /// يجلب الهاش لكل الـ Views
+        /// (MVP) ينشئ مستنداً واحداً للجدول.
+        /// (للمستقبل: سنطبق هنا التقسيم الدلالي من النقد #1)
         /// </summary>
-        public async Task<Dictionary<string, string>> GetCurrentViewHashesAsync(string connectionString)
+        private List<VectorDocument> ChunkTableScript(Table table, ScriptingOptions options)
         {
-            var hashes = new Dictionary<string, string>();
-            await using var connection = new SqlConnection(connectionString);
+            // (تجاهل التقسيم المعقد في الـ MVP للسرعة)
+            // (سنترك خريطة التقسيم (Chunking Map) لوقتها كما طلبت)
 
-            var query = @"
-                SELECT name, OBJECT_DEFINITION(object_id) AS ViewDefinition
-                FROM sys.views
-                WHERE name LIKE 'v_ai_%' AND is_ms_shipped = 0;
-            ";
+            var docList = new List<VectorDocument>();
+            string script = string.Join("\n", table.Script(options).Cast<string>());
 
-            var results = await connection.QueryAsync(query);
-
-            foreach (var row in results)
-            {
-                string viewName = row.name;
-                // تطبيق الفلترة
-                if (_excludeList.Contains(viewName))
-                {
-                    continue;
-                }
-
-                string definition = row.ViewDefinition;
-                hashes[viewName] = ComputeSHA256(definition);
-            }
-            return hashes;
+            docList.Add(CreateVectorDocument(table.Name, script, "Table", table.Name));
+            return docList;
         }
-        /// <summary>
-        /// يجلب التعريف النصي لـ View واحد
-        /// </summary>
-        public async Task<string> GetViewDefinitionAsync(string connectionString, string viewName)
-        {
-            await using var connection = new SqlConnection(connectionString);
-            var query = @"
-                SELECT OBJECT_DEFINITION(object_id) AS ViewDefinition
-                FROM sys.views
-                WHERE name = @ViewName;
-            ";
 
-            return await connection.QuerySingleOrDefaultAsync<string>(
-                query,
-                new { ViewName = viewName }
-            );
+        /// <summary>
+        /// دالة مساعدة لإنشاء المستند بالـ Metadata الغنية (كما اقترح النقد #2)
+        /// </summary>
+        private VectorDocument CreateVectorDocument(string id, string script, string type, string name)
+        {
+            return new VectorDocument
+            {
+                DocumentId = $"Schema_{type}_{id}",
+                TextContent = script,
+                IsDeleted = false,
+                Metadata = new Dictionary<string, string>
+                {
+                    { "source_type", "schema" },
+                    { "object_type", type }, // "Table" or "View"
+                    { "object_name", name },
+                    { "tenant_id", "ALL" } // (نفترض أن السكيما عامة)
+                    // (سنضيف المزيد من الـ Metadata لاحقاً مثل "RelatedTables")
+                }
+            };
         }
         /// <summary>
         /// دالة مساعدة لحساب الهاش
@@ -121,6 +137,12 @@ namespace SchemaGenerator.Services
             }
         }
 
-
     }
 }
+//// القائمة المركزية للاستثناءات
+//private readonly HashSet<string> _excludeList = new HashSet<string>
+//{
+//    "v_ai___EFMigrationsHistory",
+//    "v_ai_sysdiagrams",
+//    "v_ai_IntegrationSettings" 
+//};

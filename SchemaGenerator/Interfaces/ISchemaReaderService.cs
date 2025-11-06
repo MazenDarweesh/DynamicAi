@@ -1,20 +1,28 @@
 ﻿using SchemaGenerator.Models;
 
+
 namespace SchemaGenerator.Interfaces
 {
+    /// <summary>
+    /// مسؤول عن قراءة "السكيما" (Schema) من قاعدة البيانات (الجداول والـ Views)
+    /// باستخدام SMO (SQL Server Management Objects) وتحويلها إلى
+    /// مستندات VectorDocuments جاهزة للرفع.
+    /// </summary>
     public interface ISchemaReaderService
     {
-        Task<List<RawViewInfo>> GetRawSchemaAsync(string connectionString);
-
         /// <summary>
-        /// يجلب "بصمة" (Hash) التعريف لكل View، للمقارنة.
+        /// يستخرج الـ Scripts الخاصة بالجداول والـ Views المستهدفة من قاعدة البيانات.
+        /// يقوم بتطبيق "التقسيم الذكي" (Smart Chunking) للجداول الضخمة.
         /// </summary>
-        /// <returns>Dictionry<ViewName, SchemaHash></returns>
-        Task<Dictionary<string, string>> GetCurrentViewHashesAsync(string connectionString);
-
-        /// <summary>
-        /// يجلب التعريف النصي (CREATE VIEW...) لـ View معين لإرساله للـ AI.
-        /// </summary>
-        Task<string> GetViewDefinitionAsync(string connectionString, string viewName);
+        /// <param name="connectionString">Connection string للداتابيز</param>
+        /// <param name="dbName">اسم الداتابيز (مطلوب لـ SMO)</param>
+        /// <param name="targetViewNames">قائمة الـ Views المستهدفة (من محلل الـ ERP)</param>
+        /// <param name="targetTableNames">قائمة الجداول المستهدفة (من محلل الـ ERP)</param>
+        /// <returns>قائمة مستندات VectorDocument جاهزة للرفع.</returns>
+        Task<List<VectorDocument>> ExtractSchemasAsync(
+            string connectionString,
+            string dbName,
+            List<string> targetViewNames,
+            List<string> targetTableNames);
     }
 }

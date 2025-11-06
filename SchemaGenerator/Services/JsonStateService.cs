@@ -1,19 +1,14 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading;
-using System.Threading.Tasks;
 using SchemaGenerator.Interfaces;
 using SchemaGenerator.Models;
 
 namespace SchemaGenerator.Services
 {
     /// <summary>
-    /// هذه الخدمة مسؤولة عن قراءة وكتابة "حالة" عملية المعالجة.
-    /// تستخدم ملف JSON بسيط كـ "ذاكرة" لتتبع المهام المكتملة والمعلقة.
+    /// التنفيذ الفعلي لـ IStateService.
+    /// يستخدم ملف JSON واحد ومزامنة (Semaphore) لضمان أن
+    /// عمليات القراءة والكتابة للحالة (LSN/Hashes) آمنة (Thread-Safe).
     /// </summary>
     public class JsonStateService : IStateService
     {
@@ -34,56 +29,16 @@ namespace SchemaGenerator.Services
             };
         }
 
+        //Public_Methods
         /// <summary>
-        /// تحميل الحالة الحالية من الملف.
+        /// يقرأ ملف الحالة (JSON) من المسار المحدد ويحوله إلى كائن PipelineState.
         /// </summary>
-        public async Task<List<ProcessStateEntry>> LoadStateAsync(string stateFilePath)
-        {
-            // ننتظر حتى نتأكد أن لا أحد يكتب في الملف الآن
-            await _fileLock.WaitAsync();
-            try
-            {
-                if (!File.Exists(stateFilePath)) 
-                {
-                    return new List<ProcessStateEntry>();
-                }
-                string json = await File.ReadAllTextAsync(stateFilePath); 
-
-                if (string.IsNullOrWhiteSpace(json))
-                {
-                    return new List<ProcessStateEntry>();
-                }
-
-                var state = JsonSerializer.Deserialize<List<ProcessStateEntry>>(json, _jsonOptions);
-                return state ?? new List<ProcessStateEntry>();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[StateService-Error] فشل في قراءة ملف الحالة: {ex.Message}");
-                // في حالة فشل القراءة، نرجع قائمة فارغة كأننا نبدأ من جديد
-                return new List<ProcessStateEntry>();
-            }
-            finally
-            {
-                // هام جداً: تحرير القفل بعد الانتهاء
-                _fileLock.Release();
-            }
-        }
-
-        /// <summary>
-        /// حفظ القائمة الكاملة للحالة (تستخدم عند المقارنة والبدء).
-        /// </summary>
-        public async Task SaveStateAsync(string stateFilePath, List<ProcessStateEntry> currentState)
+        public async Task<PipelineState> LoadStateAsync(string stateFilePath)
         {
             await _fileLock.WaitAsync();
             try
             {
-                string json = JsonSerializer.Serialize(currentState, _jsonOptions);
-                await File.WriteAllTextAsync(stateFilePath, json); 
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[StateService-Error] فشل في حفظ ملف الحالة: {ex.Message}");
+                return await ReadStateAsync(stateFilePath);
             }
             finally
             {
@@ -92,53 +47,150 @@ namespace SchemaGenerator.Services
         }
 
         /// <summary>
-        /// (أهم دالة) - تعديل "سطر واحد" في الحالة وحفظ الملف فوراً.
-        /// هذا ما يحقق الحفظ "أول بأول".
+        /// يحفظ كائن الحالة (PipelineState) بالكامل في ملف الـ JSON.
         /// </summary>
-        public async Task UpdateEntryAsync(string stateFilePath, string viewName, Action<ProcessStateEntry> updateAction)
+        public async Task SaveStateAsync(string stateFilePath, PipelineState currentState)
         {
             await _fileLock.WaitAsync();
             try
             {
-                // ... (نقرأ الملف) ...
-                List<ProcessStateEntry> currentState;
-                if (!File.Exists(stateFilePath)) 
-                {
-                    currentState = new List<ProcessStateEntry>();
-                }
-                else
-                {
-                    string jsonRead = await File.ReadAllTextAsync(stateFilePath);
-                    currentState = string.IsNullOrWhiteSpace(jsonRead)
-                        ? new List<ProcessStateEntry>()
-                        : JsonSerializer.Deserialize<List<ProcessStateEntry>>(jsonRead, _jsonOptions) ?? new List<ProcessStateEntry>();
-                }
-
-                // 2. نجد السطر ونطبق التعديل
-                var entry = currentState.FirstOrDefault(e => e.ViewName == viewName);
-                if (entry != null)
-                {
-                    updateAction(entry); // (مثال: e.Status = ProcessStatus.InProgress)
-                }
-                else
-                {
-                    Console.WriteLine($"[StateService-Warning] لم يتم إيجاد {viewName} في ملف الحالة لتحديثه.");
-                    // لو مش موجود، ممكن نضيفه (حسب اللوجيك، لكن الأفضل يكون موجود من الأول)
-                }
-
-                // 3. نرجع نكتب الملف بالكامل
-                string jsonWrite = JsonSerializer.Serialize(currentState, _jsonOptions);
-                await File.WriteAllTextAsync(stateFilePath, jsonWrite);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[StateService-Error] فشل في تحديث ملف الحالة لـ {viewName}: {ex.Message}");
+                await WriteStateAsync(stateFilePath, currentState);
             }
             finally
             {
-                // هام جداً: تحرير القفل دائماً، سواء نجحنا أو فشلنا
                 _fileLock.Release();
             }
+        }
+
+        /// <summary>
+        /// دالة مساعدة (Helper) لجلب آخر LSN مسجل لجدول معين.
+        /// </summary>
+        public async Task<string> GetLastLsnForTable(string stateFilePath, string tableName)
+        {
+            var state = await LoadStateAsync(stateFilePath);
+            state.DataLastLsn.TryGetValue(tableName, out var lsn);
+            return lsn; // (سيرجع null إذا لم يوجد)
+        }
+
+        /// <summary>
+        /// دالة مساعدة (Helper) لتحديث أو إضافة الـ LSN لجدول معين.
+        /// </summary>
+        public async Task SetLastLsnForTable(string stateFilePath, string tableName, string lsn)
+        {
+            await _fileLock.WaitAsync();
+            try
+            {
+                var state = await ReadStateAsync(stateFilePath);
+                state.DataLastLsn[tableName] = lsn; // (تحديث أو إضافة)
+                await WriteStateAsync(stateFilePath, state);
+            }
+            finally
+            {
+                _fileLock.Release();
+            }
+        }
+       
+        /// <summary>
+        /// دالة مساعدة (Helper) لجلب آخر Hash مسجل لمستند سكيما معين.
+        /// </summary>
+        public async Task<string> GetLastHashForSchema(string stateFilePath, string schemaId)
+        {
+            var state = await LoadStateAsync(stateFilePath);
+            state.SchemaHashes.TryGetValue(schemaId, out var hash);
+            return hash;
+        }
+
+        /// <summary>
+        /// دالة مساعدة (Helper) لتحديث أو إضافة الـ Hash لمستند سكيما معين.
+        /// </summary>
+        public async Task SetLastHashForSchema(string stateFilePath, string schemaId, string hash)
+        {
+            await _fileLock.WaitAsync();
+            try
+            {
+                var state = await ReadStateAsync(stateFilePath);
+                state.SchemaHashes[schemaId] = hash; // (تحديث أو إضافة)
+                await WriteStateAsync(stateFilePath, state);
+            }
+            finally
+            {
+                _fileLock.Release();
+            }
+        }
+
+        //#private_Methods
+        /// <summary>
+        /// (خاص) يقرأ الملف. يجب استدعاؤه فقط من داخل _fileLock.
+        /// </summary>
+        private async Task<PipelineState> ReadStateAsync(string stateFilePath)
+        {
+            if (!File.Exists(stateFilePath))
+            {
+                return new PipelineState(); // (إرجاع حالة جديدة فارغة)
+            }
+            string json = await File.ReadAllTextAsync(stateFilePath);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return new PipelineState();
+            }
+            return JsonSerializer.Deserialize<PipelineState>(json, _jsonOptions) ?? new PipelineState();
+        }
+        /// <summary>
+        /// (خاص) يكتب الملف. يجب استدعاؤه فقط من داخل _fileLock.
+        /// </summary>
+        private async Task WriteStateAsync(string stateFilePath, PipelineState state)
+        {
+            string json = JsonSerializer.Serialize(state, _jsonOptions);
+            await File.WriteAllTextAsync(stateFilePath, json);
         }
     }
 }
+//## 1. شرح SemaphoreSlim _fileLock (في JsonStateService)
+//هذه هي النقطة الأهم لضمان "سلامة البيانات" (Data Integrity).
+
+//❓ ما هو؟
+//private static readonly SemaphoreSlim _fileLock = new SemaphoreSlim(1, 1);
+
+//SemaphoreSlim: فكر فيه كـ "حارس بوابة" أو "إشارة مرور" (Traffic Light) في البرمجة.
+
+//(1, 1): هذه الأرقام تعني: "أنا إشارة مرور تسمح لـ سيارة واحدة فقط بالعبور في المرة الواحدة."
+
+//❓ لماذا نحتاجه؟ (المشكلة)
+//خدمة JsonStateService مسؤولة عن القراءة والكتابة في ملف واحد فقط على القرص الصلب (process_state.json).
+
+//تخيل هذا السيناريو (بدون _fileLock):
+
+//في الثانية 10: "العملية أ"(الخاصة بجدول ListSetups) تبدأ في قراءة ملف process_state.json.
+
+//في الثانية 10.1: "العملية ب"(الخاصة بجدول Pages) تبدأ في كتابة LSN جديد في نفس الملف (process_state.json).
+
+//النتيجة (كارثة): "العملية أ" ستقرأ بيانات "تالفة" أو "قديمة" (Race Condition)، أو سيفشل أحد الأمرين لأن "الملف قيد الاستخدام" (File in Use).
+
+//❓ كيف يحل المشكلة؟
+//_fileLock يفرض "طابوراً" (Queue) منظماً:
+
+//"العملية أ" تصل:
+
+//تستدعي await _fileLock.WaitAsync();.
+
+//"إشارة المرور" خضراء.تدخل "العملية أ" وتجعل الإشارة "حمراء".
+
+//"العملية ب" تصل:
+
+//تستدعي await _fileLock.WaitAsync();
+
+//"إشارة المرور" حمراء.تنتظر "العملية ب" في الطابور.
+
+//"العملية أ" تنتهي:
+
+//تستدعي _fileLock.Release();.
+
+//"إشارة المرور" تصبح خضراء.
+
+//"العملية ب" تدخل:
+
+//تستدعي await _fileLock.WaitAsync();
+
+//"إشارة المرور" خضراء.تدخل "العملية ب" وتجعل الإشارة "حمراء".
+
+//باختصار: _fileLock هو "حارس" يضمن أن مهمة واحدة فقط (One Task) هي التي تلمس ملف process_state.json في أي لحظة، مما يمنع تلف البيانات تماماً.

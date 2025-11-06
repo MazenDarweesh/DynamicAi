@@ -1,6 +1,54 @@
-﻿public interface IStateService
+﻿using SchemaGenerator.Models;
+
+namespace SchemaGenerator.Interfaces
 {
-    Task<List<ProcessStateEntry>> LoadStateAsync(string stateFilePath);
-    Task SaveStateAsync(string stateFilePath, List<ProcessStateEntry> currentState);
-    Task UpdateEntryAsync(string stateFilePath, string viewName, Action<ProcessStateEntry> updateAction);
+    /// <summary>
+    /// الواجهة الخاصة بـ "الذاكرة" (State) لخط الأنابيب.
+    /// مسؤولة عن قراءة وكتابة آخر حالة (LSN و Hashes) من/إلى ملف JSON
+    /// لضمان عدم تكرار العمل (Incremental Updates).
+    /// </summary>
+    public interface IStateService
+    {
+        /// <summary>
+        /// يقرأ ملف الحالة (JSON) من المسار المحدد ويحوله إلى كائن PipelineState.
+        /// </summary>
+        /// <param name="stateFilePath">المسار الكامل لملف process_state.json</param>
+        /// <returns>كائن الحالة (PipelineState). سيرجع كائن جديد فارغ إذا لم يكن الملف موجوداً.</returns>
+        Task<PipelineState> LoadStateAsync(string stateFilePath);
+
+        /// <summary>
+        /// يحفظ كائن الحالة (PipelineState) بالكامل في ملف الـ JSON.
+        /// </summary>
+        /// <param name="stateFilePath">المسار الكامل للملف</param>
+        /// <param name="currentState">كائن الحالة المراد حفظه</param>
+        Task SaveStateAsync(string stateFilePath, PipelineState currentState);
+
+        /// <summary>
+        /// دالة مساعدة (Helper) لجلب آخر LSN مسجل لجدول معين.
+        /// </summary>
+        /// <param name="stateFilePath">المسار الكامل للملف</param>
+        /// <param name="tableName">اسم الجدول (e.g., "ListSetups")</param>
+        /// <returns>الـ LSN الأخير كنص، أو null إذا لم يوجد.</returns>
+        Task<string> GetLastLsnForTable(string stateFilePath, string tableName);
+
+        /// <summary>
+        /// دالة مساعدة (Helper) لتحديث أو إضافة الـ LSN لجدول معين.
+        /// (هذه الدالة آمنة للاستخدام المتزامن - Thread-Safe).
+        /// </summary>
+        Task SetLastLsnForTable(string stateFilePath, string tableName, string lsn);
+
+        /// <summary>
+        /// دالة مساعدة (Helper) لجلب آخر Hash مسجل لمستند سكيما معين.
+        /// </summary>
+        /// <param name="stateFilePath">المسار الكامل للملف</param>
+        /// <param name="schemaId">المعرف الفريد للمستند (e.g., "Table_Contract_Chunk_1")</param>
+        /// <returns>الـ Hash الأخير، أو null إذا لم يوجد.</returns>
+        Task<string> GetLastHashForSchema(string stateFilePath, string schemaId);
+
+        /// <summary>
+        /// دالة مساعدة (Helper) لتحديث أو إضافة الـ Hash لمستند سكيما معين.
+        /// (هذه الدالة آمنة للاستخدام المتزامن - Thread-Safe).
+        /// </summary>
+        Task SetLastHashForSchema(string stateFilePath, string schemaId, string hash);
+    }
 }
