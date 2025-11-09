@@ -139,10 +139,28 @@ namespace SchemaGenerator.Services
 
     }
 }
-//// القائمة المركزية للاستثناءات
-//private readonly HashSet<string> _excludeList = new HashSet<string>
-//{
-//    "v_ai___EFMigrationsHistory",
-//    "v_ai_sysdiagrams",
-//    "v_ai_IntegrationSettings" 
-//};
+/*
+* ==========================================================================================
+* SERVICE SUMMARY (With Examples)
+* ==========================================================================================
+* Input (Example):  dbName = "QualityControl"
+* targetViewNames = ["ContractViewWithPaid", "salessystemcontract"]
+* targetTableNames = ["Contract", "SystemsContract"] (Discovered by ErpMetadataService)
+*
+* Output (Example): A Task<List<VectorDocument>> containing:
+* [
+* { DocumentId: "Schema_View_ContractViewWithPaid", 
+* TextContent: "CREATE VIEW [ContractViewWithPaid] AS SELECT ...",
+* Metadata: {"source_type":"schema", "object_type":"View", ...} },
+* { DocumentId: "Schema_Table_Contract_Chunk_1_Financial", 
+* TextContent: "CREATE TABLE [Contract]( [ContractAmountwTax] float, [Tax] float ... )",
+* Metadata: {"source_type":"schema", "object_type":"Table_Chunk", ...} }
+* ]
+*
+* Called By:        SchemaOrchestrator.cs
+*
+* Benefit:          This service uses SMO to get full, accurate CREATE scripts (with keys/indexes)
+* and applies the "Smart Chunking" strategy (as discussed in the critique) 
+* to large tables like "Contract", providing semantically rich documents 
+* for the AI.
+*/

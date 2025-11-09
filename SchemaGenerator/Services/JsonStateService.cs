@@ -145,6 +145,30 @@ namespace SchemaGenerator.Services
         }
     }
 }
+
+/*
+* ==========================================================================================
+* SERVICE SUMMARY (With Examples)
+* ==========================================================================================
+* Input (Example):  Method: SetLastLsnForTable
+* Inputs: stateFilePath = "Infrastructure/process_state.json"
+* tableName = "ListSetups"
+* lsn = "0x000123...ABC"
+*
+* Output (Example): Method: GetLastLsnForTable
+* Inputs: stateFilePath = "Infrastructure/process_state.json"
+* tableName = "ListSetups"
+* Output: A Task<string> containing "0x000123...ABC"
+*
+* Called By:        SchemaOrchestrator.cs (to read/write Schema Hashes)
+* ErpDataExtractorService.cs (to read/write CDC LSNs)
+*
+* Benefit:          This is the "memory" of the pipeline. It ensures that when the
+* pipeline runs tomorrow, it knows exactly where it left off 
+* (e.g., "I already processed ListSetups up to LSN 0x000123...ABC").
+*/
+
+
 //## 1. شرح SemaphoreSlim _fileLock (في JsonStateService)
 //هذه هي النقطة الأهم لضمان "سلامة البيانات" (Data Integrity).
 
