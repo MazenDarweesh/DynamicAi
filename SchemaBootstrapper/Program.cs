@@ -7,10 +7,10 @@ using Microsoft.SemanticKernel.Connectors.Google;
 using Microsoft.SemanticKernel;
 using Polly;
 using System.Net;
-using Microsoft.Extensions.Http; // (مطلوب لـ AddPolicyHandler)
+using Microsoft.Extensions.Http;
 using Microsoft.SemanticKernel.ChatCompletion;
-using Microsoft.SemanticKernel.Embeddings; // (جديد - لخدمة التضمين)
-using Qdrant.Client; // (جديد - لـ Qdrant)
+using Microsoft.SemanticKernel.Embeddings;
+using Qdrant.Client;
 using Microsoft.Extensions.AI;
 
 // 1. بناء الـ Host (لقراءة الإعدادات و DI)
@@ -23,36 +23,44 @@ builder.ConfigureServices((context, services) =>
     services.AddKernel();
 
     // --- 2. تسجيل خدماتنا الجديدة (الهيكل) ---
-    // (سننشئ الـ Implementation لاحقاً)
     services.AddTransient<ISchemaOrchestrator, SchemaOrchestrator>();
-    services.AddTransient<IStateService, JsonStateService>(); // (موجودة، سنعدلها)
-    services.AddTransient<ISchemaReaderService, SchemaReaderService>(); // (موجودة، سنعدلها)
+    services.AddTransient<IStateService, JsonStateService>();
+    services.AddTransient<ISchemaReaderService, SchemaReaderService>();
 
     // (خدمات جديدة بالكامل)
-    //services.AddTransient<IErpMetadataService, ErpMetadataService>();
-    //services.AddTransient<IChangeTrackingStrategy, CdcChangeStrategy>(); // (استخدام CDC مباشرة)
-    //services.AddTransient<IErpDataExtractorService, ErpDataExtractorService>();
-    //services.AddTransient<IVectorDbService, QdrantVectorDbService>();// --- (ج) تسجيل Gemini يدوياً مع HttpClientFactory و Polly ---
+    services.AddTransient<IErpMetadataService, ErpMetadataService>();
+    services.AddTransient<IChangeTrackingStrategy, CdcChangeStrategy>();
+    services.AddTransient<IErpDataExtractorService, ErpDataExtractorService>();
+    services.AddTransient<IVectorDbService, QdrantVectorDbService>();
 
     // --- 3. تسجيل أدوات (Tools) ---
-
-    // --- (ج) تسجيل أدوات (Tools) ---
 
     // 1. تسجيل عميل Qdrant
     var qdrantHost = context.Configuration["Qdrant:Host"]!;
     services.AddSingleton(new QdrantClient(qdrantHost));
 
-    // 2. تسجيل خدمة التضمين (Embedding) (باستخدام الواجهة الجديدة)
+    // استخلاص إعدادات Gemini
     string googleApiKey = context.Configuration["Gemini:ApiKey"]!;
+    string embeddingModel = context.Configuration["Gemini:EmbeddingModel"]!;
+    string chatModel = context.Configuration["Gemini:ChatModel"]!;
 
-    // (تحذير تجريبي - كما ذكرت في التوثيق)
-    services.AddKernel()
-        .AddGoogleAIEmbeddingGeneration(
-            modelId: "gemini-embedding-001", // أو "embedding-001"
-            apiKey: googleApiKey
+    // 2. تسجيل خدمة التضمين (Embedding) باستخدام Semantic Kernel ثم تحويلها لـ IEmbeddingGenerator
+    services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
+    {
+        var httpClient = new HttpClient();
+        
+        // استخدام GoogleAITextEmbeddingGenerationService من Semantic Kernel
+        var embeddingService = new GoogleAITextEmbeddingGenerationService(
+            modelId: embeddingModel,
+            apiKey: googleApiKey,
+            httpClient: httpClient
         );
-    // 3. تسجيل خدمة المحادثة (Chat) (للمشروع الآخر - إذا احتجناه لاحقاً)
-    // (هذا الكود جاهز ومعه Polly، لكن Orchestrator لن يستخدمه حالياً)
+        
+        // تحويلها إلى IEmbeddingGenerator باستخدام الامتداد AsEmbeddingGenerator
+        return embeddingService.AsEmbeddingGenerator();
+    });
+
+    // 3. تسجيل خدمة المحادثة (Chat) مع Polly
     IAsyncPolicy<HttpResponseMessage> retryPolicy = Policy
         .HandleResult<HttpResponseMessage>(r => r.StatusCode == HttpStatusCode.ServiceUnavailable)
         .Or<HttpRequestException>()
@@ -75,13 +83,11 @@ builder.ConfigureServices((context, services) =>
         var httpClient = clientFactory.CreateClient("GeminiChatClient");
 
         return new GoogleAIGeminiChatCompletionService(
-            modelId: "gemini-2.5-pro", // (موديل المحادثة)
+            modelId: chatModel,
             apiKey: googleApiKey,
             httpClient: httpClient
         );
     });
-
-    // (ملاحظة: تم حذف تسجيل IChatCompletionService و Polly لأنهما كانا للخدمة الملغاة)
 });
 
 var host = builder.Build();

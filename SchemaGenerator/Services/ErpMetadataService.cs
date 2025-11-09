@@ -39,7 +39,7 @@ namespace SchemaGenerator.Services
                     pa.ListName AS MasterListName, 
                     pa.TableName AS MasterViewName, 
                     pa.TailCondition AS MasterTailCondition,
-                    pa.Primary AS MasterPrimaryKey,
+                    pa.[Primary] AS MasterPrimaryKey,
 
                     pd.DetailId, 
                     pd.ListName AS DetailListName, 
@@ -49,9 +49,9 @@ namespace SchemaGenerator.Services
                 FROM 
                     pages p
                 LEFT JOIN 
-                    MenuMaster mm ON p.menuID = mm.MID
+                    MenuMaster mm ON p.MasterID = mm.MID
                 LEFT JOIN 
-                    Modul m ON mm.ModulID = m.MID
+                    Modul m ON p.ModulID = m.MID
                 LEFT JOIN 
                     PageAttribute pa ON p.PageID = pa.PageId
                 LEFT JOIN 

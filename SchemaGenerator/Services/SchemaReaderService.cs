@@ -4,8 +4,10 @@ using Microsoft.SqlServer.Management.Common;
 using Microsoft.SqlServer.Management.Smo;
 using SchemaGenerator.Interfaces;
 using SchemaGenerator.Models;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.SqlServer.TransactSql.ScriptDom;
 
 namespace SchemaGenerator.Services
 {
@@ -36,6 +38,8 @@ namespace SchemaGenerator.Services
             ServerConnection serverConnection = new ServerConnection(sqlConnection);
             Server server = new Server(serverConnection);
             Database db = server.Databases[dbName];
+            // (جديد) قائمة لتجميع الجداول المكتشفة
+            var discoveredTableNames = new HashSet<string>(targetTableNames);
 
             // إعدادات استخراج الـ Script (كما اتفقنا في النقد)
             ScriptingOptions options = new ScriptingOptions
@@ -64,11 +68,19 @@ namespace SchemaGenerator.Services
                     /// </summary>
                     string script = string.Join("\n", view.Script(options).Cast<string>());
                     documents.Add(CreateVectorDocument(viewName, script, "View", view.Name));
+
+                    // 2. (جديد) تفكيك الـ View Script لاكتشاف الجداول
+                    List<string> tablesInThisView = ParseTablesFromViewScript(script);
+                    foreach (var table in tablesInThisView)
+                    {
+                        discoveredTableNames.Add(table); // (إضافة الجداول المكتشفة)
+                    }
+
                 }
             }
 
             // 2. استخراج الجداول المستهدفة
-            foreach (var tableName in targetTableNames.Distinct())
+            foreach (var tableName in discoveredTableNames.Distinct())
             {
                 if (db.Tables.Contains(tableName))
                 {
@@ -117,6 +129,49 @@ namespace SchemaGenerator.Services
                 }
             };
         }
+
+        /// <summary>
+        /// (جديد) يحلل نص الـ View لاستخراج الجداول المرجعية باستخدام ScriptDom.
+        /// </summary>
+        private List<string> ParseTablesFromViewScript(string script)
+        {
+            TSqlParser parser = new TSql160Parser(false);
+            using (var reader = new StringReader(script))
+            {
+                IList<ParseError> parseErrors;
+                TSqlFragment fragment = parser.Parse(reader, out parseErrors);
+
+                if (fragment == null || (parseErrors != null && parseErrors.Count > 0))
+                {
+                    // في حالة فشل التحليل، أرجع قائمة فارغة.
+                    // يمكن تسجيل الأخطاء هنا للمساعدة في التصحيح.
+                    return new List<string>();
+                }
+
+                TableVisitor visitor = new TableVisitor();
+                fragment.Accept(visitor);
+
+                return visitor.TableNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            }
+        }
+
+        /// <summary>
+        /// كلاس مساعد (Visitor) يتجول في شجرة بناء الجملة (AST)
+        /// ويقوم بتجميع أسماء الجداول.
+        /// </summary>
+        private class TableVisitor : TSqlFragmentVisitor
+        {
+            public List<string> TableNames { get; } = new List<string>();
+
+            public override void ExplicitVisit(NamedTableReference node)
+            {
+                if (node.SchemaObject?.BaseIdentifier?.Value != null)
+                {
+                    TableNames.Add(node.SchemaObject.BaseIdentifier.Value);
+                }
+            }
+        }
+
         /// <summary>
         /// دالة مساعدة لحساب الهاش
         /// </summary>

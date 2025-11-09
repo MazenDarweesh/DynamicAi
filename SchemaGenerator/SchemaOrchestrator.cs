@@ -1,254 +1,202 @@
 ﻿using Microsoft.Extensions.Configuration;
 using SchemaGenerator.Interfaces;
 using SchemaGenerator.Models;
+using System.Security.Cryptography; // (مطلوب لحساب الهاش)
+using System.Text;                  // (مطلوب لحساب الهاش)
 
 namespace SchemaGenerator
 {
+    /// <summary>
+    /// "العقل المدبر" (The Orchestrator) لخط أنابيب تلقيم المعرفة (Ingestion Pipeline).
+    /// هذا الكلاس مسؤول عن تنسيق جميع الخدمات:
+    /// 1. يقرأ سياق الـ ERP (من IErpMetadataService).
+    /// 2. يستخرج السكيما (من ISchemaReaderService).
+    /// 3. يستخرج تغييرات البيانات (من IErpDataExtractorService).
+    /// 4. يتتبع الحالة (عبر IStateService).
+    /// 5. يرفع النتائج إلى (IVectorDbService).
+    /// </summary>
     public class SchemaOrchestrator : ISchemaOrchestrator
     {
-        // --- (1) إضافة خدمة الحالة (الذاكرة) ---
+        // --- الخدمات الخمس المعتمدة ---
         private readonly IStateService _stateService;
-        private readonly ISchemaReaderService _reader;
-        private readonly IConfiguration _config;
+        private readonly IErpMetadataService _metadataService;
+        private readonly ISchemaReaderService _schemaReaderService;
+        private readonly IErpDataExtractorService _dataExtractorService;
+        private readonly IVectorDbService _vectorDbService;
 
-        // --- (2) تعريف الثوابت ---
+        // --- الإعدادات (من ملف appsettings.json والبيانات التي أدخلتها) ---
         private readonly string _connectionString;
-        private string _outputFilePath; // (سيتم تحديده بناءً على اختيار المستخدم)
-        private string _stateFilePath; // <-- (جديد) مسار ملف الحالة
-        private const string RESULTS_FILE_NAME = "schema-mapping-pos.json";
-        private const string STATE_FILE_NAME = "process_state.json";
-        private const int RATE_LIMIT_SECONDS = 30; // 2 طلب في الدقيقة
+        private readonly string _dbName = "QualityControl"; // (اسم الداتابيز الذي حددته)
+        private readonly string _collectionName = "erp_knowledge_base"; // (اسم الـ Collection الذي حددته)
+        private readonly string _stateFilePath;
+
+        /// <summary>
+        /// (هام) قائمة الـ 6 Page IDs المستهدفة للـ MVP
+        /// (بناءً على البيانات التي أرسلتها)
+        /// </summary>
+        private readonly List<int> _targetPageIds = new List<int>
+        {
+            244,  // (SalestView)
+            7912, // (SupplyOrderDetailReport)
+            330,  // (SalesDetailReport)
+            332,  // (SalesProfitDetailReport)
+            333,  // (SalesProfitReport)
+            336   // (SalesMonth)
+        };
 
         public SchemaOrchestrator(
-            ISchemaReaderService reader,
-            IConfiguration config,
-            IStateService stateService) // <-- حقن الاعتمادية الجديدة
+            IStateService stateService,
+            IErpMetadataService metadataService,
+            ISchemaReaderService schemaReaderService,
+            IErpDataExtractorService dataExtractorService,
+            IVectorDbService vectorDbService,
+            IConfiguration config)
         {
-            _reader = reader;
-            _config = config;
-            _stateService = stateService; // <-- حفظها
-            _connectionString = _config.GetConnectionString("PosSchemaReaderConnection");
+            _stateService = stateService;
+            _metadataService = metadataService;
+            _schemaReaderService = schemaReaderService;
+            _dataExtractorService = dataExtractorService;
+            _vectorDbService = vectorDbService;
+
+            _connectionString = config.GetConnectionString("DefaultConnection"); // (تأكد من أن هذا هو اسم الـ ConnectionString في appsettings.json)
+            _stateFilePath = "Infrastructure/process_state.json"; // (المسار الثابت للذاكرة)
         }
 
         /// <summary>
-        /// (الكود الخاص بك: للتحقق من المسار. ممتاز!)
+        /// الدالة الرئيسية التي تشغل الـ Pipeline بالكامل.
         /// </summary>
-        private (bool IsValid, string AbsolutePath) ValidateOutputPath(string targetPath)
+        public async Task GenerateSchemaAsync()
         {
+            Console.WriteLine("--- [Day 5] Knowledge Base Ingestion Pipeline: STARTED ---");
+
+            // (نحتاج دالة الهاش هنا لمقارنة السكيما)
+            var hasher = MD5.Create();
+
             try
             {
-                var absolutePath = Path.GetFullPath(targetPath);
-                var directoryPath = Path.GetDirectoryName(absolutePath);
+                // === [Phase 1: Build Context Map] ===
+                // (استدعاء خدمة اليوم 3 - المهمة 1)
+                Console.WriteLine("[Phase 1] Building ERP Context Map from 6 Target Pages...");
+                var contextMap = await _metadataService.BuildContextMapAsync(_connectionString, _dbName, _targetPageIds);
+                Console.WriteLine($"[Phase 1] Context Map built. Found {contextMap.Count} relevant Views.");
 
-                if (!Directory.Exists(directoryPath))
+                // === [Phase 2: Extract Target Lists] ===
+                // (تجميع كل الـ Views والجداول والـ ListNames التي نحتاجها)
+                var allContexts = contextMap.Values.Distinct();
+                var targetViewNames = allContexts.Select(c => c.ViewName)
+                    .Concat(allContexts.SelectMany(c => c.DetailContexts.Select(d => d.ViewName)))
+                    .Where(name => !string.IsNullOrEmpty(name))
+                    .Distinct().ToList();
+
+                // (مؤقتاً، سنفترض أن الجداول المطلوب تتبعها بـ CDC هي الجداول الـ 6 الأساسية)
+                var targetMetadataTables = new List<string> { "Pages", "PageAttribute", "PageDetail", "Modul", "MenuMaster", "ListSetups" };
+
+                // (قائمة الجداول (Tables) سيتم اكتشافها في المرحلة 3)
+
+                // === [Phase 3: Process Schema (Tables & Views)] ===
+                // (استدعاء خدمة اليوم 2)
+                Console.WriteLine($"[Phase 3] Extracting Schema for {targetViewNames.Count} Views (using SMO)...");
+                // (ملاحظة: سنمرر قائمة فارغة للجداول الآن، لأن الخدمة ستكتشفها من الـ Views)
+                var schemaDocuments = await _schemaReaderService.ExtractSchemasAsync(_connectionString, _dbName, targetViewNames, new List<string>());
+                Console.WriteLine($"[Phase 3] Schema extraction complete. Found {schemaDocuments.Count} documents (after chunking).");
+
+                // === [Phase 4: Process Data (CDC)] ===
+                // (استدعاء خدمة اليوم 3 - المهمة 3)
+                Console.WriteLine($"[Phase 4] Extracting Data changes for 6 core tables (using CDC)...");
+                var dataDocuments = await _dataExtractorService.ExtractDataChangesAsync(_connectionString, _dbName, targetMetadataTables);
+                Console.WriteLine($"[Phase 4] Data extraction complete. Found {dataDocuments.Count} changed rows.");
+
+                // === [Phase 5: Check State (Hashing)] ===
+                // (نتحقق من "الذاكرة" (اليوم 2) لنرى ما هو الجديد/المتغير في السكيما)
+                Console.WriteLine("[Phase 5] Checking pipeline state for new/modified schemas...");
+                var documentsToUpload = new List<VectorDocument>();
+
+                foreach (var doc in schemaDocuments)
                 {
-                    Console.WriteLine($"Directory not found. Creating: {directoryPath}");
-                    Directory.CreateDirectory(directoryPath);
+                    string newHash = ComputeSHA256(hasher, doc.TextContent);
+                    string oldHash = await _stateService.GetLastHashForSchema(_stateFilePath, doc.DocumentId);
+
+                    if (newHash != oldHash)
+                    {
+                        documentsToUpload.Add(doc); // (جديد أو تغير)
+                        // (نسجل الهاش الجديد لاحقاً بعد التأكد من نجاح الرفع)
+                    }
+                }
+                Console.WriteLine($"[Phase 5] Found {documentsToUpload.Count} new/modified schema documents to upload.");
+
+                // (نضيف مستندات البيانات (CDC) للرفع - هي دائماً "جديدة" لأننا نقرأ التغييرات فقط)
+                documentsToUpload.AddRange(dataDocuments);
+
+                // === [Phase 6: Load to VectorDB] ===
+                // (استدعاء خدمة اليوم 4)
+                if (documentsToUpload.Any())
+                {
+                    Console.WriteLine($"[Phase 6] Starting upload of {documentsToUpload.Count} total documents to Qdrant...");
+                    await _vectorDbService.SyncBatchAsync(_collectionName, documentsToUpload);
+                    Console.WriteLine("[Phase 6] Upload complete.");
+
+                    // (الأهم) حفظ الهاشات الجديدة بعد نجاح الرفع
+                    foreach (var doc in documentsToUpload.Where(d => d.Metadata["source_type"] == "schema"))
+                    {
+                        string hash = ComputeSHA256(hasher, doc.TextContent);
+                        await _stateService.SetLastHashForSchema(_stateFilePath, doc.DocumentId, hash);
+                    }
+                    Console.WriteLine("[Phase 6] New schema hashes saved to state file.");
+                }
+                else
+                {
+                    Console.WriteLine("[Phase 6] No changes found. Pipeline is up-to-date.");
                 }
 
-                // (اختبار كتابة سريع)
-                var testFile = Path.Combine(directoryPath, $"_test_write_{Guid.NewGuid()}.tmp");
-                File.WriteAllText(testFile, "test");
-                File.Delete(testFile);
-
-                return (true, absolutePath);
+                Console.WriteLine("--- [Day 5] Knowledge Base Ingestion Pipeline: FINISHED SUCCESSFULLY ---");
             }
             catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("FATAL ERROR: Cannot write to output path.");
-                Console.WriteLine($"Path: {targetPath}");
+                Console.WriteLine($"--- [Day 5] KNOWLEDGE BASE PIPELINE: FAILED ---");
                 Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine($"StackTrace: {ex.StackTrace}");
                 Console.ResetColor();
-                return (false, null);
             }
         }
 
         /// <summary>
-        /// (جديد) دالة مساعدة لسؤال المستخدم
+        /// دالة مساعدة لحساب الهاش (للسكيما)
         /// </summary>
-        private string AskUser(string question, params string[] options)
+        private string ComputeSHA256(MD5 md5, string input)
         {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine(question);
-            for (int i = 0; i < options.Length; i++)
-            {
-                Console.WriteLine($"  {i + 1}. {options[i]}");
-            }
-            Console.ResetColor();
-
-            while (true)
-            {
-                Console.Write("Enter your choice (1, 2, ...): ");
-                string choice = Console.ReadLine();
-                if (int.TryParse(choice, out int index) && index > 0 && index <= options.Length)
-                {
-                    return options[index - 1];
-                }
-                Console.WriteLine("Invalid choice.");
-            }
-        }
-
-        // --- (3) التعديل الجوهري: اللوجيك الجديد بالكامل ---
-        public async Task GenerateSchemaAsync()
-        {
-            //Console.WriteLine("Starting Resilient Schema Generation...");
-
-            //// === المرحلة 1: الإعداد وفحص الحالة ===
-            //Console.WriteLine("[Phase 1] Loading state and checking schema hashes...");
-            //var currentState = await _stateService.LoadStateAsync(_stateFilePath); // <-- (مُعدل)
-            //var newHashes = await _reader.GetCurrentViewHashesAsync(_connectionString);
-
-            //string initialAction = "Start from scratch";
-            //if (currentState.Any(e => e.Status == ProcessStatus.Completed || e.Status == ProcessStatus.Failed))
-            //{
-            //    initialAction = AskUser(
-            //        "Found previous work state.",
-            //        "Continue (process pending/failed tasks)",
-            //        "Start from scratch (clear all history)"
-            //    );
-            //}
-
-            //// === المرحلة 2: تحديد مسار الإخراج ===
-            //string outputPath = "../../../../Infrastructure/"; // (المسار الأساسي)
-            //string resultsFileName = RESULTS_FILE_NAME;
-           
-
-            //if (initialAction == "Start from scratch")
-            //{
-            //    string fileAction = AskUser(
-            //        $"Output file '{RESULTS_FILE_NAME}' might exist.",
-            //        "Overwrite existing file",
-            //        "Create new version (e.g., schema-mapping-pos_v2.json)"
-            //    );
-
-            //    if (fileAction == "Create new version")
-            //    {
-            //        int version = 2;
-            //        while (File.Exists(Path.Combine(outputPath, resultsFileName)))
-            //        {
-            //            resultsFileName = $"{Path.GetFileNameWithoutExtension(RESULTS_FILE_NAME)}_v{version++}{Path.GetExtension(RESULTS_FILE_NAME)}";
-            //        }
-            //        Console.WriteLine($"New output file will be: {resultsFileName}");
-            //    }
-            //}
-
-            //_outputFilePath = Path.Combine(outputPath, resultsFileName);
-            //// --- (جديد) تحديد مسار ملف الحالة ---
-            //_stateFilePath = Path.Combine(outputPath, STATE_FILE_NAME);
-
-            //// --- (استخدام دالة التحقق الخاصة بك) ---
-            //var (isValid, absolutePath) = ValidateOutputPath(_outputFilePath);
-            //if (!isValid)
-            //{
-            //    Console.WriteLine("Execution stopped.");
-            //    return;
-            //}
-            //Console.WriteLine($"Output path validated: {absolutePath}");
-
-            //// === المرحلة 3: مقارنة الفروقات (Diff) ===
-            //Console.WriteLine("[Phase 3] Diffing schema changes...");
-            //int changesFound = 0;
-
-            //if (initialAction == "Start from scratch")
-            //{
-            //    await _writer.InitializeOutputFileAsync(_outputFilePath); // (دالة جديدة في الـ Writer لإنشاء/مسح الملف)
-            //    currentState = newHashes.Keys
-            //        .Select(viewName => new ProcessStateEntry { ViewName = viewName, Status = ProcessStatus.Pending })
-            //        .ToList();
-            //    changesFound = currentState.Count;
-            //}
-            //else
-            //{
-            //    foreach (var viewName in newHashes.Keys)
-            //    {
-            //        var entry = currentState.FirstOrDefault(e => e.ViewName == viewName);
-            //        var newHash = newHashes[viewName];
-
-            //        if (entry == null) // View جديد
-            //        {
-            //            currentState.Add(new ProcessStateEntry { ViewName = viewName, Status = ProcessStatus.Pending, SchemaHash = null });
-            //            changesFound++;
-            //        }
-            //        else if (entry.Status == ProcessStatus.Completed && entry.SchemaHash != newHash)
-            //        {
-            //            // الـ View اتغير!
-            //            entry.Status = ProcessStatus.Pending; // إعادة جدولته
-            //            entry.LastError = "Schema changed.";
-            //            changesFound++;
-            //        }
-            //    }
-            //}
-
-            //Console.WriteLine($"Found {changesFound} new or modified views to process.");
-            //await _stateService.SaveStateAsync(_stateFilePath, currentState); // <-- (مُعدل)
-            //// === المرحلة 4: المعالجة (The Processing Loop) ===
-            //var tasksToProcess = currentState
-            //    .Where(e => e.Status == ProcessStatus.Pending || e.Status == ProcessStatus.Failed)
-            //    .ToList();
-
-            //Console.WriteLine($"[Phase 4] Ready to process {tasksToProcess.Count} tasks.");
-            //Console.WriteLine($"Rate limit set: 1 request per {RATE_LIMIT_SECONDS} seconds.");
-
-            //for (int i = 0; i < tasksToProcess.Count; i++)
-            //{
-            //    var task = tasksToProcess[i];
-            //    Console.WriteLine("\n---------------------------------");
-            //    Console.WriteLine($"Processing task {i + 1} of {tasksToProcess.Count}: [{task.ViewName}]");
-
-            //    try
-            //    {
-            //        // (أ) تطبيق التحكم في السرعة (Rate Limiter)
-            //        Console.WriteLine($"[RateLimiter] Waiting {RATE_LIMIT_SECONDS} seconds...");
-            //        await Task.Delay(TimeSpan.FromSeconds(RATE_LIMIT_SECONDS));
-
-            //        // (ب) تأمين المهمة
-            //        await _stateService.UpdateEntryAsync(_stateFilePath, task.ViewName, e => { // <-- (مُعدل)
-            //            e.Status = ProcessStatus.InProgress;
-            //            e.LastAttempt = DateTime.UtcNow;
-            //        });
-
-            //        // (ج) التنفيذ
-            //        Console.WriteLine($"[Enricher] Calling AI for {task.ViewName}...");
-
-            //        // (ملاحظة: نفترض أن GetViewDefinitionAsync موجودة في الـ Reader)
-            //        string viewDef = await _reader.GetViewDefinitionAsync(_connectionString, task.ViewName);
-
-            //        // (ملاحظة: نفترض أن EnrichViewAsync تم تعديلها لتأخذ viewDef)
-            //        var (viewName, entity) = await _enricher.EnrichViewAsync(viewDef, task.ViewName);
-
-            //        // (د) حفظ النتيجة (أول بأول)
-            //        // (ملاحظة: نفترض أن لديك دالة جديدة في الـ Writer)
-            //        await _writer.AppendOrUpdateResultAsync(_outputFilePath, viewName, entity);
-            //        Console.WriteLine($"[Writer] Result for {viewName} saved.");
-
-            //        // (هـ) تحديث الحالة للنجاح
-            //        await _stateService.UpdateEntryAsync(_stateFilePath, task.ViewName, e => { // <-- (مُعدل)
-            //            e.Status = ProcessStatus.Completed;
-            //            e.LastError = null;
-            //            e.SchemaHash = newHashes[task.ViewName]; // حفظ الهاش الجديد
-            //        });
-            //        Console.ForegroundColor = ConsoleColor.Green;
-            //        Console.WriteLine($"[State] SUCCESS: {task.ViewName}");
-            //        Console.ResetColor();
-            //    }
-            //    catch (Exception ex)
-            //    {
-            //        // (و) تحديث الحالة للفشل
-            //        Console.ForegroundColor = ConsoleColor.Red;
-            //        Console.WriteLine($"[State] FAILED: {task.ViewName} | Error: {ex.Message}");
-            //        Console.ResetColor();
-            //        await _stateService.UpdateEntryAsync(_stateFilePath, task.ViewName, e => { // <-- (مُعدل)
-            //            e.Status = ProcessStatus.Failed;
-            //            e.LastError = ex.Message;
-            //        });
-            //    }
-            //}
-
-            //Console.WriteLine("\n========================================================");
-            //Console.WriteLine("All tasks completed.");
-            //Console.WriteLine($"Final results file: {absolutePath}");
-            //Console.WriteLine("========================================================");
+            if (string.IsNullOrEmpty(input)) return string.Empty;
+            byte[] hash = md5.ComputeHash(Encoding.UTF8.GetBytes(input));
+            return Convert.ToHexString(hash);
         }
     }
 }
+/*
+* ==========================================================================================
+* SERVICE SUMMARY (With Examples)
+* ==========================================================================================
+* Input (Example):  Method: GenerateSchemaAsync()
+* Inputs (from config/code): 
+* _targetPageIds = [244, 7912, 330, 332, 333, 336]
+* _dbName = "QualityControl"
+* _collectionName = "erp_knowledge_base"
+* _stateFilePath = "Infrastructure/process_state.json"
+*
+* Output (Example): Task (Void).
+* (Side Effect 1): Calls IVectorDbService.SyncBatchAsync(...) with a 
+* List<VectorDocument> (e.g., 55 new/changed documents).
+* (Side Effect 2): Calls IStateService.SetLastLsnForTable(...) with 
+* ("ListSetups", "0x000456...DEF").
+* (Side Effect 3): Calls IStateService.SetLastHashForSchema(...) with 
+* ("Schema_Table_Contract_Chunk_1", "new_hash_999FFF").
+* (Side Effect 4): Logs pipeline progress (Phases 1-6) to the Console.
+*
+* Called By:        Program.cs (as the main entry point for the application).
+*
+* Benefit:          This is the "Master Conductor" or "Brain" of the entire pipeline.
+* It orchestrates all 5 core services (Metadata, Schema, Data, State, VectorDB)
+* in the correct 6-phase order. It implements the "Page-Driven" strategy,
+* checks for schema changes (by comparing Hashes from IStateService),
+* and ensures that *only* new or modified "facts" (Schema or Data)
+* are processed and loaded into the VectorDB.
+*/
