@@ -1,4 +1,5 @@
-﻿using SchemaGenerator.Interfaces;
+﻿using Dapper;
+using SchemaGenerator.Interfaces;
 using SchemaGenerator.Models;
 using System.Collections.Generic;
 using System.Text.Json;
@@ -15,45 +16,83 @@ namespace SchemaGenerator.Services
     {
         private readonly IChangeTrackingStrategy _trackingStrategy;
         private readonly IStateService _stateService;
-        private readonly string _stateFilePath; // (سنحصل عليه من Orchestrator لاحقاً)
+        // (جديد) سنحتاج Query بسيط للـ Initial Load
+        private readonly JsonSerializerOptions _jsonOptions;
 
         public ErpDataExtractorService(IChangeTrackingStrategy trackingStrategy, IStateService stateService)
         {
             _trackingStrategy = trackingStrategy;
             _stateService = stateService;
-            _stateFilePath = "Infrastructure/process_state.json"; // (تحديد المسار الثابت)
+            // (جديد) إعدادات لضمان تحويل الأعمدة بأسماء صحيحة
+            _jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         }
 
         /// <summary>
-        /// يستخرج التغييرات من قائمة جداول البيانات ويحولها إلى VectorDocuments.
+        /// (مُعدل) أصبح أذكى ليتعامل مع "التشغيل الأولي"
         /// </summary>
         public async Task<List<VectorDocument>> ExtractDataChangesAsync(
             string connectionString,
             string dbName,
-            IEnumerable<string> tableNames)
+            IEnumerable<string> tableNames,
+            string stateFilePath)
         {
             var allDocuments = new List<VectorDocument>();
+            await using var connection = new Microsoft.Data.SqlClient.SqlConnection(connectionString);
+            await connection.OpenAsync();
+            await connection.ChangeDatabaseAsync(dbName);
+
+            // (جديد) الحصول على الـ LSN "الحالي" *قبل* البدء
+            byte[] currentLsn = await connection.QuerySingleAsync<byte[]>("SELECT sys.fn_cdc_get_max_lsn()");
 
             foreach (var tableName in tableNames)
             {
-                // 1. جلب "آخر نقطة توقف" (LSN) من الذاكرة (اليوم 2)
-                string lastLsnString = await _stateService.GetLastLsnForTable(_stateFilePath, tableName);
-                byte[] lastLsnBytes = lastLsnString != null ?
-                    Convert.FromHexString(lastLsnString.Substring(2)) : // (تحويل "0xABC" إلى byte[])
-                    null;
+                string lastLsnString = await _stateService.GetLastLsnForTable(stateFilePath, tableName);
+                List<Dictionary<string, object>> changedRows;
 
-                // 2. استدعاء "محرك" الـ CDC (الذي بنيناه في المهمة 2)
-                var cdcResult = await _trackingStrategy.GetChangesAsync(connectionString, dbName, tableName, lastLsnBytes);
+                if (lastLsnString == null)
+                {
+                    // --- (1) منطق التشغيل الأولي (Initial Load) ---
+                    Console.WriteLine($"[DataExtractor] First run for '{tableName}'. Performing full table load (SELECT *)...");
 
-                // 3. تحويل (Transform) التغييرات إلى VectorDocuments
-                foreach (var row in cdcResult.Changes)
+                    // (أ) جلب كل البيانات
+                    var rows = await connection.QueryAsync($"SELECT * FROM dbo.[{tableName}]");
+
+                    // (ب) تحويلها
+                    changedRows = rows
+                        .Select(row => (IDictionary<string, object>)row)
+                        .Select(dict =>
+                        {
+                            // (نضيف علامة "إدخال" يدوياً)
+                            dict["__$operation"] = 2; // (2 = INSERT)
+                            return dict.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+                        })
+                        .Cast<Dictionary<string, object>>()
+                        .ToList();
+
+                    Console.WriteLine($"[DataExtractor] Found {changedRows.Count} initial rows in '{tableName}'.");
+                }
+                else
+                {
+                    // --- (2) منطق التحديث المستمر (Delta Update) ---
+                    byte[] lastLsnBytes = Convert.FromHexString(lastLsnString.Substring(2));
+
+                    // (استدعاء محرك CDC الذي بنيناه)
+                    var cdcResult = await _trackingStrategy.GetChangesAsync(connectionString, dbName, tableName, lastLsnBytes);
+
+                    // (ملاحظة: الـ currentLsn من cdcResult هو نفسه الذي حسبناه في الأعلى)
+                    changedRows = cdcResult.Changes;
+                }
+
+                // --- (3) التحويل (Transform) المشترك ---
+                foreach (var row in changedRows)
                 {
                     allDocuments.Add(TransformRowToDocument(row, tableName));
                 }
 
-                // 4. (الأهم) تحديث "الذاكرة" بآخر LSN وصلنا إليه
-                string newLsnString = "0x" + Convert.ToHexString(cdcResult.NewLsnBytes);
-                await _stateService.SetLastLsnForTable(_stateFilePath, tableName, newLsnString);
+                // --- (4) تحديث الذاكرة ---
+                // (سنقوم بتحديث الـ LSN في كلتا الحالتين لضمان أننا نبدأ من النقطة الصحيحة في المرة القادمة)
+                string newLsnString = "0x" + Convert.ToHexString(currentLsn);
+                await _stateService.SetLastLsnForTable(stateFilePath, tableName, newLsnString);
             }
 
             return allDocuments;

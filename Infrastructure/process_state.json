@@ -1,0 +1,17 @@
+{
+  "SchemaHashes": {
+    "Schema_View_ContractViewWithPaid": "259855D0A1848B302E61334F6BBAD143",
+    "Schema_View_salessystemcontract": "EE206CA7F00F64A013F85BF41619189F",
+    "Schema_View_SystemsContractStoreView": "E76C82DC5FED6AD096D072A9CFF60C77",
+    "Schema_View_ContarctReportwithoutresale": "A70B0D5590057844EA926D042ABEFA6E",
+    "Schema_View_SalesMonth": "EF70826D43638F20BD63141DAC1F3EE9"
+  },
+  "DataLastLsn": {
+    "Pages": "0x000002CF000016680001",
+    "PageAttribute": "0x000002CF000016680001",
+    "PageDetail": "0x000002CF000016680001",
+    "Modul": "0x000002CF000016680001",
+    "MenuMaster": "0x000002CF000016680001",
+    "ListSetups": "0x000002CF000016680001"
+  }
+}

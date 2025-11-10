@@ -1,8 +1,10 @@
 ﻿using Microsoft.Extensions.Configuration;
 using SchemaGenerator.Interfaces;
 using SchemaGenerator.Models;
-using System.Security.Cryptography; // (مطلوب لحساب الهاش)
-using System.Text;                  // (مطلوب لحساب الهاش)
+using SchemaGenerator.Models.Erp;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 
 namespace SchemaGenerator
 {
@@ -23,25 +25,15 @@ namespace SchemaGenerator
         private readonly ISchemaReaderService _schemaReaderService;
         private readonly IErpDataExtractorService _dataExtractorService;
         private readonly IVectorDbService _vectorDbService;
-
-        // --- الإعدادات (من ملف appsettings.json والبيانات التي أدخلتها) ---
         private readonly string _connectionString;
-        private readonly string _dbName = "QualityControl"; // (اسم الداتابيز الذي حددته)
-        private readonly string _collectionName = "erp_knowledge_base"; // (اسم الـ Collection الذي حددته)
+        private readonly string _dbName = "QualityControl";
+        private readonly string _collectionName = "erp_knowledge_base";
         private readonly string _stateFilePath;
+        private readonly string _checkpointFilePath;
 
-        /// <summary>
-        /// (هام) قائمة الـ 6 Page IDs المستهدفة للـ MVP
-        /// (بناءً على البيانات التي أرسلتها)
-        /// </summary>
         private readonly List<int> _targetPageIds = new List<int>
         {
-            244,  // (SalestView)
-            7912, // (SupplyOrderDetailReport)
-            330,  // (SalesDetailReport)
-            332,  // (SalesProfitDetailReport)
-            333,  // (SalesProfitReport)
-            336   // (SalesMonth)
+            244, 7912, 330, 332, 333, 336
         };
 
         public SchemaOrchestrator(
@@ -58,97 +50,182 @@ namespace SchemaGenerator
             _dataExtractorService = dataExtractorService;
             _vectorDbService = vectorDbService;
 
-            _connectionString = config.GetConnectionString("DefaultConnection"); // (تأكد من أن هذا هو اسم الـ ConnectionString في appsettings.json)
-            _stateFilePath = "Infrastructure/process_state.json"; // (المسار الثابت للذاكرة)
+            _connectionString = config.GetConnectionString("DefaultConnection")!;
+
+            string baseDirectory = AppContext.BaseDirectory;
+            string projectRoot = Path.GetFullPath(Path.Combine(baseDirectory, "../../../../"));
+            string infrastructurePath = Path.Combine(projectRoot, "Infrastructure");
+
+            if (!Directory.Exists(infrastructurePath))
+            {
+                Directory.CreateDirectory(infrastructurePath);
+            }
+
+            _stateFilePath = Path.Combine(infrastructurePath, "process_state.json");
+            _checkpointFilePath = Path.Combine(infrastructurePath, "pipeline_checkpoint.json");
         }
 
-        /// <summary>
-        /// الدالة الرئيسية التي تشغل الـ Pipeline بالكامل.
-        /// </summary>
         public async Task GenerateSchemaAsync()
         {
             Console.WriteLine("--- [Day 5] Knowledge Base Ingestion Pipeline: STARTED ---");
 
-            // (نحتاج دالة الهاش هنا لمقارنة السكيما)
             var hasher = MD5.Create();
+            PipelineCheckpoint? checkpoint = null;
 
             try
             {
-                // === [Phase 1: Build Context Map] ===
-                // (استدعاء خدمة اليوم 3 - المهمة 1)
-                Console.WriteLine("[Phase 1] Building ERP Context Map from 6 Target Pages...");
-                var contextMap = await _metadataService.BuildContextMapAsync(_connectionString, _dbName, _targetPageIds);
-                Console.WriteLine($"[Phase 1] Context Map built. Found {contextMap.Count} relevant Views.");
+                // محاولة استعادة نقطة التفتيش
+                checkpoint = await LoadCheckpointAsync();
 
-                // === [Phase 2: Extract Target Lists] ===
-                // (تجميع كل الـ Views والجداول والـ ListNames التي نحتاجها)
-                var allContexts = contextMap.Values.Distinct();
-                var targetViewNames = allContexts.Select(c => c.ViewName)
-                    .Concat(allContexts.SelectMany(c => c.DetailContexts.Select(d => d.ViewName)))
-                    .Where(name => !string.IsNullOrEmpty(name))
-                    .Distinct().ToList();
-
-                // (مؤقتاً، سنفترض أن الجداول المطلوب تتبعها بـ CDC هي الجداول الـ 6 الأساسية)
-                var targetMetadataTables = new List<string> { "Pages", "PageAttribute", "PageDetail", "Modul", "MenuMaster", "ListSetups" };
-
-                // (قائمة الجداول (Tables) سيتم اكتشافها في المرحلة 3)
-
-                // === [Phase 3: Process Schema (Tables & Views)] ===
-                // (استدعاء خدمة اليوم 2)
-                Console.WriteLine($"[Phase 3] Extracting Schema for {targetViewNames.Count} Views (using SMO)...");
-                // (ملاحظة: سنمرر قائمة فارغة للجداول الآن، لأن الخدمة ستكتشفها من الـ Views)
-                var schemaDocuments = await _schemaReaderService.ExtractSchemasAsync(_connectionString, _dbName, targetViewNames, new List<string>());
-                Console.WriteLine($"[Phase 3] Schema extraction complete. Found {schemaDocuments.Count} documents (after chunking).");
-
-                // === [Phase 4: Process Data (CDC)] ===
-                // (استدعاء خدمة اليوم 3 - المهمة 3)
-                Console.WriteLine($"[Phase 4] Extracting Data changes for 6 core tables (using CDC)...");
-                var dataDocuments = await _dataExtractorService.ExtractDataChangesAsync(_connectionString, _dbName, targetMetadataTables);
-                Console.WriteLine($"[Phase 4] Data extraction complete. Found {dataDocuments.Count} changed rows.");
-
-                // === [Phase 5: Check State (Hashing)] ===
-                // (نتحقق من "الذاكرة" (اليوم 2) لنرى ما هو الجديد/المتغير في السكيما)
-                Console.WriteLine("[Phase 5] Checking pipeline state for new/modified schemas...");
-                var documentsToUpload = new List<VectorDocument>();
-
-                foreach (var doc in schemaDocuments)
+                if (checkpoint != null)
                 {
-                    string newHash = ComputeSHA256(hasher, doc.TextContent);
-                    string oldHash = await _stateService.GetLastHashForSchema(_stateFilePath, doc.DocumentId);
-
-                    if (newHash != oldHash)
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"[Checkpoint] Found existing checkpoint from phase {checkpoint.LastCompletedPhase}");
+                    Console.Write($"[Checkpoint] Do you want to resume from this checkpoint? (yes/no): ");
+                    Console.ResetColor();
+                    
+                    var response = Console.ReadLine()?.Trim().ToLower();
+                    if (response != "yes" && response != "y")
                     {
-                        documentsToUpload.Add(doc); // (جديد أو تغير)
-                        // (نسجل الهاش الجديد لاحقاً بعد التأكد من نجاح الرفع)
+                        checkpoint = null;
+                        Console.WriteLine("[Checkpoint] Starting fresh pipeline...");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[Checkpoint] Resuming from phase {checkpoint.LastCompletedPhase + 1}...");
                     }
                 }
-                Console.WriteLine($"[Phase 5] Found {documentsToUpload.Count} new/modified schema documents to upload.");
 
-                // (نضيف مستندات البيانات (CDC) للرفع - هي دائماً "جديدة" لأننا نقرأ التغييرات فقط)
-                documentsToUpload.AddRange(dataDocuments);
+                // تهيئة نقطة تفتيش جديدة إذا لم توجد
+                checkpoint ??= new PipelineCheckpoint();
 
-                // === [Phase 6: Load to VectorDB] ===
-                // (استدعاء خدمة اليوم 4)
-                if (documentsToUpload.Any())
+                // === [Phase 1: Build Context Map] ===
+                if (checkpoint.LastCompletedPhase < 1)
                 {
-                    Console.WriteLine($"[Phase 6] Starting upload of {documentsToUpload.Count} total documents to Qdrant...");
-                    await _vectorDbService.SyncBatchAsync(_collectionName, documentsToUpload);
-                    Console.WriteLine("[Phase 6] Upload complete.");
-
-                    // (الأهم) حفظ الهاشات الجديدة بعد نجاح الرفع
-                    foreach (var doc in documentsToUpload.Where(d => d.Metadata["source_type"] == "schema"))
-                    {
-                        string hash = ComputeSHA256(hasher, doc.TextContent);
-                        await _stateService.SetLastHashForSchema(_stateFilePath, doc.DocumentId, hash);
-                    }
-                    Console.WriteLine("[Phase 6] New schema hashes saved to state file.");
+                    Console.WriteLine("[Phase 1] Building ERP Context Map from 6 Target Pages...");
+                    // Change this line in GenerateSchemaAsync():
+                    checkpoint.ContextMap = await _metadataService.BuildContextMapAsync(_connectionString, _dbName, _targetPageIds);
+                    // Remove the .ContinueWith(...) entirely
+                    Console.WriteLine($"[Phase 1] Context Map built. Found {checkpoint.ContextMap.Count} relevant Views.");
+                    
+                    checkpoint.LastCompletedPhase = 1;
+                    await SaveCheckpointAsync(checkpoint);
                 }
                 else
                 {
-                    Console.WriteLine("[Phase 6] No changes found. Pipeline is up-to-date.");
+                    Console.WriteLine($"[Phase 1] ✓ Skipped (already completed). Found {checkpoint.ContextMap!.Count} relevant Views.");
+                }
+
+                // === [Phase 2: Extract Target Lists] ===
+                if (checkpoint.LastCompletedPhase < 2)
+                {
+                    Console.WriteLine("[Phase 2] Extracting target lists...");
+                    var allContexts = checkpoint.ContextMap!.Values.Distinct();
+                    checkpoint.TargetViewNames = allContexts.Select(c => c.ViewName)
+                        .Concat(allContexts.SelectMany(c => c.DetailContexts.Select(d => d.ViewName)))
+                        .Where(name => !string.IsNullOrEmpty(name))
+                        .Distinct().ToList();
+
+                    checkpoint.TargetMetadataTables = new List<string> { "Pages", "PageAttribute", "PageDetail", "Modul", "MenuMaster", "ListSetups" };
+                    
+                    checkpoint.LastCompletedPhase = 2;
+                    await SaveCheckpointAsync(checkpoint);
+                }
+                else
+                {
+                    Console.WriteLine($"[Phase 2] ✓ Skipped (already completed). Found {checkpoint.TargetViewNames!.Count} views.");
+                }
+
+                // === [Phase 3: Process Schema] ===
+                if (checkpoint.LastCompletedPhase < 3)
+                {
+                    Console.WriteLine($"[Phase 3] Extracting Schema for {checkpoint.TargetViewNames!.Count} Views (using SMO)...");
+                    checkpoint.SchemaDocuments = await _schemaReaderService.ExtractSchemasAsync(
+                        _connectionString, _dbName, checkpoint.TargetViewNames, new List<string>());
+                    Console.WriteLine($"[Phase 3] Schema extraction complete. Found {checkpoint.SchemaDocuments.Count} documents (after chunking).");
+                    
+                    checkpoint.LastCompletedPhase = 3;
+                    await SaveCheckpointAsync(checkpoint);
+                }
+                else
+                {
+                    Console.WriteLine($"[Phase 3] ✓ Skipped (already completed). Found {checkpoint.SchemaDocuments!.Count} documents.");
+                }
+
+                // === [Phase 4: Process Data (CDC)] ===
+                if (checkpoint.LastCompletedPhase < 4)
+                {
+                    Console.WriteLine($"[Phase 4] Extracting Data changes for {checkpoint.TargetMetadataTables!.Count} core tables (using CDC)...");
+                    checkpoint.DataDocuments = await _dataExtractorService.ExtractDataChangesAsync(
+                        _connectionString, _dbName, checkpoint.TargetMetadataTables, _stateFilePath);
+                    Console.WriteLine($"[Phase 4] Data extraction complete. Found {checkpoint.DataDocuments.Count} changed rows.");
+                    
+                    checkpoint.LastCompletedPhase = 4;
+                    await SaveCheckpointAsync(checkpoint);
+                }
+                else
+                {
+                    Console.WriteLine($"[Phase 4] ✓ Skipped (already completed). Found {checkpoint.DataDocuments!.Count} changes.");
+                }
+
+                // === [Phase 5: Check State (Hashing)] ===
+                if (checkpoint.LastCompletedPhase < 5)
+                {
+                    Console.WriteLine("[Phase 5] Checking pipeline state for new/modified schemas...");
+                    checkpoint.DocumentsToUpload = new List<VectorDocument>();
+
+                    foreach (var doc in checkpoint.SchemaDocuments!)
+                    {
+                        string newHash = ComputeSHA256(hasher, doc.TextContent);
+                        string oldHash = await _stateService.GetLastHashForSchema(_stateFilePath, doc.DocumentId);
+
+                        if (newHash != oldHash)
+                        {
+                            checkpoint.DocumentsToUpload.Add(doc);
+                        }
+                    }
+                    Console.WriteLine($"[Phase 5] Found {checkpoint.DocumentsToUpload.Count} new/modified schema documents to upload.");
+
+                    checkpoint.DocumentsToUpload.AddRange(checkpoint.DataDocuments!);
+                    
+                    checkpoint.LastCompletedPhase = 5;
+                    await SaveCheckpointAsync(checkpoint);
+                }
+                else
+                {
+                    Console.WriteLine($"[Phase 5] ✓ Skipped (already completed). {checkpoint.DocumentsToUpload!.Count} documents ready.");
+                }
+
+                // === [Phase 6: Load to VectorDB] ===
+                if (checkpoint.LastCompletedPhase < 6)
+                {
+                    if (checkpoint.DocumentsToUpload!.Any())
+                    {
+                        Console.WriteLine($"[Phase 6] Starting upload of {checkpoint.DocumentsToUpload.Count} total documents to Qdrant...");
+                        await _vectorDbService.SyncBatchAsync(_collectionName, checkpoint.DocumentsToUpload);
+                        Console.WriteLine("[Phase 6] Upload complete.");
+
+                        // حفظ الهاشات الجديدة بعد نجاح الرفع
+                        foreach (var doc in checkpoint.DocumentsToUpload.Where(d => d.Metadata.ContainsKey("source_type") && d.Metadata["source_type"] == "schema"))
+                        {
+                            string hash = ComputeSHA256(hasher, doc.TextContent);
+                            await _stateService.SetLastHashForSchema(_stateFilePath, doc.DocumentId, hash);
+                        }
+                        Console.WriteLine("[Phase 6] New schema hashes saved to state file.");
+                    }
+                    else
+                    {
+                        Console.WriteLine("[Phase 6] No changes found. Pipeline is up-to-date.");
+                    }
+                    
+                    checkpoint.LastCompletedPhase = 6;
+                    await SaveCheckpointAsync(checkpoint);
                 }
 
                 Console.WriteLine("--- [Day 5] Knowledge Base Ingestion Pipeline: FINISHED SUCCESSFULLY ---");
+                
+                // حذف نقطة التفتيش بعد النجاح
+                await DeleteCheckpointAsync();
             }
             catch (Exception ex)
             {
@@ -156,19 +233,71 @@ namespace SchemaGenerator
                 Console.WriteLine($"--- [Day 5] KNOWLEDGE BASE PIPELINE: FAILED ---");
                 Console.WriteLine($"Error: {ex.Message}");
                 Console.WriteLine($"StackTrace: {ex.StackTrace}");
+                
+                if (checkpoint != null)
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"\n[Checkpoint] Progress saved at phase {checkpoint.LastCompletedPhase}");
+                    Console.WriteLine($"[Checkpoint] You can resume from this point on the next run.");
+                }
                 Console.ResetColor();
+                
+                throw;
             }
         }
 
-        /// <summary>
-        /// دالة مساعدة لحساب الهاش (للسكيما)
-        /// </summary>
+        private async Task<PipelineCheckpoint?> LoadCheckpointAsync()
+        {
+            if (!File.Exists(_checkpointFilePath))
+                return null;
+
+            try
+            {
+                var json = await File.ReadAllTextAsync(_checkpointFilePath);
+                return JsonSerializer.Deserialize<PipelineCheckpoint>(json);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private async Task SaveCheckpointAsync(PipelineCheckpoint checkpoint)
+        {
+            var json = JsonSerializer.Serialize(checkpoint, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(_checkpointFilePath, json);
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"[Checkpoint] ✓ Saved progress at phase {checkpoint.LastCompletedPhase}");
+            Console.ResetColor();
+        }
+
+        private async Task DeleteCheckpointAsync()
+        {
+            if (File.Exists(_checkpointFilePath))
+            {
+                File.Delete(_checkpointFilePath);
+                Console.WriteLine("[Checkpoint] Deleted checkpoint file (pipeline completed successfully)");
+            }
+        }
+
         private string ComputeSHA256(MD5 md5, string input)
         {
             if (string.IsNullOrEmpty(input)) return string.Empty;
             byte[] hash = md5.ComputeHash(Encoding.UTF8.GetBytes(input));
             return Convert.ToHexString(hash);
         }
+    }
+
+    // نموذج نقطة التفتيش
+    public class PipelineCheckpoint
+    {
+        public int LastCompletedPhase { get; set; }
+        public Dictionary<string, ErpPageContext>? ContextMap { get; set; }  // Changed from Dictionary<int, ...>
+        public List<string>? TargetViewNames { get; set; }
+        public List<string>? TargetMetadataTables { get; set; }
+        public List<VectorDocument>? SchemaDocuments { get; set; }
+        public List<VectorDocument>? DataDocuments { get; set; }
+        public List<VectorDocument>? DocumentsToUpload { get; set; }
     }
 }
 /*

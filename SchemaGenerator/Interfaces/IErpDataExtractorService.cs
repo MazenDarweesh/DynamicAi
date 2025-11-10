@@ -21,6 +21,7 @@ namespace SchemaGenerator.Interfaces
         Task<List<VectorDocument>> ExtractDataChangesAsync(
             string connectionString,
             string dbName,
-            IEnumerable<string> tableNames);
+            IEnumerable<string> tableNames,
+             string stateFilePath);
     }
 }
