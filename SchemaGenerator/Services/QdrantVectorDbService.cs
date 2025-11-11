@@ -75,6 +75,7 @@ namespace SchemaGenerator.Services
             int totalDocuments = documents.Count;
             int consecutiveSuccesses = 0;
             int consecutiveFailures = 0;
+            int batchNumber = 0; // Track actual batch attempts
             var stopwatch = Stopwatch.StartNew();
 
             Console.ForegroundColor = ConsoleColor.Yellow;
@@ -91,7 +92,7 @@ namespace SchemaGenerator.Services
                     .Take(_currentBatchSize)
                     .ToList();
 
-                int batchNumber = (processedCount / _currentBatchSize) + 1;
+                batchNumber++; // Increment for each batch attempt
                 int remainingDocs = totalDocuments - processedCount;
 
                 Console.WriteLine($"\n[VectorDB] Batch {batchNumber} | Size: {currentBatch.Count} | Remaining: {remainingDocs} | Delay: {_delayBetweenBatches}ms");
@@ -349,4 +350,4 @@ namespace SchemaGenerator.Services
 * 2. Intelligently syncing changes: routing documents to 'UpsertAsync' 
 * (for new/updated) or 'DeleteAsync' (for deleted data from CDC).
 * 3. Batching operations for efficiency.
-*/
+*/  
