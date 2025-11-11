@@ -10,7 +10,7 @@ using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Embeddings;
 using Qdrant.Client;
 using Microsoft.Extensions.AI;
-W
+
 // 1. بناء الـ Host (لقراءة الإعدادات و DI)
 var builder = Host.CreateDefaultBuilder(args);
 
