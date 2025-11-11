@@ -70,6 +70,37 @@ namespace SchemaGenerator.Services
                         .ToList();
 
                     Console.WriteLine($"[DataExtractor] Found {changedRows.Count} initial rows in '{tableName}'.");
+
+                    // --- (بداية التعديل الجديد: سؤال المستخدم إذا كانت النتيجة 0) ---
+                    if (changedRows.Count == 0)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.WriteLine($"\n[DataExtractor] ⚠️ ATTENTION: Initial load for table '{tableName}' returned 0 rows.");
+                        Console.WriteLine("  This table might be genuinely empty, or it might indicate a configuration issue.");
+                        Console.WriteLine("  - (C) Continue: Proceed (assuming the table is empty).");
+                        Console.WriteLine("  - (S) Stop: Abort the entire pipeline to investigate.");
+
+                        while (true)
+                        {
+                            Console.Write("  Enter your choice (C / S): ");
+                            string response = Console.ReadLine()?.Trim().ToUpper();
+
+                            if (response == "S" || response == "STOP")
+                            {
+                                // إيقاف البرنامج بالكامل
+                                throw new InvalidOperationException($"User aborted pipeline: Initial load for '{tableName}' returned 0 rows.");
+                            }
+                            if (response == "C" || response == "CONTINUE")
+                            {
+                                Console.WriteLine($"[DataExtractor] User chose to continue, assuming '{tableName}' is empty...");
+                                Console.ResetColor();
+                                break; // (الخروج من حلقة while والاستمرار في loop الجداول)
+                            }
+
+                            Console.WriteLine("  Invalid input. Please enter 'C' or 'S'.");
+                        }
+                    }
+                    // --- (نهاية التعديل الجديد) ---
                 }
                 else
                 {

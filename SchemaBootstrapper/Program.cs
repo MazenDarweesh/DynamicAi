@@ -62,8 +62,11 @@ builder.ConfigureServices((context, services) =>
     // 2. تسجيل خدمة التضمين (Embedding) باستخدام Semantic Kernel ثم تحويلها لـ IEmbeddingGenerator
     services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
     {
-        var httpClient = new HttpClient();
-        
+        // (التعديل) جلب الـ Factory بدلاً من إنشاء Client جديد
+        var clientFactory = sp.GetRequiredService<IHttpClientFactory>();
+        var httpClient = clientFactory.CreateClient("GeminiEmbeddingClient"); // (استخدام الـ Client الجديد)
+
+
         // استخدام GoogleAITextEmbeddingGenerationService من Semantic Kernel
         var embeddingService = new GoogleAITextEmbeddingGenerationService(
             modelId: embeddingModel,
@@ -77,9 +80,14 @@ builder.ConfigureServices((context, services) =>
 
     // 3. تسجيل خدمة المحادثة (Chat) مع Polly
     IAsyncPolicy<HttpResponseMessage> retryPolicy = Policy
-        .HandleResult<HttpResponseMessage>(r => r.StatusCode == HttpStatusCode.ServiceUnavailable)
+        // --- (بداية التعديل) ---
+        // (مُعدل) جعله يعيد المحاولة أيضاً عند 429
+        .HandleResult<HttpResponseMessage>(r =>
+            r.StatusCode == HttpStatusCode.ServiceUnavailable ||
+            r.StatusCode == HttpStatusCode.TooManyRequests)
+        // --- (نهاية التعديل) ---
         .Or<HttpRequestException>()
-        .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt) * 5),
+        .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt) * 10),
             (outcome, timespan, retryCount, ctx) => {
                 Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.WriteLine($"[Polly] فشل الطلب (503 أو خطأ اتصال). المحاولة رقم {retryCount}...");
@@ -89,6 +97,14 @@ builder.ConfigureServices((context, services) =>
     services.AddHttpClient("GeminiChatClient", client =>
     {
         client.Timeout = TimeSpan.FromSeconds(900);
+    })
+    .AddPolicyHandler(retryPolicy);
+
+    // 1. (جديد) إضافة Client مخصص لعمليات الـ Embedding بـ Timeout طويل جداً
+    services.AddHttpClient("GeminiEmbeddingClient", client =>
+    {
+        // إعطاؤه 30 دقيقة للتعامل مع الدفعات الضخمة (14k مستند)
+        client.Timeout = TimeSpan.FromMinutes(30);
     })
     .AddPolicyHandler(retryPolicy);
 

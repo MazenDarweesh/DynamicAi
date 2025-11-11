@@ -55,54 +55,70 @@ namespace SchemaGenerator.Services
             if (pointsToDelete.Any())
             {
                 Console.WriteLine($"[VectorDB] Deleting {pointsToDelete.Count} points from Qdrant...");
-
-                // (تصحيح خطأ 1)
-                // تم حذف الباراميتر المسمى "points:"
                 await _qdrantClient.DeleteAsync(collectionName, pointsToDelete);
             }
 
             // --- 3. تنفيذ عمليات الإضافة/التحديث (إن وجدت) ---
             if (documentsToUpsert.Any())
             {
-                Console.WriteLine($"[VectorDB] Embedding {documentsToUpsert.Count} documents for Upsert...");
+                // (جديد) تحديد حجم الدفعة (Batch Size) لـ Google API
+                // الحد الأقصى لواجهة برمجة التطبيقات هو 100
+                const int BatchSize = 100;
+                int totalBatches = (int)Math.Ceiling(documentsToUpsert.Count / (double)BatchSize);
 
-                // (أ) الخطوة المكلفة: تحويل النصوص إلى متجهات (Embedding)
-                var textsToEmbed = documentsToUpsert.Select(d => d.TextContent).ToList();
+                Console.WriteLine($"[VectorDB] Starting Upsert for {documentsToUpsert.Count} documents in {totalBatches} batches...");
 
-                // (تصحيح خطأ 2)
-                // الواجهة تدعم الدُفعات (Batching) مباشرة باستخدام "GenerateEmbeddingsAsync" (بالجمع)
-                var generatedEmbeddings = await _embeddingService.GenerateAsync(textsToEmbed);
-                var embeddingList = generatedEmbeddings.Select(e => e).ToList();
-
-                // (ب) تجهيز "النقاط" (Points) للرفع
-                var pointsToUpsert = new List<PointStruct>();
-                for (int i = 0; i < documentsToUpsert.Count; i++)
+                for (int i = 0; i < documentsToUpsert.Count; i += BatchSize)
                 {
-                    var doc = documentsToUpsert[i];
-                    var embedding = embeddingList[i];
+                    // (أ) الحصول على الدفعة الحالية
+                    var currentBatch = documentsToUpsert.Skip(i).Take(BatchSize).ToList();
+                    int batchNumber = (i / BatchSize) + 1;
 
-                    var point = new PointStruct
-                    {
-                        Id = new PointId { Uuid = GetStableGuid(doc.DocumentId).ToString() },
-                    };
-                    point.Vectors = embedding.Vector.ToArray(); // Direct assignment if SDK supports it
+                    Console.WriteLine($"[VectorDB] Processing batch {batchNumber} of {totalBatches} ({currentBatch.Count} documents)...");
 
-                    // (الـ Payload هي Read-Only MapField، يجب أن "نضيف" إليها)
-                    foreach (var meta in doc.Metadata)
+                    // (ب) الخطوة المكلفة: تحويل نصوص هذه الدفعة إلى متجهات
+                    var textsToEmbed = currentBatch.Select(d => d.TextContent).ToList();
+
+                    var generatedEmbeddings = await _embeddingService.GenerateAsync(textsToEmbed);
+                    var embeddingList = generatedEmbeddings.Select(e => e).ToList();
+
+                    // (ج) تجهيز "النقاط" (Points) للرفع
+                    var pointsToUpsert = new List<PointStruct>();
+                    for (int j = 0; j < currentBatch.Count; j++) 
                     {
-                        point.Payload.Add(meta.Key, new Value { StringValue = meta.Value });
+                        var doc = currentBatch[j];
+                        var embedding = embeddingList[j];
+
+                        var point = new PointStruct
+                        {
+                            Id = new PointId { Uuid = GetStableGuid(doc.DocumentId).ToString() },
+                        };
+                        point.Vectors = embedding.Vector.ToArray();
+
+                        // (الـ Payload هي Read-Only MapField، يجب أن "نضيف" إليها)
+                        foreach (var meta in doc.Metadata)
+                        {
+                            point.Payload.Add(meta.Key, new Value { StringValue = meta.Value });
+                        }
+                        // (إضافة) إضافة النص الأصلي للـ Payload أيضاً لكي نسترجعه
+                        point.Payload.Add("original_text", new Value { StringValue = doc.TextContent });
+
+                        pointsToUpsert.Add(point);
                     }
-                    // (إضافة) إضافة النص الأصلي للـ Payload أيضاً لكي نسترجعه
-                    point.Payload.Add("original_text", new Value { StringValue = doc.TextContent });
 
-                    pointsToUpsert.Add(point);
+                    // (د) الخطوة الرخيصة: الرفع للـ VectorDB (لهذه الدفعة)
+                    Console.WriteLine($"[VectorDB] Upserting {pointsToUpsert.Count} points from batch {batchNumber} to Qdrant...");
+                    await _qdrantClient.UpsertAsync(collectionName, pointsToUpsert);
+                    // --- (بداية التعديل الجديد: التوقف المؤقت) ---
+                    // (هام) إضافة توقف مؤقت (Throttling) لتجنب خطأ 429 (Too Many Requests)
+                    // ننتظر 1.5 ثانية بين كل دفعة (Batch)
+                    if (batchNumber < totalBatches) // (لا داعي للانتظار بعد آخر دفعة)
+                    {
+                        Console.WriteLine($"[VectorDB] Waiting 1.5 seconds to avoid rate limits...");
+                        await Task.Delay(5000); 
+                    }
+                    // --- (نهاية التعديل الجديد) ---
                 }
-
-                // (ج) الخطوة الرخيصة: الرفع للـ VectorDB
-                Console.WriteLine($"[VectorDB] Upserting {pointsToUpsert.Count} points to Qdrant...");
-
-                // (تصحيح) تم حذف الباراميتر المسمى "points:"
-                await _qdrantClient.UpsertAsync(collectionName, pointsToUpsert);
             }
         }
 

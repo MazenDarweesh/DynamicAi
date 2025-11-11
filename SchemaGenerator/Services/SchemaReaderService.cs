@@ -70,7 +70,13 @@ namespace SchemaGenerator.Services
                     documents.Add(CreateVectorDocument(viewName, script, "View", view.Name));
 
                     // 2. (جديد) تفكيك الـ View Script لاكتشاف الجداول
-                    List<string> tablesInThisView = ParseTablesFromViewScript(script);
+
+                    // --- (بداية التعديل) ---
+                    // (الحل الأذكى) جلب "نص" الـ View فقط (الـ SELECT) بدلاً من السكربت الكامل
+                    string viewBody = view.TextBody;
+
+                    // (مُعدل) نقوم بتحليل "النص" فقط، وهو أكثر أماناً
+                    List<string> tablesInThisView = ParseTablesFromViewScript(viewBody);
                     foreach (var table in tablesInThisView)
                     {
                         discoveredTableNames.Add(table); // (إضافة الجداول المكتشفة)
@@ -130,8 +136,10 @@ namespace SchemaGenerator.Services
             };
         }
 
+        //
         /// <summary>
         /// (جديد) يحلل نص الـ View لاستخراج الجداول المرجعية باستخدام ScriptDom.
+        /// (مُعدل) يتوقف ويسأل المستخدم عند حدوث خطأ في التحليل.
         /// </summary>
         private List<string> ParseTablesFromViewScript(string script)
         {
@@ -143,13 +151,56 @@ namespace SchemaGenerator.Services
 
                 if (fragment == null || (parseErrors != null && parseErrors.Count > 0))
                 {
-                    // في حالة فشل التحليل، أرجع قائمة فارغة.
-                    // يمكن تسجيل الأخطاء هنا للمساعدة في التصحيح.
-                    return new List<string>();
+                    // --- (بداية التعديل: طباعة الخطأ بوضوح) ---
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"[SchemaReader] ⛔️ ERROR: TSqlParser FAILED to analyze a View script.");
+                    Console.WriteLine($"[SchemaReader] View (First 150 chars): {script.Substring(0, Math.Min(150, script.Length))}...");
+
+                    if (parseErrors != null)
+                    {
+                        foreach (var error in parseErrors)
+                        {
+                            Console.WriteLine($"[SchemaReader] Parse Error: {error.Message} (Line: {error.Line}, Column: {error.Column})");
+                        }
+                    }
+                    Console.ResetColor();
+
+                    // --- (الجزء الجديد: سؤال المستخدم) ---
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine("\n[SchemaReader] This error means the tables *inside* this View were NOT found.");
+                    Console.WriteLine("  - (C) Continue: Ignore this view's tables and proceed with the pipeline.");
+                    Console.WriteLine("  - (S) Stop: Abort the entire pipeline (safest option).");
+
+                    while (true)
+                    {
+                        Console.Write("  Enter your choice (C / S): ");
+                        string response = Console.ReadLine()?.Trim().ToUpper();
+
+                        if (response == "S" || response == "STOP")
+                        {
+                            // إيقاف البرنامج بالكامل عن طريق إطلاق خطأ (Exception)
+                            // سيلتقطه الـ Orchestrator
+                            throw new InvalidOperationException($"User aborted pipeline due to TSqlParser failure on view. See errors above.");
+                        }
+                        if (response == "C" || response == "CONTINUE")
+                        {
+                            Console.WriteLine("[SchemaReader] User chose to continue. Skipping table discovery for this view...");
+                            Console.ResetColor();
+                            return new List<string>(); // (الإكمال: إرجاع قائمة فارغة)
+                        }
+
+                        Console.WriteLine("  Invalid input. Please enter 'C' or 'S'.");
+                    }
+                    // --- (نهاية الجزء الجديد) ---
                 }
 
                 TableVisitor visitor = new TableVisitor();
                 fragment.Accept(visitor);
+
+                // (تعديل إضافي) طباعة الجداول المكتشفة
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[SchemaReader] Successfully parsed view. Found tables: {string.Join(", ", visitor.TableNames.Distinct())}");
+                Console.ResetColor();
 
                 return visitor.TableNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             }

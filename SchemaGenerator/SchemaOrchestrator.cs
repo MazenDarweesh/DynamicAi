@@ -67,7 +67,7 @@ namespace SchemaGenerator
 
         public async Task GenerateSchemaAsync()
         {
-            Console.WriteLine("--- [Day 5] Knowledge Base Ingestion Pipeline: STARTED ---");
+            Console.WriteLine("--- Knowledge Base Ingestion Pipeline: STARTED ---");
 
             var hasher = MD5.Create();
             PipelineCheckpoint? checkpoint = null;
@@ -230,7 +230,7 @@ namespace SchemaGenerator
             catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"--- [Day 5] KNOWLEDGE BASE PIPELINE: FAILED ---");
+                Console.WriteLine($"--- KNOWLEDGE BASE PIPELINE: FAILED ---");
                 Console.WriteLine($"Error: {ex.Message}");
                 Console.WriteLine($"StackTrace: {ex.StackTrace}");
                 
@@ -287,18 +287,6 @@ namespace SchemaGenerator
             return Convert.ToHexString(hash);
         }
     }
-
-    // نموذج نقطة التفتيش
-    public class PipelineCheckpoint
-    {
-        public int LastCompletedPhase { get; set; }
-        public Dictionary<string, ErpPageContext>? ContextMap { get; set; }  // Changed from Dictionary<int, ...>
-        public List<string>? TargetViewNames { get; set; }
-        public List<string>? TargetMetadataTables { get; set; }
-        public List<VectorDocument>? SchemaDocuments { get; set; }
-        public List<VectorDocument>? DataDocuments { get; set; }
-        public List<VectorDocument>? DocumentsToUpload { get; set; }
-    }
 }
 /*
 * ==========================================================================================
@@ -329,3 +317,4 @@ namespace SchemaGenerator
 * and ensures that *only* new or modified "facts" (Schema or Data)
 * are processed and loaded into the VectorDB.
 */
+
