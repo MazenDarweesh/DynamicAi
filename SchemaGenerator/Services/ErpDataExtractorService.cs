@@ -2,6 +2,7 @@
 using SchemaGenerator.Interfaces;
 using SchemaGenerator.Models;
 using System.Collections.Generic;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -23,8 +24,12 @@ namespace SchemaGenerator.Services
         {
             _trackingStrategy = trackingStrategy;
             _stateService = stateService;
-            // (جديد) إعدادات لضمان تحويل الأعمدة بأسماء صحيحة
-            _jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            // (مُعدل) إضافة Encoder للسماح بالأحرف العربية
+            _jsonOptions = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping // (هذا السطر يسمح بالعربية)
+            };
         }
 
         /// <summary>
@@ -138,8 +143,8 @@ namespace SchemaGenerator.Services
             int operation = (int)row["__$operation"];
             row.Remove("__$operation");
 
-            // (هام) تحويل الصف بالكامل إلى نص JSON
-            string rowAsJson = JsonSerializer.Serialize(row);
+            // (مُعدل) استخدام الـ Options التي تسمح بالعربية
+            string rowAsJson = JsonSerializer.Serialize(row, _jsonOptions);
 
             // (هام) استخراج الـ ID الرئيسي للصف (نفترض أنه أول عمود)
             string rowId = row.Values.First()?.ToString() ?? Guid.NewGuid().ToString();

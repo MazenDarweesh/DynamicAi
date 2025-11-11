@@ -5,24 +5,28 @@ using SchemaGenerator.Interfaces;
 using SchemaGenerator.Models;
 using System.Security.Cryptography;
 using System.Text;
-// (هام) يجب إضافة using لـ Value بدون تحديد المسار
+using System.Diagnostics;
 using Value = Qdrant.Client.Grpc.Value;
 
 namespace SchemaGenerator.Services
 {
     /// <summary>
     /// التنفيذ الفعلي لـ IVectorDbService.
-    /// (تم تصحيح هذا الكود بالكامل ليتوافق مع Qdrant.Client v1.x و SK new interfaces)
+    /// (محسّن للتعامل مع Rate Limiting في Google Gemini API)
     /// </summary>
     public class QdrantVectorDbService : IVectorDbService
     {
         private readonly QdrantClient _qdrantClient;
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
+        
+        // --- إعدادات Rate Limiting الديناميكية ---
+        private int _currentBatchSize = 10; // (مُعدّل) نبدأ أصغر: 10 بدلاً من 20
+        private int _delayBetweenBatches = 3000; // (مُعدّل) نبدأ أطول: 3 ثواني
+        private readonly int _minBatchSize = 5;
+        private readonly int _maxBatchSize = 30; // (مُعدّل) نخفض الحد الأقصى لـ 30
+        private readonly int _minDelay = 2000; // (مُعدّل) 2 ثانية كحد أدنى
+        private readonly int _maxDelay = 120000; // (مُعدّل) 2 دقيقة كحد أقصى
 
-        /// <summary>
-        /// يقوم بحقن (Inject) عميل Qdrant وخدمة التضمين (Embedding)
-        /// المسجلين في Program.cs.
-        /// </summary>
         public QdrantVectorDbService(
             QdrantClient qdrantClient,
             IEmbeddingGenerator<string, Embedding<float>> embeddingService)
@@ -31,19 +35,14 @@ namespace SchemaGenerator.Services
             _embeddingService = embeddingService;
         }
 
-        /// <summary>
-        /// يقوم بمزامنة (Upsert أو Delete) دفعة (Batch) من المستندات
-        /// مع قاعدة بيانات Qdrant.
-        /// </summary>
         public async Task SyncBatchAsync(string collectionName, List<VectorDocument> documents)
         {
             if (documents == null || !documents.Any())
             {
-                return; // لا يوجد شيء لعمله
+                return;
             }
 
-            // --- 1. فصل عمليات الحذف (Delete) عن عمليات الإضافة/التحديث (Upsert) ---
-
+            // --- 1. فصل عمليات الحذف ---
             var pointsToDelete = documents
                 .Where(d => d.IsDeleted)
                 .Select(d => new PointId { Uuid = GetStableGuid(d.DocumentId).ToString() })
@@ -51,81 +50,263 @@ namespace SchemaGenerator.Services
 
             var documentsToUpsert = documents.Where(d => !d.IsDeleted).ToList();
 
-            // --- 2. تنفيذ عمليات الحذف (إن وجدت) ---
+            // --- 2. تنفيذ عمليات الحذف ---
             if (pointsToDelete.Any())
             {
                 Console.WriteLine($"[VectorDB] Deleting {pointsToDelete.Count} points from Qdrant...");
                 await _qdrantClient.DeleteAsync(collectionName, pointsToDelete);
             }
 
-            // --- 3. تنفيذ عمليات الإضافة/التحديث (إن وجدت) ---
+            // --- 3. تنفيذ عمليات الإضافة/التحديث مع Rate Limiting الذكي ---
             if (documentsToUpsert.Any())
             {
-                // (جديد) تحديد حجم الدفعة (Batch Size) لـ Google API
-                // الحد الأقصى لواجهة برمجة التطبيقات هو 100
-                const int BatchSize = 100;
-                int totalBatches = (int)Math.Ceiling(documentsToUpsert.Count / (double)BatchSize);
-
-                Console.WriteLine($"[VectorDB] Starting Upsert for {documentsToUpsert.Count} documents in {totalBatches} batches...");
-
-                for (int i = 0; i < documentsToUpsert.Count; i += BatchSize)
-                {
-                    // (أ) الحصول على الدفعة الحالية
-                    var currentBatch = documentsToUpsert.Skip(i).Take(BatchSize).ToList();
-                    int batchNumber = (i / BatchSize) + 1;
-
-                    Console.WriteLine($"[VectorDB] Processing batch {batchNumber} of {totalBatches} ({currentBatch.Count} documents)...");
-
-                    // (ب) الخطوة المكلفة: تحويل نصوص هذه الدفعة إلى متجهات
-                    var textsToEmbed = currentBatch.Select(d => d.TextContent).ToList();
-
-                    var generatedEmbeddings = await _embeddingService.GenerateAsync(textsToEmbed);
-                    var embeddingList = generatedEmbeddings.Select(e => e).ToList();
-
-                    // (ج) تجهيز "النقاط" (Points) للرفع
-                    var pointsToUpsert = new List<PointStruct>();
-                    for (int j = 0; j < currentBatch.Count; j++) 
-                    {
-                        var doc = currentBatch[j];
-                        var embedding = embeddingList[j];
-
-                        var point = new PointStruct
-                        {
-                            Id = new PointId { Uuid = GetStableGuid(doc.DocumentId).ToString() },
-                        };
-                        point.Vectors = embedding.Vector.ToArray();
-
-                        // (الـ Payload هي Read-Only MapField، يجب أن "نضيف" إليها)
-                        foreach (var meta in doc.Metadata)
-                        {
-                            point.Payload.Add(meta.Key, new Value { StringValue = meta.Value });
-                        }
-                        // (إضافة) إضافة النص الأصلي للـ Payload أيضاً لكي نسترجعه
-                        point.Payload.Add("original_text", new Value { StringValue = doc.TextContent });
-
-                        pointsToUpsert.Add(point);
-                    }
-
-                    // (د) الخطوة الرخيصة: الرفع للـ VectorDB (لهذه الدفعة)
-                    Console.WriteLine($"[VectorDB] Upserting {pointsToUpsert.Count} points from batch {batchNumber} to Qdrant...");
-                    await _qdrantClient.UpsertAsync(collectionName, pointsToUpsert);
-                    // --- (بداية التعديل الجديد: التوقف المؤقت) ---
-                    // (هام) إضافة توقف مؤقت (Throttling) لتجنب خطأ 429 (Too Many Requests)
-                    // ننتظر 1.5 ثانية بين كل دفعة (Batch)
-                    if (batchNumber < totalBatches) // (لا داعي للانتظار بعد آخر دفعة)
-                    {
-                        Console.WriteLine($"[VectorDB] Waiting 1.5 seconds to avoid rate limits...");
-                        await Task.Delay(5000); 
-                    }
-                    // --- (نهاية التعديل الجديد) ---
-                }
+                await ProcessUpsertsWithAdaptiveRateLimitingAsync(collectionName, documentsToUpsert);
             }
         }
 
         /// <summary>
-        /// (جديد) دالة مساعدة لإنشاء GUID ثابت (Stable)
-        /// من أي ID نصي لضمان عدم تكرار النقاط في Qdrant.
+        /// معالجة Upserts مع تكيف ديناميكي لـ Rate Limiting
         /// </summary>
+        private async Task ProcessUpsertsWithAdaptiveRateLimitingAsync(
+            string collectionName, 
+            List<VectorDocument> documents)
+        {
+            int processedCount = 0;
+            int totalDocuments = documents.Count;
+            int consecutiveSuccesses = 0;
+            int consecutiveFailures = 0;
+            var stopwatch = Stopwatch.StartNew();
+
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"[VectorDB] Starting adaptive batch processing for {totalDocuments} documents...");
+            Console.WriteLine($"[VectorDB] Initial batch size: {_currentBatchSize}, Initial delay: {_delayBetweenBatches}ms");
+            Console.WriteLine($"[VectorDB] Strategy: Conservative start with gradual optimization");
+            Console.ResetColor();
+
+            while (processedCount < totalDocuments)
+            {
+                // (أ) الحصول على الدفعة الحالية
+                var currentBatch = documents
+                    .Skip(processedCount)
+                    .Take(_currentBatchSize)
+                    .ToList();
+
+                int batchNumber = (processedCount / _currentBatchSize) + 1;
+                int remainingDocs = totalDocuments - processedCount;
+
+                Console.WriteLine($"\n[VectorDB] Batch {batchNumber} | Size: {currentBatch.Count} | Remaining: {remainingDocs} | Delay: {_delayBetweenBatches}ms");
+
+                bool batchSucceeded = false;
+                int retryCount = 0;
+                const int maxRetries = 5;
+
+                while (!batchSucceeded && retryCount < maxRetries)
+                {
+                    try
+                    {
+                        // (ب) محاولة معالجة الدفعة
+                        await ProcessSingleBatchAsync(collectionName, currentBatch, batchNumber);
+                        
+                        // (ج) نجحت المعالجة!
+                        batchSucceeded = true;
+                        processedCount += currentBatch.Count;
+                        consecutiveSuccesses++;
+                        consecutiveFailures = 0;
+
+                        // (د) تحسين الأداء بعد نجاحات متتالية (بحذر)
+                        if (consecutiveSuccesses >= 5) // (مُعدّل) نحتاج 5 نجاحات بدلاً من 3
+                        {
+                            // زيادة حجم الدفعة بحذر شديد
+                            if (_currentBatchSize < _maxBatchSize)
+                            {
+                                _currentBatchSize = Math.Min(_currentBatchSize + 2, _maxBatchSize); // (مُعدّل) +2 بدلاً من +5
+                                Console.ForegroundColor = ConsoleColor.Green;
+                                Console.WriteLine($"[VectorDB] ✓ Performance improved! Increasing batch size to {_currentBatchSize}");
+                                Console.ResetColor();
+                            }
+                            
+                            // تقليل التأخير بحذر
+                            if (_delayBetweenBatches > _minDelay)
+                            {
+                                _delayBetweenBatches = Math.Max(_delayBetweenBatches - 200, _minDelay); // (مُعدّل) -200ms بدلاً من -500ms
+                                Console.ForegroundColor = ConsoleColor.Green;
+                                Console.WriteLine($"[VectorDB] ✓ Reducing delay to {_delayBetweenBatches}ms");
+                                Console.ResetColor();
+                            }
+                            
+                            consecutiveSuccesses = 0;
+                        }
+
+                        // (هـ) انتظار بين الدفعات
+                        if (processedCount < totalDocuments)
+                        {
+                            Console.WriteLine($"[VectorDB] Waiting {_delayBetweenBatches}ms before next batch...");
+                            await Task.Delay(_delayBetweenBatches);
+                        }
+                    }
+                    catch (Exception ex) when (IsRateLimitException(ex))
+                    {
+                        // (و) حصل Rate Limiting!
+                        retryCount++;
+                        consecutiveFailures++;
+                        consecutiveSuccesses = 0;
+
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine($"[VectorDB] ✗ Rate limit hit! (Failure #{consecutiveFailures}, Retry {retryCount}/{maxRetries})");
+                        Console.WriteLine($"[VectorDB] Exception: {ex.Message}");
+                        Console.ResetColor();
+
+                        if (retryCount < maxRetries)
+                        {
+                            // تقليل حجم الدفعة بشكل حاد
+                            int previousBatchSize = _currentBatchSize;
+                            _currentBatchSize = Math.Max(_currentBatchSize / 2, _minBatchSize);
+                            
+                            // زيادة التأخير بشكل كبير (exponential backoff مع حد أقصى)
+                            int previousDelay = _delayBetweenBatches;
+                            int backoffMultiplier = (int)Math.Pow(2, consecutiveFailures);
+                            _delayBetweenBatches = Math.Min(_delayBetweenBatches * backoffMultiplier, _maxDelay);
+
+                            Console.ForegroundColor = ConsoleColor.Yellow;
+                            Console.WriteLine($"[VectorDB] ⚠ Adaptive throttling:");
+                            Console.WriteLine($"   - Batch size: {previousBatchSize} → {_currentBatchSize}");
+                            Console.WriteLine($"   - Delay: {previousDelay}ms → {_delayBetweenBatches}ms ({_delayBetweenBatches/1000.0:F1}s)");
+                            Console.WriteLine($"   - Waiting before retry...");
+                            Console.ResetColor();
+
+                            await Task.Delay(_delayBetweenBatches);
+                            
+                            // إعادة حساب الدفعة بالحجم الجديد
+                            currentBatch = documents
+                                .Skip(processedCount)
+                                .Take(_currentBatchSize)
+                                .ToList();
+                        }
+                        else
+                        {
+                            // استنفدنا كل المحاولات
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            Console.WriteLine($"[VectorDB] ✗ Failed after {maxRetries} retries. Aborting.");
+                            Console.ResetColor();
+                            throw;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine($"[VectorDB] ✗ Unexpected error: {ex.GetType().Name}");
+                        Console.WriteLine($"[VectorDB] Message: {ex.Message}");
+                        Console.ResetColor();
+                        throw;
+                    }
+                }
+
+                // (ز) تقرير التقدم
+                if (batchSucceeded)
+                {
+                    double progress = (processedCount / (double)totalDocuments) * 100;
+                    double documentsPerSecond = processedCount / stopwatch.Elapsed.TotalSeconds;
+                    TimeSpan estimatedRemaining = TimeSpan.FromSeconds(remainingDocs / Math.Max(documentsPerSecond, 0.1));
+                    
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.WriteLine($"[VectorDB] Progress: {processedCount}/{totalDocuments} ({progress:F1}%) | " +
+                                    $"Speed: {documentsPerSecond:F1} docs/sec | " +
+                                    $"ETA: {estimatedRemaining:hh\\:mm\\:ss}");
+                    Console.ResetColor();
+                }
+            }
+
+            stopwatch.Stop();
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"\n[VectorDB] ✓ All {totalDocuments} documents processed successfully!");
+            Console.WriteLine($"[VectorDB] Total time: {stopwatch.Elapsed:hh\\:mm\\:ss}");
+            Console.WriteLine($"[VectorDB] Average speed: {totalDocuments / stopwatch.Elapsed.TotalSeconds:F1} docs/sec");
+            Console.ResetColor();
+        }
+
+        /// <summary>
+        /// (جديد) فحص ذكي لاكتشاف استثناءات Rate Limiting
+        /// </summary>
+        private bool IsRateLimitException(Exception ex)
+        {
+            // فحص الاستثناء الحالي
+            if (ex.Message.Contains("429") || ex.Message.Contains("Too Many Requests"))
+                return true;
+
+            // فحص HttpRequestException
+            if (ex is HttpRequestException httpEx)
+            {
+                if (httpEx.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                    return true;
+                if (httpEx.Message.Contains("429"))
+                    return true;
+            }
+
+            // فحص الاستثناءات الداخلية (Inner Exceptions)
+            var innerEx = ex.InnerException;
+            while (innerEx != null)
+            {
+                if (innerEx.Message.Contains("429") || innerEx.Message.Contains("Too Many Requests"))
+                    return true;
+                
+                if (innerEx is HttpRequestException innerHttpEx)
+                {
+                    if (innerHttpEx.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                        return true;
+                }
+                
+                innerEx = innerEx.InnerException;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// معالجة دفعة واحدة (Batch)
+        /// </summary>
+        private async Task ProcessSingleBatchAsync(
+            string collectionName, 
+            List<VectorDocument> batch, 
+            int batchNumber)
+        {
+            // (أ) تحويل النصوص إلى متجهات
+            var textsToEmbed = batch.Select(d => d.TextContent).ToList();
+            
+            Console.WriteLine($"[VectorDB] Generating embeddings for {batch.Count} documents...");
+            var generatedEmbeddings = await _embeddingService.GenerateAsync(textsToEmbed);
+            var embeddingList = generatedEmbeddings.ToList();
+
+            // (ب) تجهيز النقاط للرفع
+            var pointsToUpsert = new List<PointStruct>();
+            for (int i = 0; i < batch.Count; i++)
+            {
+                var doc = batch[i];
+                var embedding = embeddingList[i];
+
+                var point = new PointStruct
+                {
+                    Id = new PointId { Uuid = GetStableGuid(doc.DocumentId).ToString() },
+                };
+                point.Vectors = embedding.Vector.ToArray();
+
+                foreach (var meta in doc.Metadata)
+                {
+                    point.Payload.Add(meta.Key, new Value { StringValue = meta.Value });
+                }
+                point.Payload.Add("original_text", new Value { StringValue = doc.TextContent });
+
+                pointsToUpsert.Add(point);
+            }
+
+            // (ج) الرفع إلى Qdrant
+            Console.WriteLine($"[VectorDB] Upserting {pointsToUpsert.Count} points to Qdrant...");
+            await _qdrantClient.UpsertAsync(collectionName, pointsToUpsert);
+            
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"[VectorDB] ✓ Batch {batchNumber} completed successfully!");
+            Console.ResetColor();
+        }
+
         private Guid GetStableGuid(string documentId)
         {
             using (MD5 md5 = MD5.Create())
