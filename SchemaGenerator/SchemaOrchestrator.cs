@@ -27,7 +27,7 @@ namespace SchemaGenerator
         private readonly IVectorDbService _vectorDbService;
         private readonly string _connectionString;
         private readonly string _dbName = "QualityControl";
-        private readonly string _collectionName = "erp_knowledge_base";
+        private readonly string _collectionName;
         private readonly string _stateFilePath;
         private readonly string _checkpointFilePath;
 
@@ -51,6 +51,7 @@ namespace SchemaGenerator
             _vectorDbService = vectorDbService;
 
             _connectionString = config.GetConnectionString("DefaultConnection")!;
+            _collectionName = config["Qdrant:CollectionName"]!;
 
             string baseDirectory = AppContext.BaseDirectory;
             string projectRoot = Path.GetFullPath(Path.Combine(baseDirectory, "../../../../"));

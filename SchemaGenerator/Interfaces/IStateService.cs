@@ -9,6 +9,26 @@ namespace SchemaGenerator.Interfaces
     /// </summary>
     public interface IStateService
     {
+        // --- (جديد) Generic Methods for Flexible State Storage ---
+        
+        /// <summary>
+        /// (جديد) يحمّل حالة من نوع محدد باستخدام مفتاح (Key).
+        /// </summary>
+        /// <typeparam name="T">نوع الحالة (e.g., HashSet<string>, Dictionary<string,int>)</typeparam>
+        /// <param name="key">المفتاح الفريد للحالة (e.g., "QdrantUploadedDocumentIds")</param>
+        /// <returns>الحالة المحملة، أو null إذا لم توجد</returns>
+        Task<T?> LoadStateAsync<T>(string key) where T : class;
+        
+        /// <summary>
+        /// (جديد) يحفظ حالة من نوع محدد باستخدام مفتاح (Key).
+        /// </summary>
+        /// <typeparam name="T">نوع الحالة</typeparam>
+        /// <param name="key">المفتاح الفريد للحالة</param>
+        /// <param name="state">الحالة المراد حفظها</param>
+        Task SaveStateAsync<T>(string key, T state) where T : class;
+
+        // --- Existing Pipeline-Specific Methods ---
+        
         /// <summary>
         /// يقرأ ملف الحالة (JSON) من المسار المحدد ويحوله إلى كائن PipelineState.
         /// </summary>

@@ -12,27 +12,106 @@ namespace SchemaGenerator.Services
     /// </summary>
     public class JsonStateService : IStateService
     {
-        // إعدادات الـ JSON (لجعل الملف مقروءاً)
         private readonly JsonSerializerOptions _jsonOptions;
-
-        // (الأهم) نستخدم Semaphore لضمان عدم الكتابة والقراءة في نفس اللحظة
-        // من threads مختلفة، مما قد يتسبب في تلف الملف.
         private static readonly SemaphoreSlim _fileLock = new SemaphoreSlim(1, 1);
+        
+        // (جديد) مسار الملف الافتراضي للحالة العامة (Generic State)
+        private const string GenericStateFilePath = "Infrastructure/generic_state.json";
 
         public JsonStateService()
         {
             _jsonOptions = new JsonSerializerOptions
             {
-                WriteIndented = true, // يجعل الملف مقروءاً للـ debugging
+                WriteIndented = true,
                 PropertyNameCaseInsensitive = true,
-                Converters = { new JsonStringEnumConverter() } // يحفظ الـ Enum (Pending, Completed) كنص
+                Converters = { new JsonStringEnumConverter() }
             };
         }
 
-        //Public_Methods
+        // --- (جديد) Generic State Methods ---
+
         /// <summary>
-        /// يقرأ ملف الحالة (JSON) من المسار المحدد ويحوله إلى كائن PipelineState.
+        /// (جديد) يحمّل حالة من نوع محدد باستخدام مفتاح (Key).
         /// </summary>
+        public async Task<T?> LoadStateAsync<T>(string key) where T : class
+        {
+            await _fileLock.WaitAsync();
+            try
+            {
+                if (!File.Exists(GenericStateFilePath))
+                {
+                    return null;
+                }
+
+                string json = await File.ReadAllTextAsync(GenericStateFilePath);
+                if (string.IsNullOrWhiteSpace(json))
+                {
+                    return null;
+                }
+
+                // قراءة الملف ككائن Dictionary عام
+                var stateContainer = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json, _jsonOptions);
+                if (stateContainer == null || !stateContainer.ContainsKey(key))
+                {
+                    return null;
+                }
+
+                // استخراج القيمة وتحويلها للنوع المطلوب
+                var element = stateContainer[key];
+                return JsonSerializer.Deserialize<T>(element.GetRawText(), _jsonOptions);
+            }
+            finally
+            {
+                _fileLock.Release();
+            }
+        }
+
+        /// <summary>
+        /// (جديد) يحفظ حالة من نوع محدد باستخدام مفتاح (Key).
+        /// </summary>
+        public async Task SaveStateAsync<T>(string key, T state) where T : class
+        {
+            await _fileLock.WaitAsync();
+            try
+            {
+                // قراءة الحالة الحالية (إن وجدت)
+                Dictionary<string, JsonElement> stateContainer;
+                
+                if (File.Exists(GenericStateFilePath))
+                {
+                    string existingJson = await File.ReadAllTextAsync(GenericStateFilePath);
+                    stateContainer = string.IsNullOrWhiteSpace(existingJson)
+                        ? new Dictionary<string, JsonElement>()
+                        : JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(existingJson, _jsonOptions) 
+                          ?? new Dictionary<string, JsonElement>();
+                }
+                else
+                {
+                    // إنشاء المجلد إذا لم يكن موجوداً
+                    var directory = Path.GetDirectoryName(GenericStateFilePath);
+                    if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
+                    stateContainer = new Dictionary<string, JsonElement>();
+                }
+
+                // تحديث القيمة للمفتاح المحدد
+                var stateJson = JsonSerializer.Serialize(state, _jsonOptions);
+                stateContainer[key] = JsonSerializer.Deserialize<JsonElement>(stateJson);
+
+                // كتابة الحالة المحدثة
+                string finalJson = JsonSerializer.Serialize(stateContainer, _jsonOptions);
+                await File.WriteAllTextAsync(GenericStateFilePath, finalJson);
+            }
+            finally
+            {
+                _fileLock.Release();
+            }
+        }
+
+        // --- Existing Pipeline-Specific Methods (لم تتغير) ---
+
         public async Task<PipelineState> LoadStateAsync(string stateFilePath)
         {
             await _fileLock.WaitAsync();
@@ -46,9 +125,6 @@ namespace SchemaGenerator.Services
             }
         }
 
-        /// <summary>
-        /// يحفظ كائن الحالة (PipelineState) بالكامل في ملف الـ JSON.
-        /// </summary>
         public async Task SaveStateAsync(string stateFilePath, PipelineState currentState)
         {
             await _fileLock.WaitAsync();
@@ -62,26 +138,20 @@ namespace SchemaGenerator.Services
             }
         }
 
-        /// <summary>
-        /// دالة مساعدة (Helper) لجلب آخر LSN مسجل لجدول معين.
-        /// </summary>
         public async Task<string> GetLastLsnForTable(string stateFilePath, string tableName)
         {
             var state = await LoadStateAsync(stateFilePath);
             state.DataLastLsn.TryGetValue(tableName, out var lsn);
-            return lsn; // (سيرجع null إذا لم يوجد)
+            return lsn;
         }
 
-        /// <summary>
-        /// دالة مساعدة (Helper) لتحديث أو إضافة الـ LSN لجدول معين.
-        /// </summary>
         public async Task SetLastLsnForTable(string stateFilePath, string tableName, string lsn)
         {
             await _fileLock.WaitAsync();
             try
             {
                 var state = await ReadStateAsync(stateFilePath);
-                state.DataLastLsn[tableName] = lsn; // (تحديث أو إضافة)
+                state.DataLastLsn[tableName] = lsn;
                 await WriteStateAsync(stateFilePath, state);
             }
             finally
@@ -89,10 +159,7 @@ namespace SchemaGenerator.Services
                 _fileLock.Release();
             }
         }
-       
-        /// <summary>
-        /// دالة مساعدة (Helper) لجلب آخر Hash مسجل لمستند سكيما معين.
-        /// </summary>
+
         public async Task<string> GetLastHashForSchema(string stateFilePath, string schemaId)
         {
             var state = await LoadStateAsync(stateFilePath);
