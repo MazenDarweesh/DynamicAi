@@ -1,9 +1,9 @@
 ﻿using Domain.Entities;
-using Infrastructure.Persistence;
-using Infrastructure.TargetDb;
+using DynamicAi.Infrastructure.Persistence;
+using DynamicAi.Infrastructure.TargetDb;
 using Microsoft.AspNetCore.Mvc;
 
-namespace Api.Controllers
+namespace DynamicAi.Api.Controllers
 {
 
     [ApiController]

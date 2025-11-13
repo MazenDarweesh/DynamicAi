@@ -1,7 +1,7 @@
-﻿using Domain.Entities;
+﻿using DynamicAi.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
-namespace Infrastructure.Persistence
+namespace DynamicAi.Infrastructure.Persistence
 {
 
     public class AppDbContext : DbContext

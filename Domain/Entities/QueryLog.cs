@@ -1,4 +1,4 @@
-﻿namespace Domain.Entities
+﻿namespace DynamicAi.Domain.Entities
 {
     public class QueryLog
     {

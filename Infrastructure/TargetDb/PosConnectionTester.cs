@@ -1,6 +1,6 @@
 ﻿using Microsoft.Data.SqlClient;
 
-namespace Infrastructure.TargetDb
+namespace DynamicAi.Infrastructure.TargetDb
 {
  
     public class PosConnectionTester

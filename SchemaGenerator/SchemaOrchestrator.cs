@@ -26,7 +26,7 @@ namespace SchemaGenerator
         private readonly IErpDataExtractorService _dataExtractorService;
         private readonly IVectorDbService _vectorDbService;
         private readonly string _connectionString;
-        private readonly string _dbName = "QualityControl";
+        private readonly string _dbName;
         private readonly string _collectionName;
         private readonly string _stateFilePath;
         private readonly string _checkpointFilePath;
@@ -51,6 +51,7 @@ namespace SchemaGenerator
             _vectorDbService = vectorDbService;
 
             _connectionString = config.GetConnectionString("DefaultConnection")!;
+            _dbName = config["Database:Name"]!;
             _collectionName = config["Qdrant:CollectionName"]!;
 
             string baseDirectory = AppContext.BaseDirectory;
@@ -104,9 +105,7 @@ namespace SchemaGenerator
                 if (checkpoint.LastCompletedPhase < 1)
                 {
                     Console.WriteLine("[Phase 1] Building ERP Context Map from 6 Target Pages...");
-                    // Change this line in GenerateSchemaAsync():
                     checkpoint.ContextMap = await _metadataService.BuildContextMapAsync(_connectionString, _dbName, _targetPageIds);
-                    // Remove the .ContinueWith(...) entirely
                     Console.WriteLine($"[Phase 1] Context Map built. Found {checkpoint.ContextMap.Count} relevant Views.");
                     
                     checkpoint.LastCompletedPhase = 1;
@@ -296,8 +295,8 @@ namespace SchemaGenerator
 * Input (Example):  Method: GenerateSchemaAsync()
 * Inputs (from config/code): 
 * _targetPageIds = [244, 7912, 330, 332, 333, 336]
-* _dbName = "QualityControl"
-* _collectionName = "erp_knowledge_base"
+* _dbName = "QualityControl" (from Database:Name)
+* _collectionName = "erp_knowledge_base_v2" (from Qdrant:CollectionName)
 * _stateFilePath = "Infrastructure/process_state.json"
 *
 * Output (Example): Task (Void).

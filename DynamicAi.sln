@@ -3,13 +3,13 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.14.36603.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Api", "DynamicAi\Api.csproj", "{4A3E0BB3-FDFB-4698-858C-5986AAD39E64}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DynamicAi.Api", "DynamicAi\DynamicAi.Api.csproj", "{4A3E0BB3-FDFB-4698-858C-5986AAD39E64}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Application", "DynamicAi.Application\Application.csproj", "{6DCDA94C-5D27-49EE-A42A-CAFA89CDC4F2}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DynamicAi.Application", "DynamicAi.Application\DynamicAi.Application.csproj", "{6DCDA94C-5D27-49EE-A42A-CAFA89CDC4F2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Domain", "Domain\Domain.csproj", "{EDF7D777-72BB-4AB4-924D-0FAC254FDCB0}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DynamicAi.Domain", "Domain\DynamicAi.Domain.csproj", "{EDF7D777-72BB-4AB4-924D-0FAC254FDCB0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Infrastructure", "Infrastructure\Infrastructure.csproj", "{EF67F034-99A9-4D8C-ABCE-BF222030E678}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DynamicAi.Infrastructure", "Infrastructure\DynamicAi.Infrastructure.csproj", "{EF67F034-99A9-4D8C-ABCE-BF222030E678}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SchemaGenerator", "SchemaGenerator\SchemaGenerator.csproj", "{C95457B3-54CB-4BB4-A65C-9EA9BFDC3687}"
 EndProject
