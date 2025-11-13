@@ -10,6 +10,8 @@ using Qdrant.Client; // (جديد)
 using Polly;
 using System.Net;
 using Microsoft.SemanticKernel.ChatCompletion;
+using DynamicAi.Application.Interfaces;
+using DynamicAi.Application.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 // --- 1. تسجيل أدوات الـ (DI) ---
@@ -71,6 +73,10 @@ builder.Services.AddSingleton<IChatCompletionService>(sp =>
 // (هـ) تسجيل خدمات توليد الـ SQL
 builder.Services.AddTransient<ISqlGenerationService, SqlGenerationService>();
 builder.Services.AddSingleton<IFewShotExampleService, HardcodedFewShotExampleService>(); // (Singleton لأن الأمثلة ثابتة)
+                                                                                         // --- (جديد) تسجيل خدمات "اليوم الثالث" ---
+builder.Services.AddTransient<ISqlValidatorService, SqlValidatorService>();
+// (تم تأجيل Layer 4 (Rewriter) لـ "ما بعد الـ MVP" لتسريع الإخراج)
+builder.Services.AddTransient<ISandboxedSqlExecutor, SandboxedSqlExecutor>();
 
 // --- 2. إعدادات الـ API (الأصلية) ---
 builder.Services.AddControllers();
@@ -83,9 +89,6 @@ var appDbConnectionString = builder.Configuration.GetConnectionString("AppDbCont
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(appDbConnectionString));
 
-// إضافة خدمة "Scoped" لاختبار اتصال الـ POS
-builder.Services.AddScoped<PosConnectionTester>(sp =>
-    new PosConnectionTester(builder.Configuration.GetConnectionString("")));
 
 var app = builder.Build();
 
