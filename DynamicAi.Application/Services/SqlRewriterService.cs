@@ -36,7 +36,8 @@ namespace DynamicAi.Application.Services
             fragment.Accept(visitor);
 
             // 4. استخراج الـ SQL "المُحصّن"
-            var sqlGenerator = new TSql160ScriptGenerator();
+            // FIX: Use Sql160ScriptGenerator (without the 'T' prefix) for version 170
+            var sqlGenerator = new Sql160ScriptGenerator();
             string rewrittenSql;
             sqlGenerator.GenerateScript(fragment, out rewrittenSql);
 
@@ -45,3 +46,4 @@ namespace DynamicAi.Application.Services
             return Task.FromResult(result);
         }
     }
+}

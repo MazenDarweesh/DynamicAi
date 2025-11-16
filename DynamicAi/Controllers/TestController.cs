@@ -1,7 +1,11 @@
-﻿using Domain.Entities;
+﻿using DynamicAi.Domain.Entities;
+using DynamicAi.Application.Interfaces;
+using DynamicAi.Application.Models;
 using DynamicAi.Infrastructure.Persistence;
 using DynamicAi.Infrastructure.TargetDb;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.SqlClient;
+using System.Security;
 
 namespace DynamicAi.Api.Controllers
 {
@@ -10,41 +14,52 @@ namespace DynamicAi.Api.Controllers
     [Route("[controller]")]
     public class TestController : ControllerBase
     {
-        private readonly AppDbContext _appDbContext;
-        private readonly PosConnectionTester _posTester;
+        private readonly IQueryOrchestrator _queryOrchestrator; // (جديد)
 
-        public TestController(AppDbContext appDbContext, PosConnectionTester posTester)
+        // (جديد) حقن "العقل المدبر"
+        public TestController(IQueryOrchestrator queryOrchestrator)
         {
-            _appDbContext = appDbContext;
-            _posTester = posTester;
+            _queryOrchestrator = queryOrchestrator;
         }
 
-        [HttpGet("FullConnectivityCheck")]
-        public async Task<IActionResult> GetStatus()
+        /// <summary>
+        /// (جديد) نقطة الدخول الرئيسية للـ API
+        /// </summary>
+        [HttpPost("ask")]
+        public async Task<IActionResult> AskQuery([FromBody] AskRequest request)
         {
-            // 1. اختبار قاعدة بياناتنا (Code First)
-            string appDbStatus;
+            if (string.IsNullOrWhiteSpace(request.Question))
+            {
+                return BadRequest("Question cannot be empty.");
+            }
+
             try
             {
-                var log = new QueryLog { RawQuestion = "Test Connectivity", WasSuccessful = true };
-                _appDbContext.QueryLogs.Add(log);
-                await _appDbContext.SaveChangesAsync();
-                appDbStatus = "SUCCESS: Log written to AppDbContext.";
+                // (هنا يتم تشغيل الـ Pipeline بالكامل بـ 7 طبقات)
+                var result = await _queryOrchestrator.HandleQueryAsync(request.Question, request.TenantId);
+                return Ok(result);
             }
-            catch (Exception ex)
+            catch (SecurityException secEx)
             {
-                appDbStatus = $"FAIL: {ex.Message}";
+                // (خطأ من Layer 3 - الـ SQL خبيث)
+                // (تغيير 403 إلى 400 لتجنب خطأ Authentication)
+                return BadRequest($"Security Violation: {secEx.Message}");
             }
-
-            // 2. اختبار قاعدة بيانات الـ POS (Read-Only)
-            var (posCanConnect, posError) = await _posTester.TestConnectionAsync();
-            var posDbStatus = posCanConnect ? $"SUCCESS: {posError}" : $"FAIL: {posError}";
-
-            return Ok(new
+            catch (InvalidDataException sqlEx)
             {
-                AppDatabaseStatus = appDbStatus,
-                PosDatabaseStatus = posDbStatus
-            });
+                // (خطأ من Layer 3 - الـ SQL غير صحيح)
+                return BadRequest($"SQL Syntax Error: {sqlEx.Message}");
+            }
+            catch (SqlException dbEx)
+            {
+                // (خطأ من Layer 5 - خطأ في التنفيذ)
+                return StatusCode(500, $"Database Error: {dbEx.Message}");
+            }
+            catch (System.Exception ex)
+            {
+                // (أي خطأ آخر)
+                return StatusCode(500, $"An unexpected error occurred: {ex.Message}");
+            }
         }
     }
 }

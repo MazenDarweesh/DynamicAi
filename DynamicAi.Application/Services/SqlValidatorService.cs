@@ -16,7 +16,7 @@ namespace DynamicAi.Application.Services
         private readonly List<string> _tempAllowedViews = new List<string>
         {
             "ContractViewWithPaid", "salessystemcontract", "SupplyOrderDetailView",
-            "SystemsContractStoreView", "ContarctReportwithoutresale", "SalesMonth",
+            "SystemsContractStoreView", "ContarctReportwithoutresale", "SalesMonth","SalesManTotalWithContract",
             // (والجداول التي اكتشفناها مثل Contract, SystemsContract, ProductView...)
             "Contract", "SystemsContract", "ProductView", "Store", "Sizes", "Color",
             "Units", "ConType", "Currancy", "PaymentRecive", "day", "contractDay",

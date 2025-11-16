@@ -1,98 +1,26 @@
 ﻿using DynamicAi.Infrastructure.Persistence;
-using DynamicAi.Infrastructure.TargetDb;
-using Microsoft.EntityFrameworkCore;
-using DynamicAi.Application.Interfaces; // (جديد)
-using DynamicAi.Application.Services;   // (جديد)
-using Microsoft.Extensions.AI;          // (جديد)
-using Microsoft.SemanticKernel.Embeddings; // (جديد)
-using Microsoft.SemanticKernel.Connectors.Google; // (جديد)
-using Qdrant.Client; // (جديد)
-using Polly;
-using System.Net;
-using Microsoft.SemanticKernel.ChatCompletion;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Services;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.AI;
+using Microsoft.SemanticKernel.Connectors.Google;
+using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Embeddings;
+using Qdrant.Client;
+using Polly;
+using System.Net;
+
+// 1. بناء الـ Builder (لقراءة الإعدادات و DI)
 var builder = WebApplication.CreateBuilder(args);
 
-// --- 1. تسجيل أدوات الـ (DI) ---
-
-// (أ) تسجيل عميل Qdrant
-var qdrantHost = builder.Configuration["Qdrant:Host"];
-var qdrantApiKey = builder.Configuration["Qdrant:ApiKey"];
-builder.Services.AddSingleton(new QdrantClient(
-    host: qdrantHost,
-    apiKey: qdrantApiKey
-));
-
-// (ب) تسجيل خدمة التضمين (Embedding) (للبحث)
-string googleApiKey = builder.Configuration["Gemini:ApiKey"];
-
-builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
-{
-    var embeddingService = new GoogleAITextEmbeddingGenerationService(
-        modelId: "gemini-embedding-001", // (الموديل السريع)
-        apiKey: googleApiKey
-    );
-    
-    return embeddingService.AsEmbeddingGenerator();
-});
-
-// (ج) تسجيل خدمة الاسترجاع (RAG) الجديدة
-builder.Services.AddTransient<IRagRetrievalService, QdrantRetrievalService>();
-
-// (د) تسجيل خدمة المحادثة "gemini-2.5-pro" (مع Polly)
-// (هذا الكود "منسوخ" من SchemaBootstrapper لضمان المرونة)
-IAsyncPolicy<HttpResponseMessage> retryPolicy = Policy
-    .HandleResult<HttpResponseMessage>(r => r.StatusCode == HttpStatusCode.ServiceUnavailable)
-    .Or<HttpRequestException>()
-    .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt) * 5),
-        (outcome, timespan, retryCount, ctx) => {
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"[Polly] فشل طلب المحادثة (503). المحاولة رقم {retryCount}...");
-            Console.ResetColor();
-        });
-
-builder.Services.AddHttpClient("GeminiChatClient", client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(900);
-})
-.AddPolicyHandler(retryPolicy);
-
-builder.Services.AddSingleton<IChatCompletionService>(sp =>
-{
-    var clientFactory = sp.GetRequiredService<IHttpClientFactory>();
-    var httpClient = clientFactory.CreateClient("GeminiChatClient");
-
-    return new GoogleAIGeminiChatCompletionService(
-        modelId: "gemini-2.5-pro", // (موديل المحادثة القوي)
-        apiKey: googleApiKey,
-        httpClient: httpClient
-    );
-});
-
-// (هـ) تسجيل خدمات توليد الـ SQL
-builder.Services.AddTransient<ISqlGenerationService, SqlGenerationService>();
-builder.Services.AddSingleton<IFewShotExampleService, HardcodedFewShotExampleService>(); // (Singleton لأن الأمثلة ثابتة)
-                                                                                         // --- (جديد) تسجيل خدمات "اليوم الثالث" ---
-builder.Services.AddTransient<ISqlValidatorService, SqlValidatorService>();
-// (تم تأجيل Layer 4 (Rewriter) لـ "ما بعد الـ MVP" لتسريع الإخراج)
-builder.Services.AddTransient<ISandboxedSqlExecutor, SandboxedSqlExecutor>();
-
-// --- 2. إعدادات الـ API (الأصلية) ---
-builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
-// تسجيل قاعدة بياناتنا الجديدة (Code First)
-var appDbConnectionString = builder.Configuration.GetConnectionString("AppDbContextConnection");
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(appDbConnectionString));
-
+// 2. إعداد الخدمات (DI)
+ConfigureServices(builder.Services, builder.Configuration);
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// ============================================================================
+// 3. إعداد Pipeline الطلبات
+// ============================================================================
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -100,9 +28,107 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
 app.UseAuthorization();
-
 app.MapControllers();
 
 app.Run();
+
+// ============================================================================
+// طريقة إعداد الخدمات (منفصلة للوضوح)
+// ============================================================================
+static void ConfigureServices(IServiceCollection services, IConfiguration configuration)
+{
+    // --- تسجيل خدمات التطبيق ---
+    services.AddTransient<IQueryOrchestrator, QueryOrchestrator>();
+    services.AddTransient<ISqlGenerationService, SqlGenerationService>();
+    services.AddTransient<ISqlValidatorService, SqlValidatorService>();
+    services.AddTransient<ISqlRewriterService, SqlRewriterService>();
+    services.AddTransient<ISandboxedSqlExecutor, SandboxedSqlExecutor>();
+    services.AddTransient<IRagRetrievalService, QdrantRetrievalService>();
+    services.AddSingleton<IFewShotExampleService, HardcodedFewShotExampleService>();
+
+    // --- تسجيل عميل Qdrant ---
+    var qdrantHost = configuration["Qdrant:Host"]!;
+    var qdrantApiKey = configuration["Qdrant:ApiKey"];
+    
+    services.AddSingleton(sp =>
+    {
+        var uri = new Uri(qdrantHost);
+        return new QdrantClient(
+            host: uri.Host,
+            port: 6334,
+            https: true,
+            apiKey: qdrantApiKey
+        );
+    });
+
+    // --- تسجيل خدمات Gemini ---
+    string googleApiKey = configuration["Gemini:ApiKey"]!;
+    string embeddingModel = configuration["Gemini:EmbeddingModel"]!;
+    string chatModel = configuration["Gemini:ChatModel"]!;
+
+    // خدمة التضمين (Embedding)
+    services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
+    {
+        var clientFactory = sp.GetRequiredService<IHttpClientFactory>();
+        var httpClient = clientFactory.CreateClient("GeminiEmbeddingClient");
+
+        var embeddingService = new GoogleAITextEmbeddingGenerationService(
+            modelId: embeddingModel,
+            apiKey: googleApiKey,
+            httpClient: httpClient
+        );
+        
+        return embeddingService.AsEmbeddingGenerator();
+    });
+
+    // سياسة إعادة المحاولة (Retry Policy)
+    IAsyncPolicy<HttpResponseMessage> retryPolicy = Policy
+        .HandleResult<HttpResponseMessage>(r =>
+            r.StatusCode == HttpStatusCode.ServiceUnavailable ||
+            r.StatusCode == HttpStatusCode.TooManyRequests)
+        .Or<HttpRequestException>()
+        .WaitAndRetryAsync(
+            retryCount: 5,
+            sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt) * 5),
+            onRetry: (outcome, timespan, retryCount, ctx) => {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"[Polly] Rate limit detected. Retry #{retryCount} after {timespan.TotalSeconds:F1}s...");
+                Console.ResetColor();
+            });
+
+    // HTTP Clients
+    services.AddHttpClient("GeminiEmbeddingClient", client =>
+    {
+        client.Timeout = TimeSpan.FromMinutes(30);
+    });
+
+    services.AddHttpClient("GeminiChatClient", client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(900);
+    })
+    .AddPolicyHandler(retryPolicy);
+
+    // خدمة المحادثة (Chat)
+    services.AddSingleton<IChatCompletionService>(sp =>
+    {
+        var clientFactory = sp.GetRequiredService<IHttpClientFactory>();
+        var httpClient = clientFactory.CreateClient("GeminiChatClient");
+
+        return new GoogleAIGeminiChatCompletionService(
+            modelId: chatModel,
+            apiKey: googleApiKey,
+            httpClient: httpClient
+        );
+    });
+
+    // --- تسجيل قاعدة البيانات ---
+    var appDbConnectionString = configuration.GetConnectionString("AppDbContextConnection");
+    services.AddDbContext<AppDbContext>(options =>
+        options.UseSqlServer(appDbConnectionString));
+
+    // --- إعدادات الـ API ---
+    services.AddControllers();
+    services.AddEndpointsApiExplorer();
+    services.AddSwaggerGen();
+}
