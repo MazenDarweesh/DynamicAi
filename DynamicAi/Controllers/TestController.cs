@@ -9,55 +9,163 @@ using System.Security;
 
 namespace DynamicAi.Api.Controllers
 {
-
     [ApiController]
     [Route("[controller]")]
     public class TestController : ControllerBase
     {
-        private readonly IQueryOrchestrator _queryOrchestrator; // (جديد)
+        private readonly IQueryOrchestrator _queryOrchestrator;
 
-        // (جديد) حقن "العقل المدبر"
         public TestController(IQueryOrchestrator queryOrchestrator)
         {
             _queryOrchestrator = queryOrchestrator;
         }
 
         /// <summary>
-        /// (جديد) نقطة الدخول الرئيسية للـ API
+        /// نقطة الدخول الرئيسية للـ API
         /// </summary>
         [HttpPost("ask")]
         public async Task<IActionResult> AskQuery([FromBody] AskRequest request)
         {
+            // ============================================================================
+            // API Layer - تسجيل بداية الطلب
+            // ============================================================================
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine("\n\n");
+            Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
+            Console.WriteLine("█                                                                          █");
+            Console.WriteLine("█                    API REQUEST RECEIVED - /Test/ask                     █");
+            Console.WriteLine("█                                                                          █");
+            Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
+            Console.ResetColor();
+
+            Console.WriteLine($"[API] Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
+            Console.WriteLine($"[API] HTTP Method: POST");
+            Console.WriteLine($"[API] Endpoint: /Test/ask");
+
             if (string.IsNullOrWhiteSpace(request.Question))
             {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("[API] ✗ Validation failed: Question cannot be empty.");
+                Console.ResetColor();
                 return BadRequest("Question cannot be empty.");
             }
 
+            Console.WriteLine($"[API] Question: \"{request.Question}\"");
+            Console.WriteLine($"[API] Tenant ID: {request.TenantId ?? "null"}");
+            Console.WriteLine("[API] Starting orchestrator pipeline...\n");
+
+            var apiStartTime = DateTime.UtcNow;
+
             try
             {
-                // (هنا يتم تشغيل الـ Pipeline بالكامل بـ 7 طبقات)
+                // تشغيل Pipeline بالكامل
                 var result = await _queryOrchestrator.HandleQueryAsync(request.Question, request.TenantId);
+                
+                var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
+
+                // نجاح العملية
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("\n████████████████████████████████████████████████████████████████████████████");
+                Console.WriteLine("█                                                                          █");
+                Console.WriteLine("█                    API REQUEST SUCCESSFUL - 200 OK                      █");
+                Console.WriteLine("█                                                                          █");
+                Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
+                Console.ResetColor();
+
+                Console.WriteLine($"[API] Total API request duration: {apiDuration:F0}ms");
+                Console.WriteLine($"[API] Response: OK (200)\n\n");
+
                 return Ok(result);
             }
             catch (SecurityException secEx)
             {
-                // (خطأ من Layer 3 - الـ SQL خبيث)
-                // (تغيير 403 إلى 400 لتجنب خطأ Authentication)
+                var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("\n████████████████████████████████████████████████████████████████████████████");
+                Console.WriteLine("█                                                                          █");
+                Console.WriteLine("█                 API REQUEST FAILED - SECURITY VIOLATION                 █");
+                Console.WriteLine("█                                                                          █");
+                Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
+                Console.ResetColor();
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[API] Error Type: SecurityException (Layer 3)");
+                Console.WriteLine($"[API] Error Message: {secEx.Message}");
+                Console.WriteLine($"[API] Failed after {apiDuration:F0}ms");
+                Console.WriteLine($"[API] Response: BadRequest (400)\n\n");
+                Console.ResetColor();
+
                 return BadRequest($"Security Violation: {secEx.Message}");
             }
             catch (InvalidDataException sqlEx)
             {
-                // (خطأ من Layer 3 - الـ SQL غير صحيح)
+                var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("\n████████████████████████████████████████████████████████████████████████████");
+                Console.WriteLine("█                                                                          █");
+                Console.WriteLine("█                  API REQUEST FAILED - SQL SYNTAX ERROR                  █");
+                Console.WriteLine("█                                                                          █");
+                Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
+                Console.ResetColor();
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[API] Error Type: InvalidDataException (Layer 3)");
+                Console.WriteLine($"[API] Error Message: {sqlEx.Message}");
+                Console.WriteLine($"[API] Failed after {apiDuration:F0}ms");
+                Console.WriteLine($"[API] Response: BadRequest (400)\n\n");
+                Console.ResetColor();
+
                 return BadRequest($"SQL Syntax Error: {sqlEx.Message}");
             }
             catch (SqlException dbEx)
             {
-                // (خطأ من Layer 5 - خطأ في التنفيذ)
+                var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("\n████████████████████████████████████████████████████████████████████████████");
+                Console.WriteLine("█                                                                          █");
+                Console.WriteLine("█                  API REQUEST FAILED - DATABASE ERROR                    █");
+                Console.WriteLine("█                                                                          █");
+                Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
+                Console.ResetColor();
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[API] Error Type: SqlException (Layer 5)");
+                Console.WriteLine($"[API] Error Message: {dbEx.Message}");
+                Console.WriteLine($"[API] Failed after {apiDuration:F0}ms");
+                Console.WriteLine($"[API] Response: InternalServerError (500)\n\n");
+                Console.ResetColor();
+
                 return StatusCode(500, $"Database Error: {dbEx.Message}");
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
-                // (أي خطأ آخر)
+                var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("\n████████████████████████████████████████████████████████████████████████████");
+                Console.WriteLine("█                                                                          █");
+                Console.WriteLine("█                 API REQUEST FAILED - UNEXPECTED ERROR                   █");
+                Console.WriteLine("█                                                                          █");
+                Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
+                Console.ResetColor();
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[API] Error Type: {ex.GetType().Name}");
+                Console.WriteLine($"[API] Error Message: {ex.Message}");
+                Console.WriteLine($"[API] Failed after {apiDuration:F0}ms");
+                Console.WriteLine($"[API] Response: InternalServerError (500)");
+                
+                if (ex.StackTrace != null)
+                {
+                    Console.WriteLine($"[API] Stack Trace:");
+                    Console.WriteLine(ex.StackTrace);
+                }
+                Console.WriteLine("\n");
+                Console.ResetColor();
+
                 return StatusCode(500, $"An unexpected error occurred: {ex.Message}");
             }
         }

@@ -37,44 +37,155 @@ namespace DynamicAi.Application.Services
         /// </summary>
         public async Task<IEnumerable<dynamic>> HandleQueryAsync(string userQuestion, string tenantId)
         {
-            // (هنا هو تنفيذ "الـ 7 طبقات" التي في النقد)
+            // ============================================================================
+            // بداية Pipeline - عرض معلومات الطلب
+            // ============================================================================
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine("\n");
+            Console.WriteLine("╔════════════════════════════════════════════════════════════════════════╗");
+            Console.WriteLine("║                  QUERY ORCHESTRATOR - PIPELINE START                   ║");
+            Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
+            Console.ResetColor();
+            
+            Console.WriteLine($"[Orchestrator] User Question: \"{userQuestion}\"");
+            Console.WriteLine($"[Orchestrator] Tenant ID: {tenantId}");
+            Console.WriteLine($"[Orchestrator] Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
+            Console.WriteLine($"[Orchestrator] Pipeline has 5 layers to execute...\n");
 
-            // --- (Layer 1: RAG) استرجاع "الحقائق" من Qdrant ---
-            Console.WriteLine($"[Orchestrator] Layer 1: Retrieving context for question...");
-            var contextSnippets = await _retrievalService.RetrieveContextAsync(userQuestion, tenantId);
+            var startTime = DateTime.UtcNow;
 
-            // --- (Layer 2: Generation) توليد الـ SQL "الخام" ---
-            Console.WriteLine($"[Orchestrator] Layer 2: Generating raw SQL from LLM...");
-            var rawSql = await _generationService.GenerateSqlAsync(userQuestion, contextSnippets);
-            Console.WriteLine($"[Orchestrator] Raw SQL: {rawSql}");
+            try
+            {
+                // ============================================================================
+                // Layer 1: RAG - استرجاع السياق من قاعدة المعرفة
+                // ============================================================================
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine("╔════════════════════════════════════════════════════════════════════════╗");
+                Console.WriteLine("║                [Layer 1: RAG RETRIEVAL] - STARTING                     ║");
+                Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
+                Console.ResetColor();
 
-            // --- (Layer 3: Validation) التحقق من أمان الـ SQL ---
-            Console.WriteLine($"[Orchestrator] Layer 3: Validating SQL safety...");
-            await _validatorService.ValidateSqlAsync(rawSql, tenantId);
-            Console.WriteLine($"[Orchestrator] SQL is Safe.");
+                var layer1Start = DateTime.UtcNow;
+                var contextSnippets = await _retrievalService.RetrieveContextAsync(userQuestion, tenantId);
+                var layer1Duration = (DateTime.UtcNow - layer1Start).TotalMilliseconds;
 
-            // --- (Layer 4: Rewriting) تحصين الـ SQL (الذي أجلناه مؤقتاً) ---
-            // (في الـ MVP البسيط، سنتجاوز إعادة الكتابة المعقدة ونفترض أن
-            // الـ Validator (Layer 3) و الـ Executor (Layer 5) كافيان كبداية)
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[Orchestrator] ✓ Layer 1 completed in {layer1Duration:F0}ms");
+                Console.WriteLine($"[Orchestrator] Retrieved {contextSnippets?.Count() ?? 0} context snippet(s) from Qdrant.\n");
+                Console.ResetColor();
 
-            // (للتوضيح: الكود الذي كتبناه لـ Layer 4 كان مجرد "هيكل"
-            // ولن نفعله بالكامل الآن تسريعاً للـ MVP كما طلبت)
-            // RewrittenSqlResult rewrittenResult = await _rewriterService.RewriteAsync(rawSql, tenantId);
+                // ============================================================================
+                // Layer 2: SQL Generation - توليد SQL من LLM
+                // ============================================================================
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine("╔════════════════════════════════════════════════════════════════════════╗");
+                Console.WriteLine("║              [Layer 2: SQL GENERATION] - STARTING                      ║");
+                Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
+                Console.ResetColor();
 
-            // (الـ MVP سيعتمد على Layer 5 مباشرة مع ربط الباراميترات الأساسي)
+                var layer2Start = DateTime.UtcNow;
+                var rawSql = await _generationService.GenerateSqlAsync(userQuestion, contextSnippets);
+                var layer2Duration = (DateTime.UtcNow - layer2Start).TotalMilliseconds;
 
-            // --- (Layer 5: Execution) تنفيذ الـ SQL "الآمن" ---
-            Console.WriteLine($"[Orchestrator] Layer 5: Executing sandboxed query...");
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[Orchestrator] ✓ Layer 2 completed in {layer2Duration:F0}ms");
+                Console.ResetColor();
+                
+                Console.WriteLine($"[Orchestrator] Generated SQL:");
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"{rawSql}\n");
+                Console.ResetColor();
 
-            // (سنستخدم الـ rawSql مباشرة، مع تمرير الـ tenantId للـ Executor
-            // ليقوم هو بربطه كـ @TenantId)
-            var data = await _executorService.ExecuteSqlAsync(rawSql, tenantId);
-            Console.WriteLine($"[Orchestrator] Execution successful. Rows returned.");
+                // ============================================================================
+                // Layer 3: SQL Validation - التحقق من الأمان
+                // ============================================================================
+                var layer3Start = DateTime.UtcNow;
+                await _validatorService.ValidateSqlAsync(rawSql, tenantId);
+                var layer3Duration = (DateTime.UtcNow - layer3Start).TotalMilliseconds;
 
-            // --- (Layer 6 & 7: Processing & Learning) ---
-            // (سنتجاوزها في الـ MVP)
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[Orchestrator] ✓ Layer 3 completed in {layer3Duration:F0}ms\n");
+                Console.ResetColor();
 
-            return data;
+                // ============================================================================
+                // Layer 4: SQL Rewriting (مُجَّلة للمستقبل في MVP)
+                // ============================================================================
+                Console.ForegroundColor = ConsoleColor.Gray;
+                Console.WriteLine("╔════════════════════════════════════════════════════════════════════════╗");
+                Console.WriteLine("║              [Layer 4: SQL REWRITER] - SKIPPED (MVP)                   ║");
+                Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
+                Console.WriteLine("[Orchestrator] Layer 4 (SQL Rewriter) is deferred for MVP.");
+                Console.WriteLine("[Orchestrator] Proceeding directly to execution...\n");
+                Console.ResetColor();
+
+                // ============================================================================
+                // Layer 5: SQL Execution - التنفيذ الآمن
+                // ============================================================================
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine("╔════════════════════════════════════════════════════════════════════════╗");
+                Console.WriteLine("║            [Layer 5: SANDBOXED EXECUTOR] - STARTING                    ║");
+                Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
+                Console.ResetColor();
+
+                var layer5Start = DateTime.UtcNow;
+                var data = await _executorService.ExecuteSqlAsync(rawSql, tenantId);
+                var layer5Duration = (DateTime.UtcNow - layer5Start).TotalMilliseconds;
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[Orchestrator] ✓ Layer 5 completed in {layer5Duration:F0}ms");
+                Console.WriteLine($"[Orchestrator] Query executed successfully. Rows returned.\n");
+                Console.ResetColor();
+
+                // ============================================================================
+                // Pipeline مكتمل - عرض الإحصائيات النهائية
+                // ============================================================================
+                var totalDuration = (DateTime.UtcNow - startTime).TotalMilliseconds;
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("╔════════════════════════════════════════════════════════════════════════╗");
+                Console.WriteLine("║              QUERY ORCHESTRATOR - PIPELINE COMPLETED ✓                 ║");
+                Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
+                Console.ResetColor();
+
+                Console.WriteLine("\n[Orchestrator] ═══ PIPELINE PERFORMANCE SUMMARY ═══");
+                Console.WriteLine($"  Layer 1 (RAG Retrieval):      {layer1Duration,8:F0} ms");
+                Console.WriteLine($"  Layer 2 (SQL Generation):     {layer2Duration,8:F0} ms");
+                Console.WriteLine($"  Layer 3 (SQL Validation):     {layer3Duration,8:F0} ms");
+                Console.WriteLine($"  Layer 4 (SQL Rewriter):       {"SKIPPED",8}");
+                Console.WriteLine($"  Layer 5 (Execution):          {layer5Duration,8:F0} ms");
+                Console.WriteLine($"  ───────────────────────────────────────────────");
+                Console.WriteLine($"  Total Pipeline Duration:      {totalDuration,8:F0} ms");
+                Console.WriteLine($"[Orchestrator] ══════════════════════════════════════\n");
+
+                return data;
+            }
+            catch (Exception ex)
+            {
+                var totalDuration = (DateTime.UtcNow - startTime).TotalMilliseconds;
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("\n╔════════════════════════════════════════════════════════════════════════╗");
+                Console.WriteLine("║              QUERY ORCHESTRATOR - PIPELINE FAILED ✗                    ║");
+                Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
+                Console.ResetColor();
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[Orchestrator] Error Type: {ex.GetType().Name}");
+                Console.WriteLine($"[Orchestrator] Error Message: {ex.Message}");
+                Console.WriteLine($"[Orchestrator] Failed after {totalDuration:F0}ms");
+                Console.ResetColor();
+
+                if (ex.StackTrace != null)
+                {
+                    Console.ForegroundColor = ConsoleColor.DarkRed;
+                    Console.WriteLine($"[Orchestrator] Stack Trace:");
+                    Console.WriteLine(ex.StackTrace);
+                    Console.ResetColor();
+                }
+
+                Console.WriteLine();
+                throw;
+            }
         }
     }
 }
