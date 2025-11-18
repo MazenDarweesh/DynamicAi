@@ -71,7 +71,7 @@ namespace DynamicAi.Application.Services
 
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine($"[Orchestrator] ✓ Layer 1 completed in {layer1Duration:F0}ms");
-                Console.WriteLine($"[Orchestrator] Retrieved {contextSnippets?.Count() ?? 0} context snippet(s) from Qdrant.\n");
+                Console.WriteLine($"[Orchestrator] Retrieved context bundle with {contextSnippets?.SchemaScripts?.Count ?? 0} schema(s), {contextSnippets?.DictionaryEntries?.Count ?? 0} dictionary entry(ies), and {contextSnippets?.BusinessRules?.Count ?? 0} business rule(s) from Qdrant.\n");
                 Console.ResetColor();
 
                 // ============================================================================

@@ -1,22 +1,23 @@
-﻿namespace DynamicAi.Application.Interfaces
+﻿using DynamicAi.Application.Models; // (جديد)
+using System.Threading.Tasks;
+
+namespace DynamicAi.Application.Interfaces
 {
     /// <summary>
-    /// مسؤول عن "استرجاع" السياق (الحقائق)
-    /// ذات الصلة بسؤال المستخدم من قاعدة بيانات المتجهات (Qdrant).
+    /// (مُعدل) مسؤول عن تنفيذ "البحث الذكي متعدد الخطوات"
+    /// لجلب السياق الكامل (Schema, Data, Rules).
     /// </summary>
     public interface IRagRetrievalService
     {
         /// <summary>
-        /// يبحث في Qdrant عن المستندات (Schema/Data) ذات الصلة بالسؤال.
+        /// (مُعدل) يبحث في Qdrant باستخدام خوارزمية الفهم العميق.
         /// </summary>
         /// <param name="userQuestion">السؤال الأصلي للمستخدم (e.g., "ما هي مبيعاتي؟")</param>
         /// <param name="tenantId">معرف "الشركة" (للفلترة وعزل البيانات)</param>
-        /// <param name="limit">الحد الأقصى لعدد "الحقائق" المراد استرجاعها</param>
-        /// <returns>قائمة من "الحقائق" النصية (JSON rows أو CREATE scripts)</returns>
-        Task<List<string>> RetrieveContextAsync(
+        /// <returns>"سلة سياق" (Context Bundle) غنية جاهزة للـ AI.</returns>
+        Task<RetrievalContextBundle> RetrieveContextAsync(
             string userQuestion,
-            string tenantId,
-            int limit = 5
+            string tenantId
         );
     }
 }

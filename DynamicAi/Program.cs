@@ -45,7 +45,6 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddTransient<ISqlRewriterService, SqlRewriterService>();
     services.AddTransient<ISandboxedSqlExecutor, SandboxedSqlExecutor>();
     services.AddTransient<IRagRetrievalService, QdrantRetrievalService>();
-    services.AddSingleton<IFewShotExampleService, HardcodedFewShotExampleService>();
 
     // --- تسجيل عميل Qdrant ---
     var qdrantHost = configuration["Qdrant:Host"]!;
