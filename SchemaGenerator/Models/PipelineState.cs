@@ -1,23 +1,19 @@
-﻿
-namespace SchemaGenerator.Models
+﻿namespace SchemaGenerator.Models
 {
     /// <summary>
     /// يمثل "الحالة" (State) الكاملة لخط أنابيب التلقيم (Ingestion Pipeline).
-    /// يتم حفظ هذا الكائن كملف process_state.json.
     /// </summary>
     public class PipelineState
     {
         /// <summary>
-        /// قاموس (Dictionary) لتتبع الهاش (Hash) الخاص بكل
-        /// مستند سكيما (Schema Document) تم رفعه.
-        /// Key = DocumentId (e.g., "Table_Contract_Chunk_1")
-        /// Value = Hash (e.g., "abc123def...")
+        /// تتبع تاريخ آخر تعديل لكل كائن (Table/View).
+        /// Key = ObjectName (e.g., "ContractViewWithPaid")
+        /// Value = Last Modified Date in DB
         /// </summary>
-        public Dictionary<string, string> SchemaHashes { get; set; } = new();
+        public Dictionary<string, DateTime> SchemaDates { get; set; } = new();
 
         /// <summary>
-        /// (الأهم) قاموس لتتبع آخر "نقطة توقف" (LSN - Log Sequence Number)
-        /// لكل جدول بيانات (Data Table) نراقبه باستخدام CDC.
+        /// قاموس لتتبع آخر "نقطة توقف" (LSN) لكل جدول بيانات.
         /// Key = TableName (e.g., "ListSetups")
         /// Value = LSN as string (e.g., "0x000123...ABC")
         /// </summary>

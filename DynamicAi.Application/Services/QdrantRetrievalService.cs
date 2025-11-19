@@ -106,26 +106,26 @@ namespace DynamicAi.Application.Services
             Console.ResetColor();
 
             // ============================================================================
-            // STEP 2: إيجاد الشاشة (Page Discovery)
+            // STEP 2: إيجاد الشاشة (Page Discovery) - [OPTIMIZED]
             // ============================================================================
             Console.ForegroundColor = ConsoleColor.Magenta;
             Console.WriteLine("\n[RagRetrieval] STEP 2: Searching for relevant Page...");
             Console.ResetColor();
 
-            // TEMPORARY FIX: Only use semantic search since page_id is not indexed
-            Filter pageFilter = CreateFilter(tenantId, "data", "Pages");
-            Console.WriteLine($"[RagRetrieval] Using semantic search for Page (exact filters not available)");
-            
+            Filter pageFilter;
             if (explicitPageId.HasValue)
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[RagRetrieval] ⚠ PageID {explicitPageId.Value} provided but cannot filter by it (not indexed in Qdrant)");
-                Console.ResetColor();
+                pageFilter = CreateFilter(tenantId, "data", "Pages", ("page_id", explicitPageId.Value));
+                Console.WriteLine($"[RagRetrieval] Using EXACT filter for PageID: {explicitPageId.Value}");
+            }
+            else
+            {
+                pageFilter = CreateFilter(tenantId, "data", "Pages");
+                Console.WriteLine($"[RagRetrieval] Using SEMANTIC search for Page.");
             }
 
             var pageResults = await SearchQdrantAsync(embedding, pageFilter, 5, "Pages", tenantId);
 
-            // Filter in-memory by PageID if specified
             if (!pageResults.Any())
             {
                 Console.ForegroundColor = ConsoleColor.Yellow;
@@ -134,42 +134,7 @@ namespace DynamicAi.Application.Services
                 return contextBundle;
             }
 
-            // If explicit PageID provided, filter results in memory
-            string? matchedPageJson = null;
-            if (explicitPageId.HasValue)
-            {
-                foreach (var pageJson in pageResults)
-                {
-                    try
-                    {
-                        var pageData = JsonDocument.Parse(pageJson).RootElement;
-                        if (pageData.TryGetProperty("PageID", out var pageIdProp) && 
-                            pageIdProp.GetInt32() == explicitPageId.Value)
-                        {
-                            matchedPageJson = pageJson;
-                            Console.ForegroundColor = ConsoleColor.Green;
-                            Console.WriteLine($"[RagRetrieval] ✓ Found exact match for PageID: {explicitPageId.Value}");
-                            Console.ResetColor();
-                            break;
-                        }
-                    }
-                    catch { /* skip malformed JSON */ }
-                }
-
-                if (matchedPageJson == null)
-                {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"[RagRetrieval] ⚠ PageID {explicitPageId.Value} not found in top results - using best semantic match");
-                    Console.ResetColor();
-                    matchedPageJson = pageResults.First();
-                }
-            }
-            else
-            {
-                matchedPageJson = pageResults.First();
-            }
-
-            // استخراج PageID من المستند الفائز
+            var matchedPageJson = pageResults.First();
             var finalPageData = JsonDocument.Parse(matchedPageJson).RootElement;
             int pageId = finalPageData.GetProperty("PageID").GetInt32();
 
@@ -178,27 +143,22 @@ namespace DynamicAi.Application.Services
             Console.ResetColor();
 
             // ============================================================================
-            // STEP 3: إيجاد الهيكل (PageAttribute Discovery)
+            // STEP 3: إيجاد الهيكل (PageAttribute Discovery) - [OPTIMIZED]
             // ============================================================================
             Console.ForegroundColor = ConsoleColor.Magenta;
             Console.WriteLine("\n[RagRetrieval] STEP 3: Searching for PageAttribute...");
             Console.ResetColor();
 
-            // TEMPORARY FIX: Only use semantic search since attribute_id/page_id are not indexed
-            Filter attrFilter = CreateFilter(tenantId, "data", "PageAttribute");
-            Console.WriteLine($"[RagRetrieval] Using semantic search for PageAttribute (exact filters not available)");
-
+            Filter attrFilter;
             if (explicitAttributeId.HasValue)
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[RagRetrieval] ⚠ AttributeID {explicitAttributeId.Value} provided but cannot filter by it (not indexed in Qdrant)");
-                Console.ResetColor();
+                attrFilter = CreateFilter(tenantId, "data", "PageAttribute", ("attribute_id", explicitAttributeId.Value));
+                Console.WriteLine($"[RagRetrieval] Using EXACT filter for AttributeID: {explicitAttributeId.Value}");
             }
             else
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[RagRetrieval] ⚠ PageID {pageId} will be used for in-memory filtering (not indexed in Qdrant)");
-                Console.ResetColor();
+                attrFilter = CreateFilter(tenantId, "data", "PageAttribute", ("page_id", pageId));
+                Console.WriteLine($"[RagRetrieval] Using SEMANTIC search for PageAttributes related to PageID: {pageId}");
             }
 
             var attrResults = await SearchQdrantAsync(embedding, attrFilter, 20, "PageAttribute", tenantId);
@@ -211,77 +171,13 @@ namespace DynamicAi.Application.Services
                 return contextBundle;
             }
 
-            // Filter in-memory by AttributeID or PageID
-            string? matchedAttrJson = null;
-
-            if (explicitAttributeId.HasValue)
-            {
-                // Priority 1: Match by explicit AttributeID
-                foreach (var attrJson in attrResults)
-                {
-                    try
-                    {
-                        var attrData = JsonDocument.Parse(attrJson).RootElement;
-                        if (attrData.TryGetProperty("AttributeId", out var attrIdProp) && 
-                            attrIdProp.GetInt32() == explicitAttributeId.Value)
-                        {
-                            matchedAttrJson = attrJson;
-                            Console.ForegroundColor = ConsoleColor.Green;
-                            Console.WriteLine($"[RagRetrieval] ✓ Found exact match for AttributeID: {explicitAttributeId.Value}");
-                            Console.ResetColor();
-                            break;
-                        }
-                    }
-                    catch { /* skip malformed JSON */ }
-                }
-
-                if (matchedAttrJson == null)
-                {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"[RagRetrieval] ⚠ AttributeID {explicitAttributeId.Value} not found - trying PageID fallback");
-                    Console.ResetColor();
-                }
-            }
-
-            // Priority 2: If no AttributeID match, try PageID
-            if (matchedAttrJson == null)
-            {
-                foreach (var attrJson in attrResults)
-                {
-                    try
-                    {
-                        var attrData = JsonDocument.Parse(attrJson).RootElement;
-                        if (attrData.TryGetProperty("PageId", out var pageIdProp) && 
-                            pageIdProp.GetInt32() == pageId)
-                        {
-                            matchedAttrJson = attrJson;
-                            Console.ForegroundColor = ConsoleColor.Green;
-                            Console.WriteLine($"[RagRetrieval] ✓ Found PageAttribute for PageID: {pageId}");
-                            Console.ResetColor();
-                            break;
-                        }
-                    }
-                    catch { /* skip malformed JSON */ }
-                }
-            }
-
-            // Priority 3: Use best semantic match as last resort
-            if (matchedAttrJson == null)
-            {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[RagRetrieval] ⚠ No exact PageAttribute match found - using best semantic match");
-                Console.ResetColor();
-                matchedAttrJson = attrResults.First();
-            }
-
-            // استخراج الحقائق الهامة من PageAttribute
+            var matchedAttrJson = attrResults.First();
             var finalAttrData = JsonDocument.Parse(matchedAttrJson).RootElement;
 
             string viewName = explicitTableName ?? finalAttrData.GetProperty("TableName").GetString() ?? string.Empty;
             string listName = explicitListName ?? finalAttrData.GetProperty("ListName").GetString() ?? string.Empty;
             string tailCondition = finalAttrData.GetProperty("TailCondition").GetString() ?? string.Empty;
 
-            // Log the matched AttributeID for debugging
             if (finalAttrData.TryGetProperty("AttributeId", out var matchedAttrId))
             {
                 Console.ForegroundColor = ConsoleColor.Cyan;
@@ -303,58 +199,25 @@ namespace DynamicAi.Application.Services
             }
 
             // ============================================================================
-            // STEP 4: إيجاد القاموس (Dictionary/ListSetups Discovery)
+            // STEP 4: إيجاد القاموس (Dictionary/ListSetups Discovery) - [OPTIMIZED]
             // ============================================================================
             Console.ForegroundColor = ConsoleColor.Magenta;
             Console.WriteLine("\n[RagRetrieval] STEP 4: Searching for Dictionary entries (ListSetups)...");
             Console.ResetColor();
 
-            // TEMPORARY FIX: Only use semantic search since list_name is not indexed
-            var listFilter = CreateFilter(tenantId, "data", "ListSetups");
-            Console.WriteLine($"[RagRetrieval] Using semantic search for ListSetups (exact filters not available)");
-
+            Filter listFilter;
             if (!string.IsNullOrEmpty(listName))
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[RagRetrieval] ⚠ ListName '{listName}' will be used for in-memory filtering (not indexed in Qdrant)");
-                Console.ResetColor();
+                listFilter = CreateFilter(tenantId, "data", "ListSetups", ("list_name", listName));
+                Console.WriteLine($"[RagRetrieval] Using EXACT filter for ListName: '{listName}'");
+            }
+            else
+            {
+                listFilter = CreateFilter(tenantId, "data", "ListSetups");
+                Console.WriteLine($"[RagRetrieval] Using SEMANTIC search for ListSetups.");
             }
 
             var listResults = await SearchQdrantAsync(embedding, listFilter, 50, "ListSetups", tenantId);
-
-            // Filter in-memory by ListName if specified
-            if (!string.IsNullOrEmpty(listName) && listResults.Any())
-            {
-                var filteredListResults = new List<string>();
-                foreach (var listJson in listResults)
-                {
-                    try
-                    {
-                        var listData = JsonDocument.Parse(listJson).RootElement;
-                        if (listData.TryGetProperty("ListName", out var listNameProp) && 
-                            listNameProp.GetString()?.Equals(listName, StringComparison.OrdinalIgnoreCase) == true)
-                        {
-                            filteredListResults.Add(listJson);
-                        }
-                    }
-                    catch { /* skip malformed JSON */ }
-                }
-
-                if (filteredListResults.Any())
-                {
-                    listResults = filteredListResults;
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"[RagRetrieval] ✓ Filtered to {filteredListResults.Count} entries matching ListName '{listName}'");
-                    Console.ResetColor();
-                }
-                else
-                {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"[RagRetrieval] ⚠ No exact ListName match found - using all semantic results");
-                    Console.ResetColor();
-                }
-            }
-            
             contextBundle.DictionaryEntries.AddRange(listResults);
 
             Console.ForegroundColor = ConsoleColor.Green;
@@ -362,69 +225,25 @@ namespace DynamicAi.Application.Services
             Console.ResetColor();
 
             // ============================================================================
-            // STEP 5: إيجاد السكيما (Schema Discovery)
+            // STEP 5: إيجاد السكيما (Schema Discovery) - [OPTIMIZED]
             // ============================================================================
             Console.ForegroundColor = ConsoleColor.Magenta;
             Console.WriteLine("\n[RagRetrieval] STEP 5: Searching for Schema scripts...");
             Console.ResetColor();
 
-            // TEMPORARY FIX: Only use semantic search since object_name is not indexed
-            var schemaFilter = CreateFilter(tenantId, "schema", null);
-            Console.WriteLine($"[RagRetrieval] Using semantic search for Schema (exact filters not available)");
-
+            Filter schemaFilter;
             if (!string.IsNullOrEmpty(viewName))
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[RagRetrieval] ⚠ ViewName '{viewName}' will be used for in-memory filtering (not indexed in Qdrant)");
-                Console.ResetColor();
+                schemaFilter = CreateFilter(tenantId, "schema", null, ("object_name", viewName));
+                Console.WriteLine($"[RagRetrieval] Using EXACT filter for Schema with ObjectName: '{viewName}'");
+            }
+            else
+            {
+                schemaFilter = CreateFilter(tenantId, "schema", null);
+                Console.WriteLine($"[RagRetrieval] Using SEMANTIC search for Schemas.");
             }
 
             var schemaResults = await SearchQdrantAsync(embedding, schemaFilter, 20, "Schema", tenantId);
-
-            // Filter in-memory by object_name (viewName) if specified
-            if (!string.IsNullOrEmpty(viewName) && schemaResults.Any())
-            {
-                var filteredSchemaResults = new List<string>();
-                foreach (var schemaJson in schemaResults)
-                {
-                    try
-                    {
-                        var schemaData = JsonDocument.Parse(schemaJson).RootElement;
-                        
-                        // Try multiple possible field names for the object name
-                        string? objectName = null;
-                        if (schemaData.TryGetProperty("object_name", out var objNameProp))
-                            objectName = objNameProp.GetString();
-                        else if (schemaData.TryGetProperty("ObjectName", out var objNameProp2))
-                            objectName = objNameProp2.GetString();
-                        else if (schemaData.TryGetProperty("table_name", out var tableNameProp))
-                            objectName = tableNameProp.GetString();
-                        else if (schemaData.TryGetProperty("TableName", out var tableNameProp2))
-                            objectName = tableNameProp2.GetString();
-
-                        if (objectName?.Equals(viewName, StringComparison.OrdinalIgnoreCase) == true)
-                        {
-                            filteredSchemaResults.Add(schemaJson);
-                        }
-                    }
-                    catch { /* skip malformed JSON */ }
-                }
-
-                if (filteredSchemaResults.Any())
-                {
-                    schemaResults = filteredSchemaResults;
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"[RagRetrieval] ✓ Filtered to {filteredSchemaResults.Count} schemas matching ViewName '{viewName}'");
-                    Console.ResetColor();
-                }
-                else
-                {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"[RagRetrieval] ⚠ No exact ViewName match found - using all semantic results");
-                    Console.ResetColor();
-                }
-            }
-            
             contextBundle.SchemaScripts.AddRange(schemaResults);
 
             Console.ForegroundColor = ConsoleColor.Green;
@@ -490,10 +309,10 @@ namespace DynamicAi.Application.Services
         /// دالة مساعدة لإنشاء فلتر Qdrant بناءً على المعايير المطلوبة.
         /// </summary>
         private Filter CreateFilter(
-            string tenantId, 
-            string sourceType, 
-            string? tableName, 
-            params (string key, object value)[] additionalMatches)  // Changed to object
+            string tenantId,
+            string sourceType,
+            string? tableName,
+            params (string key, object value)[] additionalMatches)
         {
             var filter = new Filter
             {
@@ -563,14 +382,13 @@ namespace DynamicAi.Application.Services
 
         /// <summary>
         /// دالة مساعدة لتنفيذ البحث في Qdrant واستخراج النصوص مع Logging مفصل.
-        /// (استخدام نفس التوقيع القديم الصحيح للـ SearchAsync)
         /// </summary>
         private async Task<List<string>> SearchQdrantAsync(
-            Embedding<float> embedding, 
-            Filter filter, 
-            int limit, 
+            Embedding<float> embedding,
+            Filter filter,
+            int limit,
             string stepName,
-            string tenantId)  // ← Added tenantId parameter
+            string tenantId)
         {
             var searchStart = DateTime.UtcNow;
 
@@ -585,7 +403,7 @@ namespace DynamicAi.Application.Services
                 {
                     var key = condition.Field.Key;
                     var match = condition.Field.Match;
-                    
+
                     if (match.Keyword != null)
                         Console.WriteLine($"[RagRetrieval]      • {key} = \"{match.Keyword}\" (string)");
                     else if (match.Integer != null && match.Integer != 0)
@@ -597,23 +415,23 @@ namespace DynamicAi.Application.Services
             Console.ResetColor();
 
             // ============================================================================
-            // استخدام نفس التوقيع القديم للـ Qdrant SearchAsync
+            // [FIXED] استخدام التوقيع الصحيح لدالة SearchAsync مع تمرير المعلمات بالترتيب
             // ============================================================================
             var searchResult = await _qdrantClient.SearchAsync(
                 _collectionName,
                 embedding.Vector.ToArray(),
                 filter,
-                null,
+                null, // scoreThreshold
                 (ulong)limit,
-                0,
+                0, // offset
                 new WithPayloadSelector { Enable = true },
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
+                null, // withVectors
+                null, // readConsistency
+                null, // shardKeySelector
+                null, // timeout
+                null, // searchParams
+                null, // headers
+                null, // deadline
                 CancellationToken.None
             );
 
@@ -671,21 +489,22 @@ namespace DynamicAi.Application.Services
                         }
                     };
 
+                    // [FIXED] استخدام التوقيع الصحيح هنا أيضًا
                     var diagnosticResult = await _qdrantClient.SearchAsync(
                         _collectionName,
                         embedding.Vector.ToArray(),
                         diagnosticFilter,
-                        null,
-                        5,
-                        0,
+                        null, // scoreThreshold
+                        5, // limit
+                        0, // offset
                         new WithPayloadSelector { Enable = true },
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
+                        null, // withVectors
+                        null, // readConsistency
+                        null, // shardKeySelector
+                        null, // timeout
+                        null, // searchParams
+                        null, // headers
+                        null, // deadline
                         CancellationToken.None
                     );
 
@@ -694,7 +513,7 @@ namespace DynamicAi.Application.Services
                         Console.ForegroundColor = ConsoleColor.Cyan;
                         Console.WriteLine($"[RagRetrieval]   → Found {diagnosticResult.Count} Pages without PageID filter");
                         Console.WriteLine($"[RagRetrieval]   → Sample payload keys available:");
-                        
+
                         var firstPoint = diagnosticResult[0];
                         foreach (var key in firstPoint.Payload.Keys)
                         {

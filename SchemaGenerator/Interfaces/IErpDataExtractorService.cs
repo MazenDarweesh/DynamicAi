@@ -1,27 +1,21 @@
 ﻿using SchemaGenerator.Models;
-using System.Collections.Generic;
-using System.Threading.Tasks;
+using SchemaGenerator.Models.Erp;
 
 namespace SchemaGenerator.Interfaces
 {
     /// <summary>
-    /// مسؤول عن "تنسيق" عملية استخراج بيانات الـ ERP.
-    /// هو "المدير" الذي يستخدم (IChangeTrackingStrategy) لجلب التغييرات
-    /// ثم يحولها إلى مستندات (VectorDocuments) جاهزة للرفع.
+    /// مسؤول عن استخراج "تغييرات البيانات" (Data Changes) من جداول
+    /// الـ Metadata الأساسية في الـ ERP (مثل ListSetups, Pages, إلخ).
     /// </summary>
     public interface IErpDataExtractorService
     {
         /// <summary>
-        /// يستخرج التغييرات من قائمة جداول البيانات ويحولها إلى VectorDocuments.
+        /// (مُعدل) يستخرج البيانات الوصفية المرتبطة مباشرة بالسياق المحدد.
         /// </summary>
-        /// <param name="connectionString">Connection string</param>
-        /// <param name="dbName">اسم الداتابيز (QualityControl)</param>
-        /// <param name="tableNames">قائمة الجداول المطلوب تتبعها (e.g., "ListSetups", "Pages"...)</param>
-        /// <returns>قائمة المستندات (VectorDocuments) الجاهزة للرفع.</returns>
         Task<List<VectorDocument>> ExtractDataChangesAsync(
             string connectionString,
             string dbName,
-            IEnumerable<string> tableNames,
-             string stateFilePath);
+            Dictionary<string, ErpPageContext> contextMap,
+            string stateFilePath);
     }
 }

@@ -8,6 +8,10 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace SchemaGenerator.Services
 {
@@ -25,80 +29,99 @@ namespace SchemaGenerator.Services
         private readonly Dictionary<string, Dictionary<string, List<string>>> _chunkingMap = new();
 
         /// <summary>
-        /// يستخرج الـ Scripts الخاصة بالجداول والـ Views المستهدفة.
+        /// (مُعدل) يستخرج الـ Scripts بشكل تعاودي (Recursive) لضمان الوصول للجداول الأساسية.
         /// </summary>
         public async Task<List<VectorDocument>> ExtractSchemasAsync(
             string connectionString,
             string dbName,
-            List<string> targetViewNames,
-            List<string> targetTableNames)
+            List<string> initialObjectNames,
+            List<string> ignoredTableNames) // تم تجاهل هذا الباراميتر الآن
         {
             var documents = new List<VectorDocument>();
-            await using var sqlConnection = new SqlConnection(connectionString);
-            ServerConnection serverConnection = new ServerConnection(sqlConnection);
-            Server server = new Server(serverConnection);
-            Database db = server.Databases[dbName];
-            // (جديد) قائمة لتجميع الجداول المكتشفة
-            var discoveredTableNames = new HashSet<string>(targetTableNames);
+            var processedObjects = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var objectsToProcess = new Queue<string>(initialObjectNames.Distinct(StringComparer.OrdinalIgnoreCase));
 
-            // إعدادات استخراج الـ Script (كما اتفقنا في النقد)
-            ScriptingOptions options = new ScriptingOptions
+            await using var sqlConnection = new SqlConnection(connectionString);
+            var serverConnection = new ServerConnection(sqlConnection);
+            var server = new Server(serverConnection);
+            var db = server.Databases[dbName];
+
+            var options = new ScriptingOptions
             {
                 ScriptDrops = false,
-                Indexes = true,           // (مهم جداً)
-                DriAllConstraints = true, // (مهم جداً - Foreign Keys)
-                NoCollation = false,      // (نحتاج الكوليشن ليفهم الـ AI السياق)
+                Indexes = true,
+                DriAllConstraints = true,
+                NoCollation = false,
                 ScriptSchema = true,
                 ScriptData = false
             };
 
-            // 1. استخراج الـ Views المستهدفة
-            foreach (var viewName in targetViewNames.Distinct())
+            Console.WriteLine("[SchemaReader] Starting recursive schema extraction...");
+
+            while (objectsToProcess.Count > 0)
             {
-                if (db.Views.Contains(viewName))
+                var objectName = objectsToProcess.Dequeue();
+
+                if (processedObjects.Contains(objectName) || (db.Tables.Contains(objectName) && db.Tables[objectName].IsSystemObject) || (db.Views.Contains(objectName) && db.Views[objectName].IsSystemObject))
                 {
-                    View view = db.Views[viewName];
-                    if (view.IsSystemObject) continue;
+                    continue; // تخطي إذا تمت معالجته أو كان كائن نظام
+                }
 
-                    /// <summary>
-                    /// (السطر السحري)
-                    /// 1. view.Script(options): يطلب من SMO توليد الـ "CREATE VIEW..." script بناءً على الإعدادات.
-                    /// 2. .Cast<string>().Join("\n"): الـ Script يأتي كـ "مصفوفة من السطور"،
-                    ///    هذا السطر يجمعها في "نص واحد" (string) مع فواصل أسطر (new lines).
-                    /// </summary>
-                    string script = string.Join("\n", view.Script(options).Cast<string>());
-                    documents.Add(CreateVectorDocument(viewName, script, "View", view.Name));
+                // 1. هل هو View؟
+                if (db.Views.Contains(objectName))
+                {
+                    var view = db.Views[objectName];
+                    Console.WriteLine($"[SchemaReader] Processing View: '{objectName}'");
 
-                    // 2. (جديد) تفكيك الـ View Script لاكتشاف الجداول
+                    // أضف سكربت الـ View
+                    var script = string.Join("\n", view.Script(options).Cast<string>());
+                    documents.Add(CreateVectorDocument(view.Name, script, "View", view.Name));
+                    processedObjects.Add(objectName);
 
-                    // --- (بداية التعديل) ---
-                    // (الحل الأذكى) جلب "نص" الـ View فقط (الـ SELECT) بدلاً من السكربت الكامل
-                    string viewBody = view.TextBody;
-
-                    // (مُعدل) نقوم بتحليل "النص" فقط، وهو أكثر أماناً
-                    List<string> tablesInThisView = ParseTablesFromViewScript(viewBody);
-                    foreach (var table in tablesInThisView)
+                    // استكشف ما بداخل الـ View
+                    var dependencies = ParseTablesFromViewScript(view.TextBody);
+                    Console.WriteLine($"[SchemaReader]   -> Found dependencies: {string.Join(", ", dependencies)}");
+                    foreach (var dep in dependencies)
                     {
-                        discoveredTableNames.Add(table); // (إضافة الجداول المكتشفة)
+                        if (!processedObjects.Contains(dep))
+                        {
+                            objectsToProcess.Enqueue(dep); // أضف التوابع لقائمة الانتظار
+                        }
                     }
-
                 }
-            }
-
-            // 2. استخراج الجداول المستهدفة
-            foreach (var tableName in discoveredTableNames.Distinct())
-            {
-                if (db.Tables.Contains(tableName))
+                // 2. هل هو Table؟
+                else if (db.Tables.Contains(objectName))
                 {
-                    Table table = db.Tables[tableName];
-                    if (table.IsSystemObject) continue;
-
-                    // تطبيق "التقسيم الذكي" (Smart Chunking)
+                    var table = db.Tables[objectName];
+                    Console.WriteLine($"[SchemaReader] Processing Table: '{objectName}'");
                     documents.AddRange(ChunkTableScript(table, options));
+                    processedObjects.Add(objectName);
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.DarkYellow;
+                    Console.WriteLine($"[SchemaReader] Warning: Object '{objectName}' not found as a table or view. Skipping.");
+                    Console.ResetColor();
+                    processedObjects.Add(objectName); // نعتبره معالجاً لتجنب التكرار
                 }
             }
+
+            Console.WriteLine($"[SchemaReader] Recursive extraction finished. Processed {processedObjects.Count} unique objects.");
+
+            // --- (بداية التعديل: إضافة ملخص) ---
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("\n[SchemaReader] --- Summary of All Processed Schema Objects ---");
+            foreach (var processedObject in processedObjects.OrderBy(x => x))
+            {
+                Console.WriteLine($"  - {processedObject}");
+            }
+            Console.WriteLine("-------------------------------------------------");
+            Console.ResetColor();
+            // --- (نهاية التعديل) ---
+
             return documents;
         }
+
         /// <summary>
         /// (MVP) ينشئ مستنداً واحداً للجدول.
         /// (للمستقبل: سنطبق هنا التقسيم الدلالي من النقد #1)
@@ -110,6 +133,10 @@ namespace SchemaGenerator.Services
 
             var docList = new List<VectorDocument>();
             string script = string.Join("\n", table.Script(options).Cast<string>());
+
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"[SchemaReader] Generated script for Table '{table.Name}':\n{script}");
+            Console.ResetColor();
 
             docList.Add(CreateVectorDocument(table.Name, script, "Table", table.Name));
             return docList;
@@ -204,6 +231,24 @@ namespace SchemaGenerator.Services
 
                 return visitor.TableNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             }
+        }
+
+        public async Task<Dictionary<string, DateTime>> GetObjectsModificationDatesAsync(string connectionString, List<string> objectNames)
+        {
+            await using var connection = new SqlConnection(connectionString);
+
+            // استعلام فائق السرعة يجلب الاسم وتاريخ التعديل
+            const string query = @"
+                SELECT name, modify_date 
+                FROM sys.objects 
+                WHERE name IN @Names";
+
+            var results = await connection.QueryAsync<(string Name, DateTime ModifyDate)>(
+                query,
+                new { Names = objectNames }
+            );
+
+            return results.ToDictionary(x => x.Name, x => x.ModifyDate);
         }
 
         /// <summary>

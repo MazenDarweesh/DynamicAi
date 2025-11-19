@@ -1,4 +1,6 @@
 ﻿using SchemaGenerator.Models;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 
 namespace SchemaGenerator.Interfaces
@@ -24,5 +26,12 @@ namespace SchemaGenerator.Interfaces
             string dbName,
             List<string> targetViewNames,
             List<string> targetTableNames);
+
+        /// <summary>
+        /// (جديد) يجلب تاريخ آخر تعديل لمجموعة من كائنات قاعدة البيانات.
+        /// </summary>
+        Task<Dictionary<string, DateTime>> GetObjectsModificationDatesAsync(
+            string connectionString,
+            List<string> objectNames);
     }
 }

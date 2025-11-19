@@ -98,9 +98,9 @@ namespace SchemaGenerator.Services
                 }
 
                 // (مهم) نضيف الـ View الرئيسي للقاموس
-                if (!contextMap.ContainsKey(context.ViewName))
+                if (!contextMap.ContainsKey(context.PageName))
                 {
-                    contextMap[context.ViewName] = context;
+                    contextMap[context.PageName] = context;
                 }
             }
             return contextMap;
@@ -116,10 +116,10 @@ namespace SchemaGenerator.Services
 *
 * Output (Example): Task<Dictionary<string, ErpPageContext>>.
 * Example Entry:
-* Key: "ContractViewWithPaid"
+* Key: "Contracts"
 * Value (ErpPageContext object): {
 * PageId: 244,
-* PageName: "صفحة المبيعات",
+* PageName: "Contracts",
 * ViewName: "ContractViewWithPaid",
 * ListName: "SalestView",
 * TailCondition: "(IsResale=0...)",

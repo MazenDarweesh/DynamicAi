@@ -287,10 +287,21 @@ namespace SchemaGenerator.Services
                 var embedding = embeddingList[i];
                 var point = new PointStruct { Id = new PointId { Uuid = GetStableGuid(doc.DocumentId).ToString() } };
                 point.Vectors = embedding.Vector.ToArray();
+                
+                // --- هذا هو الكود الصحيح الذي يستخدم IsIntegerKey ---
                 foreach (var meta in doc.Metadata)
                 {
-                    point.Payload.Add(meta.Key, new Value { StringValue = meta.Value });
+                    if (IsIntegerKey(meta.Key) && long.TryParse(meta.Value, out long intValue))
+                    {
+                        point.Payload.Add(meta.Key, new Value { IntegerValue = intValue });
+                    }
+                    else
+                    {
+                        point.Payload.Add(meta.Key, new Value { StringValue = meta.Value });
+                    }
                 }
+                // ----------------------------------------------------
+                
                 point.Payload.Add("original_text", new Value { StringValue = doc.TextContent });
                 pointsToUpsert.Add(point);
             }
@@ -306,6 +317,22 @@ namespace SchemaGenerator.Services
                 byte[] hash = md5.ComputeHash(Encoding.UTF8.GetBytes(documentId));
                 return new Guid(hash);
             }
+        }
+
+        /// <summary>
+        /// قائمة الحقول التي يجب معاملتها كأرقام في Qdrant
+        /// </summary>
+        private bool IsIntegerKey(string key)
+        {
+            // Exact matching for integer fields
+            return key switch
+            {
+                "page_id" => true,
+                "attribute_id" => true,
+                "chunk_index" => true,
+                "__$operation" => true,  // SQL Server CDC operation code
+                _ => false
+            };
         }
     }
 }
