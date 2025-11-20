@@ -1,4 +1,5 @@
 ﻿using Dapper;
+using SchemaGenerator.Common;
 using SchemaGenerator.Interfaces;
 using SchemaGenerator.Models;
 using SchemaGenerator.Models.Erp;
@@ -61,37 +62,37 @@ namespace SchemaGenerator.Services
             var allListNames = masterListNames.Concat(detailListNames).Distinct().ToList();
 
             // 2. استخراج البيانات من الجداول الستة بشكل موجه
-            var pages = await FetchDataAsync(connection, "Pages", "PageID", targetPageIds);
-            allDocuments.AddRange(pages.Select(row => TransformRowToDocument(row, "Pages")));
+            var pages = await FetchDataAsync(connection, DbTables.Pages, DbColumns.PageID_Upper, targetPageIds);
+            allDocuments.AddRange(pages.Select(row => TransformRowToDocument(row, DbTables.Pages)));
 
-            var pageAttributes = await FetchDataAsync(connection, "PageAttribute", "PageId", targetPageIds);
-            allDocuments.AddRange(pageAttributes.Select(row => TransformRowToDocument(row, "PageAttribute")));
+            var pageAttributes = await FetchDataAsync(connection, DbTables.PageAttribute, DbColumns.PageId_Lower, targetPageIds);
+            allDocuments.AddRange(pageAttributes.Select(row => TransformRowToDocument(row, DbTables.PageAttribute)));
 
-            var attributeIds = pageAttributes.Select(pa => (int)pa["AttributeId"]).Distinct().ToList();
+            var attributeIds = pageAttributes.Select(pa => (int)pa[DbColumns.AttributeId]).Distinct().ToList();
             if (attributeIds.Any())
             {
-                var pageDetails = await FetchDataAsync(connection, "PageDetail", "PageAttributeId", attributeIds);
-                allDocuments.AddRange(pageDetails.Select(row => TransformRowToDocument(row, "PageDetail")));
+                var pageDetails = await FetchDataAsync(connection, DbTables.PageDetail, DbColumns.PageAttributeId, attributeIds);
+                allDocuments.AddRange(pageDetails.Select(row => TransformRowToDocument(row, DbTables.PageDetail)));
             }
 
-            var modulIds = pages.Where(p => p.ContainsKey("ModulID") && p["ModulID"] != null).Select(p => (int)p["ModulID"]).Distinct().ToList();
+            var modulIds = pages.Where(p => p.ContainsKey(DbColumns.ModulID_Upper) && p[DbColumns.ModulID_Upper] != null).Select(p => (int)p[DbColumns.ModulID_Upper]).Distinct().ToList();
             if (modulIds.Any())
             {
-                var moduls = await FetchDataAsync(connection, "Modul", "MID", modulIds);
-                allDocuments.AddRange(moduls.Select(row => TransformRowToDocument(row, "Modul")));
+                var moduls = await FetchDataAsync(connection, DbTables.Modul, DbColumns.MID, modulIds);
+                allDocuments.AddRange(moduls.Select(row => TransformRowToDocument(row, DbTables.Modul)));
             }
 
-            var menuMasterIds = pages.Where(p => p.ContainsKey("MasterID") && p["MasterID"] != null).Select(p => (int)p["MasterID"]).Distinct().ToList();
+            var menuMasterIds = pages.Where(p => p.ContainsKey(DbColumns.MasterID_Upper) && p[DbColumns.MasterID_Upper] != null).Select(p => (int)p[DbColumns.MasterID_Upper]).Distinct().ToList();
             if (menuMasterIds.Any())
             {
-                var menuMasters = await FetchDataAsync(connection, "MenuMaster", "MID", menuMasterIds);
-                allDocuments.AddRange(menuMasters.Select(row => TransformRowToDocument(row, "MenuMaster")));
+                var menuMasters = await FetchDataAsync(connection, DbTables.MenuMaster, DbColumns.MID, menuMasterIds);
+                allDocuments.AddRange(menuMasters.Select(row => TransformRowToDocument(row, DbTables.MenuMaster)));
             }
 
             if (allListNames.Any())
             {
-                var listSetups = await FetchDataAsync(connection, "ListSetups", "ListName", allListNames);
-                allDocuments.AddRange(listSetups.Select(row => TransformRowToDocument(row, "ListSetups")));
+                var listSetups = await FetchDataAsync(connection, DbTables.ListSetups, DbColumns.ListName, allListNames);
+                allDocuments.AddRange(listSetups.Select(row => TransformRowToDocument(row, DbTables.ListSetups)));
             }
 
             Console.WriteLine($"[DataExtractor] Targeted extraction complete. Found {allDocuments.Count} relevant metadata rows.");
@@ -116,18 +117,41 @@ namespace SchemaGenerator.Services
             string rowAsJson = JsonSerializer.Serialize(row, _jsonOptions);
             string rowId = row.Values.FirstOrDefault()?.ToString() ?? Guid.NewGuid().ToString();
 
+            var metadata = new Dictionary<string, string>
+            {
+                { VectorDbMeta.SourceType, VectorDbMeta.SourceTypeData },
+                { VectorDbMeta.TableName, tableName },
+                { VectorDbMeta.RowId, rowId },
+                { VectorDbMeta.TenantId, VectorDbMeta.TenantAll }
+            };
+
+            if (row.TryGetValue(DbColumns.PageID_Upper, out var pageIdValue) || row.TryGetValue(DbColumns.PageId_Lower, out pageIdValue))
+            {
+                if (pageIdValue != null) metadata[VectorDbMeta.PageId] = pageIdValue.ToString();
+            }
+            if (row.TryGetValue(DbColumns.AttributeId, out var attrIdValue) && attrIdValue != null)
+            {
+                metadata[VectorDbMeta.AttributeId] = attrIdValue.ToString();
+            }
+            if (row.TryGetValue(DbColumns.DetailId, out var detailIdValue) && detailIdValue != null)
+            {
+                metadata[VectorDbMeta.DetailId] = detailIdValue.ToString();
+            }
+            if (row.TryGetValue(DbColumns.ListName, out var listNameValue) && listNameValue != null)
+            {
+                metadata[VectorDbMeta.ListName] = listNameValue.ToString();
+            }
+            if (row.TryGetValue(DbColumns.PageDisplay, out var pageDisplayValue) && pageDisplayValue != null)
+            {
+                metadata[VectorDbMeta.PageName] = pageDisplayValue.ToString();
+            }
+
             return new VectorDocument
             {
                 DocumentId = $"Data_{tableName}_{rowId}",
                 TextContent = rowAsJson,
-                IsDeleted = false, // في هذا المنطق، نحن لا نتعامل مع الحذف
-                Metadata = new Dictionary<string, string>
-                {
-                    { "source_type", "data" },
-                    { "table_name", tableName },
-                    { "row_id", rowId },
-                    { "tenant_id", "ALL" }
-                }
+                IsDeleted = false,
+                Metadata = metadata
             };
         }
     }

@@ -126,10 +126,11 @@ namespace SchemaGenerator.Services
             await CreateIndexAsync(collectionName, "object_name", PayloadSchemaType.Keyword, "Schema object name (View/Table/SP)");
             await CreateIndexAsync(collectionName, "list_name", PayloadSchemaType.Keyword, "ListSetups exact matching");
             await CreateIndexAsync(collectionName, "object_type", PayloadSchemaType.Keyword, "VIEW/TABLE/PROCEDURE");
-            
+
             // Integer Indexes (Critical for performance)
             await CreateIndexAsync(collectionName, "page_id", PayloadSchemaType.Integer, "Page ID exact lookup");
             await CreateIndexAsync(collectionName, "attribute_id", PayloadSchemaType.Integer, "Attribute ID exact lookup");
+            await CreateIndexAsync(collectionName, "detail_id", PayloadSchemaType.Integer, "Detail ID exact lookup");
             await CreateIndexAsync(collectionName, "chunk_index", PayloadSchemaType.Integer, "Multi-chunk ordering");
 
             PrintSuccess("\n✓ All payload indexes configured successfully.");

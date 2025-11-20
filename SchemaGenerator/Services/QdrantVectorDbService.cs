@@ -1,11 +1,14 @@
 ﻿using Microsoft.Extensions.AI;
+using Microsoft.SemanticKernel;
 using Qdrant.Client;
 using Qdrant.Client.Grpc;
+using SchemaGenerator.Common;
 using SchemaGenerator.Interfaces;
 using SchemaGenerator.Models;
+using System.Diagnostics;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
-using System.Diagnostics;
 using Value = Qdrant.Client.Grpc.Value;
 
 namespace SchemaGenerator.Services
@@ -84,7 +87,7 @@ namespace SchemaGenerator.Services
                 return;
             }
 
-            // --- 3. تنفيذ عمليات الإضافة/التحديث (محسّن لـ Tier 1) ---
+            // --- 3. تنفيذ عمليات الإضافة/التحديث (محسّن بـ Tier 1) ---
             await ProcessUpsertsWithTier1OptimizationAsync(collectionName, documentsToUpsert, completedDocumentIds, totalOriginalCount);
         }
         
@@ -124,21 +127,30 @@ namespace SchemaGenerator.Services
 
                 try
                 {
-                    await ProcessSingleBatchAsync(collectionName, currentBatch);
+                    bool batchSuccess = await ProcessSingleBatchAsync(collectionName, currentBatch);
 
-                    processedThisRun += currentBatch.Count;
-                    IncrementRequestCounter();
+                    if (batchSuccess)
+                    {
+                        processedThisRun += currentBatch.Count;
+                        IncrementRequestCounter();
 
-                    // --- (هام) حفظ التقدم بعد كل دفعة ناجحة ---
-                    var processedIds = currentBatch.Select(d => d.DocumentId);
-                    completedDocumentIds.UnionWith(processedIds);
-                    await _stateService.SaveStateAsync(UploadStateKey, completedDocumentIds);
-                    
-                    Console.ForegroundColor = ConsoleColor.DarkGreen;
-                    Console.WriteLine($"[VectorDB] │ 💾 Progress Saved! ({completedDocumentIds.Count}/{totalOriginalCount})");
-                    Console.ResetColor();
+                        var processedIds = currentBatch.Select(d => d.DocumentId);
+                        completedDocumentIds.UnionWith(processedIds);
+                        await _stateService.SaveStateAsync(UploadStateKey, completedDocumentIds);
+                        
+                        Console.ForegroundColor = ConsoleColor.DarkGreen;
+                        Console.WriteLine($"[VectorDB] │ 💾 Progress Saved! ({completedDocumentIds.Count}/{totalOriginalCount})");
+                        Console.ResetColor();
 
-                    PrintProgress(completedDocumentIds.Count, totalOriginalCount, stopwatch);
+                        PrintProgress(completedDocumentIds.Count, totalOriginalCount, stopwatch);
+                    }
+                    else
+                    {
+                        processedThisRun += currentBatch.Count; 
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.WriteLine($"[VectorDB] │ ⏭️ Skipping problematic batch. Progress for this batch will not be saved.");
+                        Console.ResetColor();
+                    }
 
                     if (processedThisRun < totalToProcessThisRun)
                     {
@@ -272,14 +284,32 @@ namespace SchemaGenerator.Services
             return false;
         }
 
-        private async Task ProcessSingleBatchAsync(string collectionName, List<VectorDocument> batch)
+        private async Task<bool> ProcessSingleBatchAsync(string collectionName, List<VectorDocument> batch)
         {
             var textsToEmbed = batch.Select(d => d.TextContent).ToList();
-            
-            Console.WriteLine($"[VectorDB] │ 🔄 Generating embeddings for {batch.Count} docs...");
-            var generatedEmbeddings = await _embeddingService.GenerateAsync(textsToEmbed);
-            var embeddingList = generatedEmbeddings.ToList();
+            IReadOnlyList<Embedding<float>> generatedEmbeddings;
 
+            try
+            {
+                Console.WriteLine($"[VectorDB] │ 🔄 Generating embeddings for {batch.Count} docs...");
+                generatedEmbeddings = await _embeddingService.GenerateAsync(textsToEmbed);
+            }
+            catch (Exception ex) when (IsForbiddenException(ex))
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("[VectorDB] │ ✗ ERROR: Gemini API returned 403 (Forbidden). This batch likely triggered a safety filter.");
+                Console.WriteLine("[VectorDB] │ Logging problematic batch content for review:");
+                Console.ResetColor();
+
+                for (int i = 0; i < batch.Count; i++)
+                {
+                    Console.WriteLine($"[VectorDB] │   - ID: {batch[i].DocumentId}");
+                    Console.WriteLine($"[VectorDB] │     Content: {batch[i].TextContent.Substring(0, Math.Min(200, batch[i].TextContent.Length))}...");
+                }
+                return false; // تشير إلى فشل الدفعة
+            }
+
+            var embeddingList = generatedEmbeddings.ToList();
             var pointsToUpsert = new List<PointStruct>();
             for (int i = 0; i < batch.Count; i++)
             {
@@ -288,7 +318,6 @@ namespace SchemaGenerator.Services
                 var point = new PointStruct { Id = new PointId { Uuid = GetStableGuid(doc.DocumentId).ToString() } };
                 point.Vectors = embedding.Vector.ToArray();
                 
-                // --- هذا هو الكود الصحيح الذي يستخدم IsIntegerKey ---
                 foreach (var meta in doc.Metadata)
                 {
                     if (IsIntegerKey(meta.Key) && long.TryParse(meta.Value, out long intValue))
@@ -300,14 +329,14 @@ namespace SchemaGenerator.Services
                         point.Payload.Add(meta.Key, new Value { StringValue = meta.Value });
                     }
                 }
-                // ----------------------------------------------------
                 
-                point.Payload.Add("original_text", new Value { StringValue = doc.TextContent });
+                point.Payload.Add(VectorDbMeta.OriginalText, new Value { StringValue = doc.TextContent });
                 pointsToUpsert.Add(point);
             }
 
-            Console.WriteLine($"[VectorDB] │ 📤 Upserting to Qdrant...");
+            Console.WriteLine($"[VectorDB] │ 📤 Upserting to VectorDB...");
             await _qdrantClient.UpsertAsync(collectionName, pointsToUpsert);
+            return true; // تشير إلى نجاح الدفعة
         }
 
         private Guid GetStableGuid(string documentId)
@@ -319,18 +348,37 @@ namespace SchemaGenerator.Services
             }
         }
 
+        private bool IsForbiddenException(Exception ex)
+        {
+            if (ex is HttpOperationException httpEx && httpEx.StatusCode == HttpStatusCode.Forbidden)
+            {
+                return true;
+            }
+
+            var inner = ex.InnerException;
+            while (inner != null)
+            {
+                if (inner is HttpOperationException innerHttpEx && innerHttpEx.StatusCode == HttpStatusCode.Forbidden)
+                {
+                    return true;
+                }
+                inner = inner.InnerException;
+            }
+            return false;
+        }
+
         /// <summary>
-        /// قائمة الحقول التي يجب معاملتها كأرقام في Qdrant
+        /// قائمة الحقول التي يجب معاملتها كأرقام في VectorDB
         /// </summary>
         private bool IsIntegerKey(string key)
         {
-            // Exact matching for integer fields
             return key switch
             {
-                "page_id" => true,
-                "attribute_id" => true,
-                "chunk_index" => true,
-                "__$operation" => true,  // SQL Server CDC operation code
+                VectorDbMeta.PageId => true,
+                VectorDbMeta.AttributeId => true,
+                VectorDbMeta.DetailId => true,
+                VectorDbMeta.ChunkIndex => true,
+                DbColumns.CdcOperation => true,
                 _ => false
             };
         }

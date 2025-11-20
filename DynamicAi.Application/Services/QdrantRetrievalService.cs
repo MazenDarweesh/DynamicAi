@@ -1,10 +1,12 @@
-﻿using DynamicAi.Application.Interfaces;
+﻿using DynamicAi.Application.DbConstants;
+using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Qdrant.Client;
 using Qdrant.Client.Grpc;
 using System.Text.Json;
+using QdrantConstants = DynamicAi.Application.DbConstants.VectorDbMeta;
 
 namespace DynamicAi.Application.Services
 {
@@ -60,6 +62,7 @@ namespace DynamicAi.Application.Services
 
             int? explicitPageId = ExtractPageId(userQuestion);
             int? explicitAttributeId = ExtractAttributeId(userQuestion);
+            int? explicitDetailId = ExtractDetailId(userQuestion); // (جديد)
             string? explicitListName = ExtractListName(userQuestion);
             string? explicitTableName = ExtractTableName(userQuestion);
 
@@ -73,6 +76,12 @@ namespace DynamicAi.Application.Services
             {
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine($"[RagRetrieval] ℹ Explicit AttributeID detected: {explicitAttributeId.Value}");
+                Console.ResetColor();
+            }
+            if (explicitDetailId.HasValue) // (جديد)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"[RagRetrieval] ℹ Explicit DetailID detected: {explicitDetailId.Value}");
                 Console.ResetColor();
             }
             if (!string.IsNullOrEmpty(explicitListName))
@@ -115,16 +124,16 @@ namespace DynamicAi.Application.Services
             Filter pageFilter;
             if (explicitPageId.HasValue)
             {
-                pageFilter = CreateFilter(tenantId, "data", "Pages", ("page_id", explicitPageId.Value));
+                pageFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.Pages, (QdrantConstants.PageId, explicitPageId.Value));
                 Console.WriteLine($"[RagRetrieval] Using EXACT filter for PageID: {explicitPageId.Value}");
             }
             else
             {
-                pageFilter = CreateFilter(tenantId, "data", "Pages");
+                pageFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.Pages);
                 Console.WriteLine($"[RagRetrieval] Using SEMANTIC search for Page.");
             }
 
-            var pageResults = await SearchQdrantAsync(embedding, pageFilter, 5, "Pages", tenantId);
+            var pageResults = await SearchQdrantAsync(embedding, pageFilter, 5, "Pages");
 
             if (!pageResults.Any())
             {
@@ -136,7 +145,7 @@ namespace DynamicAi.Application.Services
 
             var matchedPageJson = pageResults.First();
             var finalPageData = JsonDocument.Parse(matchedPageJson).RootElement;
-            int pageId = finalPageData.GetProperty("PageID").GetInt32();
+            int pageId = finalPageData.GetProperty(DbColumns.PageID_Upper).GetInt32();
 
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine($"[RagRetrieval] ✓ Using Page with PageID: {pageId}");
@@ -152,16 +161,16 @@ namespace DynamicAi.Application.Services
             Filter attrFilter;
             if (explicitAttributeId.HasValue)
             {
-                attrFilter = CreateFilter(tenantId, "data", "PageAttribute", ("attribute_id", explicitAttributeId.Value));
+                attrFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.PageAttribute, (QdrantConstants.AttributeId, explicitAttributeId.Value));
                 Console.WriteLine($"[RagRetrieval] Using EXACT filter for AttributeID: {explicitAttributeId.Value}");
             }
             else
             {
-                attrFilter = CreateFilter(tenantId, "data", "PageAttribute", ("page_id", pageId));
+                attrFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.PageAttribute, (QdrantConstants.PageId, pageId));
                 Console.WriteLine($"[RagRetrieval] Using SEMANTIC search for PageAttributes related to PageID: {pageId}");
             }
 
-            var attrResults = await SearchQdrantAsync(embedding, attrFilter, 20, "PageAttribute", tenantId);
+            var attrResults = await SearchQdrantAsync(embedding, attrFilter, 20, "PageAttribute");
 
             if (!attrResults.Any())
             {
@@ -174,11 +183,11 @@ namespace DynamicAi.Application.Services
             var matchedAttrJson = attrResults.First();
             var finalAttrData = JsonDocument.Parse(matchedAttrJson).RootElement;
 
-            string viewName = explicitTableName ?? finalAttrData.GetProperty("TableName").GetString() ?? string.Empty;
-            string listName = explicitListName ?? finalAttrData.GetProperty("ListName").GetString() ?? string.Empty;
-            string tailCondition = finalAttrData.GetProperty("TailCondition").GetString() ?? string.Empty;
+            string viewName = explicitTableName ?? finalAttrData.GetProperty(DbColumns.TableName).GetString() ?? string.Empty;
+            string listName = explicitListName ?? finalAttrData.GetProperty(DbColumns.ListName).GetString() ?? string.Empty;
+            string tailCondition = finalAttrData.GetProperty(DbColumns.TailCondition).GetString() ?? string.Empty;
 
-            if (finalAttrData.TryGetProperty("AttributeId", out var matchedAttrId))
+            if (finalAttrData.TryGetProperty(DbColumns.AttributeId, out var matchedAttrId))
             {
                 Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.WriteLine($"[RagRetrieval] Using PageAttribute with AttributeID: {matchedAttrId.GetInt32()}");
@@ -208,16 +217,16 @@ namespace DynamicAi.Application.Services
             Filter listFilter;
             if (!string.IsNullOrEmpty(listName))
             {
-                listFilter = CreateFilter(tenantId, "data", "ListSetups", ("list_name", listName));
+                listFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups, (QdrantConstants.ListName, listName));
                 Console.WriteLine($"[RagRetrieval] Using EXACT filter for ListName: '{listName}'");
             }
             else
             {
-                listFilter = CreateFilter(tenantId, "data", "ListSetups");
+                listFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups);
                 Console.WriteLine($"[RagRetrieval] Using SEMANTIC search for ListSetups.");
             }
 
-            var listResults = await SearchQdrantAsync(embedding, listFilter, 50, "ListSetups", tenantId);
+            var listResults = await SearchQdrantAsync(embedding, listFilter, 50, "ListSetups");
             contextBundle.DictionaryEntries.AddRange(listResults);
 
             Console.ForegroundColor = ConsoleColor.Green;
@@ -234,16 +243,16 @@ namespace DynamicAi.Application.Services
             Filter schemaFilter;
             if (!string.IsNullOrEmpty(viewName))
             {
-                schemaFilter = CreateFilter(tenantId, "schema", null, ("object_name", viewName));
+                schemaFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeSchema, null, (QdrantConstants.ObjectName, viewName));
                 Console.WriteLine($"[RagRetrieval] Using EXACT filter for Schema with ObjectName: '{viewName}'");
             }
             else
             {
-                schemaFilter = CreateFilter(tenantId, "schema", null);
+                schemaFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeSchema, null);
                 Console.WriteLine($"[RagRetrieval] Using SEMANTIC search for Schemas.");
             }
 
-            var schemaResults = await SearchQdrantAsync(embedding, schemaFilter, 20, "Schema", tenantId);
+            var schemaResults = await SearchQdrantAsync(embedding, schemaFilter, 20, "Schema");
             contextBundle.SchemaScripts.AddRange(schemaResults);
 
             Console.ForegroundColor = ConsoleColor.Green;
@@ -288,6 +297,15 @@ namespace DynamicAi.Application.Services
         }
 
         /// <summary>
+        /// Extract DetailId from user question (e.g., "DetailId 55")
+        /// </summary>
+        private int? ExtractDetailId(string question)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(question, @"DetailId\s+(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return match.Success ? int.Parse(match.Groups[1].Value) : null;
+        }
+
+        /// <summary>
         /// Extract ListName from user question (e.g., "ListName SalestView")
         /// </summary>
         private string? ExtractListName(string question)
@@ -314,28 +332,25 @@ namespace DynamicAi.Application.Services
             string? tableName,
             params (string key, object value)[] additionalMatches)
         {
-            var filter = new Filter
+            var filter = new Filter();
+
+            filter.Must.Add(new Condition
             {
-                Must =
+                Field = new FieldCondition
                 {
-                    new Condition
-                    {
-                        Field = new FieldCondition
-                        {
-                            Key = "tenant_id",
-                            Match = new Match { Keywords = new RepeatedStrings { Strings = { tenantId, "ALL" } } }
-                        }
-                    },
-                    new Condition
-                    {
-                        Field = new FieldCondition
-                        {
-                            Key = "source_type",
-                            Match = new Match { Keyword = sourceType }
-                        }
-                    }
+                    Key = QdrantConstants.TenantId,
+                    Match = new Match { Keywords = new RepeatedStrings { Strings = { tenantId, "ALL" } } }
                 }
-            };
+            });
+
+            filter.Must.Add(new Condition
+            {
+                Field = new FieldCondition
+                {
+                    Key = QdrantConstants.SourceType,
+                    Match = new Match { Keyword = sourceType }
+                }
+            });
 
             if (!string.IsNullOrEmpty(tableName))
             {
@@ -343,7 +358,7 @@ namespace DynamicAi.Application.Services
                 {
                     Field = new FieldCondition
                     {
-                        Key = "table_name",
+                        Key = QdrantConstants.TableName,
                         Match = new Match { Keyword = tableName }
                     }
                 });
@@ -351,30 +366,26 @@ namespace DynamicAi.Application.Services
 
             foreach (var (key, value) in additionalMatches)
             {
+                var condition = new Condition();
+                var fieldCondition = new FieldCondition { Key = key };
+
                 // Handle integer fields (like page_id)
                 if (value is int intValue)
                 {
-                    filter.Must.Add(new Condition
-                    {
-                        Field = new FieldCondition
-                        {
-                            Key = key,
-                            Match = new Match { Integer = intValue }
-                        }
-                    });
+                    fieldCondition.Match = new Match { Integer = intValue };
                 }
                 // Handle string fields
                 else if (value is string stringValue)
                 {
-                    filter.Must.Add(new Condition
-                    {
-                        Field = new FieldCondition
-                        {
-                            Key = key,
-                            Match = new Match { Keyword = stringValue }
-                        }
-                    });
+                    fieldCondition.Match = new Match { Keyword = stringValue };
                 }
+                else
+                {
+                    continue; // Skip if type is not supported
+                }
+
+                condition.Field = fieldCondition;
+                filter.Must.Add(condition);
             }
 
             return filter;
@@ -387,36 +398,29 @@ namespace DynamicAi.Application.Services
             Embedding<float> embedding,
             Filter filter,
             int limit,
-            string stepName,
-            string tenantId)
+            string stepName)
         {
             var searchStart = DateTime.UtcNow;
 
-            // ============================================================================
-            // [DIAGNOSTIC] Log the complete filter being sent to Qdrant
-            // ============================================================================
             Console.ForegroundColor = ConsoleColor.DarkYellow;
             Console.WriteLine($"[RagRetrieval]   → Filter conditions for {stepName}:");
             foreach (var condition in filter.Must)
             {
-                if (condition.Field != null)
+                if (condition.Field is not null)
                 {
                     var key = condition.Field.Key;
                     var match = condition.Field.Match;
 
-                    if (match.Keyword != null)
+                    if (match.Keyword != null && !string.IsNullOrEmpty(match.Keyword))
                         Console.WriteLine($"[RagRetrieval]      • {key} = \"{match.Keyword}\" (string)");
-                    else if (match.Integer != null && match.Integer != 0)
+                    else if (match.HasInteger)
                         Console.WriteLine($"[RagRetrieval]      • {key} = {match.Integer} (integer)");
-                    else if (match.Keywords != null)
+                    else if (match.Keywords != null && match.Keywords.Strings.Any())
                         Console.WriteLine($"[RagRetrieval]      • {key} IN [{string.Join(", ", match.Keywords.Strings.Select(s => $"\"{s}\""))}] (array)");
                 }
             }
             Console.ResetColor();
 
-            // ============================================================================
-            // [FIXED] استخدام التوقيع الصحيح لدالة SearchAsync مع تمرير المعلمات بالترتيب
-            // ============================================================================
             var searchResult = await _qdrantClient.SearchAsync(
                 _collectionName,
                 embedding.Vector.ToArray(),
@@ -438,7 +442,7 @@ namespace DynamicAi.Application.Services
             var searchDuration = (DateTime.UtcNow - searchStart).TotalMilliseconds;
 
             var results = searchResult
-                .Select(point => point.Payload["original_text"]?.StringValue ?? string.Empty)
+                .Select(point => point.Payload[QdrantConstants.OriginalText]?.StringValue ?? string.Empty)
                 .Where(text => !string.IsNullOrEmpty(text))
                 .ToList();
 
@@ -448,7 +452,7 @@ namespace DynamicAi.Application.Services
             // ============================================================================
             // [DIAGNOSTIC] If no results found, log payload keys from a sample point
             // ============================================================================
-            if (searchResult.Count == 0 && stepName == "Pages")
+            if (searchResult.Count == 0 && stepName == DbTables.Pages)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine($"[RagRetrieval]   → WARNING: No results found for {stepName}");
@@ -458,36 +462,7 @@ namespace DynamicAi.Application.Services
                 try
                 {
                     // Search without the problematic filter to see what's actually in Qdrant
-                    var diagnosticFilter = new Filter
-                    {
-                        Must =
-                        {
-                            new Condition
-                            {
-                                Field = new FieldCondition
-                                {
-                                    Key = "tenant_id",
-                                    Match = new Match { Keywords = new RepeatedStrings { Strings = { tenantId, "ALL" } } }
-                                }
-                            },
-                            new Condition
-                            {
-                                Field = new FieldCondition
-                                {
-                                    Key = "source_type",
-                                    Match = new Match { Keyword = "data" }
-                                }
-                            },
-                            new Condition
-                            {
-                                Field = new FieldCondition
-                                {
-                                    Key = "table_name",
-                                    Match = new Match { Keyword = "Pages" }
-                                }
-                            }
-                        }
-                    };
+                    var diagnosticFilter = CreateFilter( "ALL", QdrantConstants.SourceTypeData, DbTables.Pages);
 
                     // [FIXED] استخدام التوقيع الصحيح هنا أيضًا
                     var diagnosticResult = await _qdrantClient.SearchAsync(
@@ -523,9 +498,9 @@ namespace DynamicAi.Application.Services
                         Console.ResetColor();
 
                         // Try to parse original_text to see the actual PageID
-                        if (firstPoint.Payload.ContainsKey("original_text"))
+                        if (firstPoint.Payload.ContainsKey(QdrantConstants.OriginalText))
                         {
-                            var sampleText = firstPoint.Payload["original_text"].StringValue;
+                            var sampleText = firstPoint.Payload[QdrantConstants.OriginalText].StringValue;
                             Console.ForegroundColor = ConsoleColor.Cyan;
                             Console.WriteLine($"[RagRetrieval]   → Sample original_text: {(sampleText?.Length > 200 ? sampleText.Substring(0, 200) + "..." : sampleText)}");
                             Console.ResetColor();

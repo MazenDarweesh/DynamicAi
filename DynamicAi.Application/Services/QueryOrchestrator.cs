@@ -2,6 +2,7 @@
 using DynamicAi.Application.Models; // (لاستخدام RewrittenSqlResult)
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 
 namespace DynamicAi.Application.Services
@@ -53,6 +54,8 @@ namespace DynamicAi.Application.Services
             Console.WriteLine($"[Orchestrator] Pipeline has 5 layers to execute...\n");
 
             var startTime = DateTime.UtcNow;
+            string rawSql = string.Empty;
+            RewrittenSqlResult? rewrittenResult = null;
 
             try
             {
@@ -84,7 +87,7 @@ namespace DynamicAi.Application.Services
                 Console.ResetColor();
 
                 var layer2Start = DateTime.UtcNow;
-                var rawSql = await _generationService.GenerateSqlAsync(userQuestion, contextSnippets);
+                rawSql = await _generationService.GenerateSqlAsync(userQuestion, contextSnippets);
                 var layer2Duration = (DateTime.UtcNow - layer2Start).TotalMilliseconds;
 
                 Console.ForegroundColor = ConsoleColor.Green;
@@ -95,6 +98,17 @@ namespace DynamicAi.Application.Services
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine($"{rawSql}\n");
                 Console.ResetColor();
+
+                // --- (بداية التعديل) ---
+                // التحقق من استجابة "السياق غير كافٍ" قبل المتابعة
+                if (rawSql.Trim().StartsWith("ERROR: Insufficient context.", StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine("[Orchestrator] AI indicated insufficient context. Stopping pipeline gracefully.");
+                    Console.ResetColor();
+                    throw new InvalidOperationException("I could not answer the question with the available context. The RAG retrieval might have failed to find relevant information.");
+                }
+                // --- (نهاية التعديل) ---
 
                 // ============================================================================
                 // Layer 3: SQL Validation - التحقق من الأمان
@@ -108,15 +122,27 @@ namespace DynamicAi.Application.Services
                 Console.ResetColor();
 
                 // ============================================================================
-                // Layer 4: SQL Rewriting (مُجَّلة للمستقبل في MVP)
+                // Layer 4: SQL Rewriting - (مُفعّلة الآن)
                 // ============================================================================
-                Console.ForegroundColor = ConsoleColor.Gray;
+                Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.WriteLine("╔════════════════════════════════════════════════════════════════════════╗");
-                Console.WriteLine("║              [Layer 4: SQL REWRITER] - SKIPPED (MVP)                   ║");
+                Console.WriteLine("║               [Layer 4: SQL REWRITER] - STARTING                       ║");
                 Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
-                Console.WriteLine("[Orchestrator] Layer 4 (SQL Rewriter) is deferred for MVP.");
-                Console.WriteLine("[Orchestrator] Proceeding directly to execution...\n");
                 Console.ResetColor();
+                
+                var layer4Start = DateTime.UtcNow;
+                rewrittenResult = await _rewriterService.RewriteAsync(rawSql, tenantId);
+                var layer4Duration = (DateTime.UtcNow - layer4Start).TotalMilliseconds;
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[Orchestrator] ✓ Layer 4 completed in {layer4Duration:F0}ms");
+                Console.ResetColor();
+                Console.WriteLine($"[Orchestrator] Hardened SQL:");
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"{rewrittenResult.RewrittenSql}");
+                Console.WriteLine($"[Orchestrator] Parameters: {rewrittenResult.Parameters.Count}\n");
+                Console.ResetColor();
+
 
                 // ============================================================================
                 // Layer 5: SQL Execution - التنفيذ الآمن
@@ -128,7 +154,7 @@ namespace DynamicAi.Application.Services
                 Console.ResetColor();
 
                 var layer5Start = DateTime.UtcNow;
-                var data = await _executorService.ExecuteSqlAsync(rawSql, tenantId);
+                var data = await _executorService.ExecuteSqlAsync(rewrittenResult.RewrittenSql, rewrittenResult.Parameters);
                 var layer5Duration = (DateTime.UtcNow - layer5Start).TotalMilliseconds;
 
                 Console.ForegroundColor = ConsoleColor.Green;
@@ -151,7 +177,7 @@ namespace DynamicAi.Application.Services
                 Console.WriteLine($"  Layer 1 (RAG Retrieval):      {layer1Duration,8:F0} ms");
                 Console.WriteLine($"  Layer 2 (SQL Generation):     {layer2Duration,8:F0} ms");
                 Console.WriteLine($"  Layer 3 (SQL Validation):     {layer3Duration,8:F0} ms");
-                Console.WriteLine($"  Layer 4 (SQL Rewriter):       {"SKIPPED",8}");
+                Console.WriteLine($"  Layer 4 (SQL Rewriter):       {layer4Duration,8:F0} ms");
                 Console.WriteLine($"  Layer 5 (Execution):          {layer5Duration,8:F0} ms");
                 Console.WriteLine($"  ───────────────────────────────────────────────");
                 Console.WriteLine($"  Total Pipeline Duration:      {totalDuration,8:F0} ms");
