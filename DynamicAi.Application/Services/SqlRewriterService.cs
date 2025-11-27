@@ -15,7 +15,7 @@ namespace DynamicAi.Application.Services
     {
         private const int MAX_ROWS_LIMIT = 1000; // (الحد الأقصى الافتراضي للصفوف)
 
-        public Task<RewrittenSqlResult> RewriteAsync(string safeSql, string tenantId)
+        public Task<RewrittenSqlResult> RewriteAsync(string safeSql, string tenantId, int? comID = 1)
         {
             // 1. إعداد المحلل (Parser)
             TSqlParser parser = new TSql160Parser(false);
@@ -26,10 +26,18 @@ namespace DynamicAi.Application.Services
                 fragment = parser.Parse(reader, out errors);
             }
 
-            // (نفترض أن الـ Syntax سليم لأنه مر من Layer 3)
-
             // 2. إعداد الـ Visitor والباراميترات
             var parameters = new Dictionary<string, object>();
+            
+            // إضافة ComID إلى الباراميترات إذا كان موجوداً في SQL
+            if (comID.HasValue && safeSql.Contains("@CurrentCompanyId", StringComparison.OrdinalIgnoreCase))
+            {
+                parameters["@CurrentCompanyId"] = comID.Value;
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"[SqlRewriter] Added @CurrentCompanyId parameter with value: {comID.Value}");
+                Console.ResetColor();
+            }
+            
             var visitor = new SqlHardeningVisitor(parameters, tenantId, MAX_ROWS_LIMIT);
 
             // 3. تطبيق التحصينات (الزيارة)

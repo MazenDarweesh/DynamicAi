@@ -3,6 +3,10 @@ using Microsoft.Data.SqlClient;
 using SchemaGenerator.Interfaces;
 using SchemaGenerator.Models;
 using SchemaGenerator.Models.Erp;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace SchemaGenerator.Services
 {
@@ -22,87 +26,148 @@ namespace SchemaGenerator.Services
             List<int> targetPageIds)
         {
             var contextMap = new Dictionary<string, ErpPageContext>();
+            if (targetPageIds == null || !targetPageIds.Any())
+                return contextMap;
+
+            Console.WriteLine("[MetadataService] Building context map from database...");
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync();
-            await connection.ChangeDatabaseAsync(dbName); // (هام: التأكد من أننا في الداتابيز الصحيحة)
+            await connection.ChangeDatabaseAsync(dbName);
 
-            // --- هذا هو الـ Query الذكي الذي يجمع كل "هيكل" الصفحة ---
-            // (بناءً على الـ JSON الذي أرسلته)
             const string query = @"
+                WITH PageContext AS (
+                    SELECT 
+                        p.PageID, 
+                        p.PageDisplay, 
+                        m.MEnName AS ModuleName, 
+                        mm.MEnName AS MenuMasterName,
+                        pa.AttributeId,
+                        pa.ListName AS MasterListName, 
+                        pa.TableName AS MasterViewName, 
+                        pa.TailCondition AS MasterTailCondition,
+                        pa.[Primary] AS MasterPrimaryKey,
+                        pd.DetailId, 
+                        pd.ListName AS DetailListName, 
+                        pd.TableName AS DetailViewName, 
+                        pd.TailCondition AS DetailTailCondition,
+                        pd.ForeignKey AS DetailForeignKey
+                    FROM 
+                        pages p
+                    LEFT JOIN 
+                        MenuMaster mm ON p.MasterID = mm.MID
+                    LEFT JOIN 
+                        Modul m ON p.ModulID = m.MID
+                    LEFT JOIN 
+                        PageAttribute pa ON p.PageID = pa.PageId
+                    LEFT JOIN 
+                        PageDetail pd ON pa.AttributeId = pd.PageAttributeId
+                    WHERE 
+                        p.PageID IN @TargetPageIDs
+                )
                 SELECT 
-                    p.PageID, 
-                    p.PageDisplay, 
-                    m.MEnName AS ModuleName, 
-                    mm.MEnName AS MenuMasterName,
-
-                    pa.AttributeId,
-                    pa.ListName AS MasterListName, 
-                    pa.TableName AS MasterViewName, 
-                    pa.TailCondition AS MasterTailCondition,
-                    pa.[Primary] AS MasterPrimaryKey,
-
-                    pd.DetailId, 
-                    pd.ListName AS DetailListName, 
-                    pd.TableName AS DetailViewName, 
-                    pd.TailCondition AS DetailTailCondition,
-                    pd.ForeignKey AS DetailForeignKey
+                    pc.*,
+                    ls.ColumnName,
+                    ls.arColumnLabel,
+                    ls.enColumnLabel,
+                    ls.ListName AS ContextListName
                 FROM 
-                    pages p
+                    PageContext pc
                 LEFT JOIN 
-                    MenuMaster mm ON p.MasterID = mm.MID
-                LEFT JOIN 
-                    Modul m ON p.ModulID = m.MID
-                LEFT JOIN 
-                    PageAttribute pa ON p.PageID = pa.PageId
-                LEFT JOIN 
-                    PageDetail pd ON pa.AttributeId = pd.PageAttributeId
-                WHERE 
-                    p.PageID IN @TargetPageIDs;
+                    ListSetups ls ON ls.ListName = pc.MasterListName OR ls.ListName = pc.DetailListName
+                WHERE
+                    pc.MasterViewName IS NOT NULL;
             ";
 
             var results = await connection.QueryAsync<PageStructureDto>(query, new { TargetPageIDs = targetPageIds });
+            Console.WriteLine($"[MetadataService]   - DB query returned {results.Count()} flat rows.");
 
-            // تجميع النتائج: نحول الـ DTOs (النتائج المسطحة) إلى كائنات (ErpPageContext) هرمية
             var groupedByPage = results.GroupBy(r => r.PageID);
 
             foreach (var pageGroup in groupedByPage)
             {
                 var first = pageGroup.First();
-                if (string.IsNullOrEmpty(first.MasterViewName)) continue; // (نتجاهل الصفحات التي ليس لها View)
-
                 var context = new ErpPageContext
                 {
                     PageId = first.PageID,
                     PageName = first.PageDisplay,
                     ModuleName = first.ModuleName,
                     MenuMasterName = first.MenuMasterName,
-
-                    // (هام) جلب البيانات من PageAttribute (مثل TailCondition)
                     ViewName = first.MasterViewName,
                     ListName = first.MasterListName,
                     PrimaryKey = first.MasterPrimaryKey,
                     TailCondition = first.MasterTailCondition
                 };
 
-                // إضافة الـ Details (من PageDetail)
-                foreach (var detailRow in pageGroup.Where(d => d.DetailId.HasValue).GroupBy(d => d.DetailId))
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"\n[MetadataService] 🏗️  Processing Page Context for PageID: {context.PageId} ('{context.PageName}')");
+                Console.ResetColor();
+                Console.WriteLine($"  - Master View: '{context.ViewName}' (List: '{context.ListName}')");
+
+                // تجميع بيانات القاموس للـ Master View
+                var masterColumns = pageGroup.Where(r => r.ContextListName == context.ListName && !string.IsNullOrEmpty(r.ColumnName)).ToList();
+                foreach (var row in masterColumns.DistinctBy(r => r.ColumnName))
                 {
-                    var detailFirst = detailRow.First();
-                    context.DetailContexts.Add(new ErpDetailContext
+                    if (!context.ColumnContext.ContainsKey(row.ColumnName))
+                    {
+                        context.ColumnContext[row.ColumnName] = new ErpColumnContext
+                        {
+                            ArLabel = row.arColumnLabel,
+                            EnLabel = row.enColumnLabel
+                        };
+                    }
+                }
+                Console.WriteLine($"    - Found {context.ColumnContext.Count} columns for Master View.");
+
+                // تجميع الـ Details وقواميسها
+                var detailGroups = pageGroup
+                    .Where(d => d.DetailId.HasValue)
+                    .GroupBy(d => d.DetailId.Value);
+
+                foreach (var detailGroup in detailGroups)
+                {
+                    var detailFirst = detailGroup.First();
+                    var detailContext = new ErpDetailContext
                     {
                         ViewName = detailFirst.DetailViewName,
                         ListName = detailFirst.DetailListName,
                         ForeignKeyToMaster = detailFirst.DetailForeignKey,
                         TailCondition = detailFirst.DetailTailCondition
-                    });
+                    };
+                    
+                    Console.ForegroundColor = ConsoleColor.DarkCyan;
+                    Console.WriteLine($"  - Processing Detail Context: '{detailContext.ViewName}' (List: '{detailContext.ListName}')");
+                    Console.ResetColor();
+
+                    // تجميع بيانات القاموس للـ Detail View
+                    var detailColumns = detailGroup.Where(r => r.ContextListName == detailContext.ListName && !string.IsNullOrEmpty(r.ColumnName)).ToList();
+                    foreach (var row in detailColumns.DistinctBy(r => r.ColumnName))
+                    {
+                        if (!detailContext.ColumnContext.ContainsKey(row.ColumnName))
+                        {
+                            detailContext.ColumnContext[row.ColumnName] = new ErpColumnContext
+                            {
+                                ArLabel = row.arColumnLabel,
+                                EnLabel = row.enColumnLabel
+                            };
+                        }
+                    }
+                    Console.WriteLine($"    - Found {detailContext.ColumnContext.Count} columns for Detail View.");
+                    
+                    if (!context.DetailContexts.Any(dc => dc.ViewName == detailContext.ViewName))
+                    {
+                        context.DetailContexts.Add(detailContext);
+                    }
                 }
 
-                // (مهم) نضيف الـ View الرئيسي للقاموس
                 if (!contextMap.ContainsKey(context.PageName))
                 {
                     contextMap[context.PageName] = context;
                 }
             }
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"\n[MetadataService] ✅ Context Map built successfully. Found {contextMap.Count} unique page contexts.");
+            Console.ResetColor();
             return contextMap;
         }
     }

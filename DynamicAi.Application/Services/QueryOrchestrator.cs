@@ -36,7 +36,7 @@ namespace DynamicAi.Application.Services
         /// <summary>
         /// يعالج سؤال المستخدم بالكامل، مروراً بجميع طبقات الأمان والتوليد.
         /// </summary>
-        public async Task<IEnumerable<dynamic>> HandleQueryAsync(string userQuestion, string tenantId)
+        public async Task<IEnumerable<dynamic>> HandleQueryAsync(string userQuestion, string tenantId, int? comID = null)
         {
             // ============================================================================
             // بداية Pipeline - عرض معلومات الطلب
@@ -47,9 +47,10 @@ namespace DynamicAi.Application.Services
             Console.WriteLine("║                  QUERY ORCHESTRATOR - PIPELINE START                   ║");
             Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
             Console.ResetColor();
-            
+
             Console.WriteLine($"[Orchestrator] User Question: \"{userQuestion}\"");
             Console.WriteLine($"[Orchestrator] Tenant ID: {tenantId}");
+            Console.WriteLine($"[Orchestrator] Company ID: {(comID.HasValue ? comID.Value.ToString() : "null")}");
             Console.WriteLine($"[Orchestrator] Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
             Console.WriteLine($"[Orchestrator] Pipeline has 5 layers to execute...\n");
 
@@ -74,7 +75,7 @@ namespace DynamicAi.Application.Services
 
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine($"[Orchestrator] ✓ Layer 1 completed in {layer1Duration:F0}ms");
-                Console.WriteLine($"[Orchestrator] Retrieved context bundle with {contextSnippets?.SchemaScripts?.Count ?? 0} schema(s), {contextSnippets?.DictionaryEntries?.Count ?? 0} dictionary entry(ies), and {contextSnippets?.BusinessRules?.Count ?? 0} business rule(s) from Qdrant.\n");
+                Console.WriteLine($"[Orchestrator] Retrieved context bundle with Unified Context: {!string.IsNullOrEmpty(contextSnippets.UnifiedPageContext)}, {contextSnippets?.DictionaryEntries?.Count ?? 0} dictionary entry(ies), and {contextSnippets?.BusinessRules?.Count ?? 0} business rule(s).\n");
                 Console.ResetColor();
 
                 // ============================================================================
@@ -93,7 +94,7 @@ namespace DynamicAi.Application.Services
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine($"[Orchestrator] ✓ Layer 2 completed in {layer2Duration:F0}ms");
                 Console.ResetColor();
-                
+
                 Console.WriteLine($"[Orchestrator] Generated SQL:");
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine($"{rawSql}\n");
@@ -129,9 +130,9 @@ namespace DynamicAi.Application.Services
                 Console.WriteLine("║               [Layer 4: SQL REWRITER] - STARTING                       ║");
                 Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
                 Console.ResetColor();
-                
+
                 var layer4Start = DateTime.UtcNow;
-                rewrittenResult = await _rewriterService.RewriteAsync(rawSql, tenantId);
+                rewrittenResult = await _rewriterService.RewriteAsync(rawSql, tenantId, comID);
                 var layer4Duration = (DateTime.UtcNow - layer4Start).TotalMilliseconds;
 
                 Console.ForegroundColor = ConsoleColor.Green;
@@ -140,7 +141,12 @@ namespace DynamicAi.Application.Services
                 Console.WriteLine($"[Orchestrator] Hardened SQL:");
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine($"{rewrittenResult.RewrittenSql}");
-                Console.WriteLine($"[Orchestrator] Parameters: {rewrittenResult.Parameters.Count}\n");
+                Console.WriteLine($"[Orchestrator] Parameters: {rewrittenResult.Parameters.Count}");
+                foreach (var param in rewrittenResult.Parameters)
+                {
+                    Console.WriteLine($"  - {param.Key} = {param.Value}");
+                }
+                Console.WriteLine();
                 Console.ResetColor();
 
 

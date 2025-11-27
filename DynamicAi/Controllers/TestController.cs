@@ -52,14 +52,15 @@ namespace DynamicAi.Api.Controllers
 
             Console.WriteLine($"[API] Question: \"{request.Question}\"");
             Console.WriteLine($"[API] Tenant ID: {request.TenantId ?? "null"}");
+            Console.WriteLine($"[API] Company ID (ComID): {(request.ComID.HasValue ? request.ComID.Value.ToString() : "null")}");
             Console.WriteLine("[API] Starting orchestrator pipeline...\n");
 
             var apiStartTime = DateTime.UtcNow;
 
             try
             {
-                // تشغيل Pipeline بالكامل
-                var result = await _queryOrchestrator.HandleQueryAsync(request.Question, request.TenantId);
+                // تشغيل Pipeline بالكامل مع إرسال ComID
+                var result = await _queryOrchestrator.HandleQueryAsync(request.Question, request.TenantId, request.ComID);
                 
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
 

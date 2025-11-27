@@ -6,6 +6,7 @@ using SchemaGenerator.Models.Erp;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -54,40 +55,44 @@ namespace SchemaGenerator.Services
 
             Console.WriteLine("[DataExtractor] Starting targeted metadata extraction...");
 
-            // 1. استخراج IDs و ListNames من السياق
-            var targetPageIds = contextMap.Values.Select(c => c.PageId).Distinct().ToList();
             var allContexts = contextMap.Values;
+            var targetPageIds = allContexts.Select(c => c.PageId).Distinct().ToList();
             var masterListNames = allContexts.Select(c => c.ListName).Where(n => !string.IsNullOrEmpty(n));
             var detailListNames = allContexts.SelectMany(c => c.DetailContexts).Select(d => d.ListName).Where(n => !string.IsNullOrEmpty(n));
             var allListNames = masterListNames.Concat(detailListNames).Distinct().ToList();
 
-            // 2. استخراج البيانات من الجداول الستة بشكل موجه
             var pages = await FetchDataAsync(connection, DbTables.Pages, DbColumns.PageID_Upper, targetPageIds);
             allDocuments.AddRange(pages.Select(row => TransformRowToDocument(row, DbTables.Pages)));
 
             var pageAttributes = await FetchDataAsync(connection, DbTables.PageAttribute, DbColumns.PageId_Lower, targetPageIds);
             allDocuments.AddRange(pageAttributes.Select(row => TransformRowToDocument(row, DbTables.PageAttribute)));
 
-            var attributeIds = pageAttributes.Select(pa => (int)pa[DbColumns.AttributeId]).Distinct().ToList();
-            if (attributeIds.Any())
+            // --- (بداية التعديل الجذري) ---
+            // المرور على كل PageAttribute لجلب التفاصيل المرتبطة به وتمرير سياق الـ ID
+            var attributesById = pageAttributes.ToDictionary(pa => (int)pa[DbColumns.AttributeId]);
+            foreach (var attrId in attributesById.Keys)
             {
-                var pageDetails = await FetchDataAsync(connection, DbTables.PageDetail, DbColumns.PageAttributeId, attributeIds);
-                allDocuments.AddRange(pageDetails.Select(row => TransformRowToDocument(row, DbTables.PageDetail)));
+                var pageDetails = await FetchDataAsync(connection, DbTables.PageDetail, DbColumns.PageAttributeId, new List<int> { attrId });
+                allDocuments.AddRange(pageDetails.Select(row => TransformRowToDocument(row, DbTables.PageDetail, attributeId: attrId)));
             }
 
-            var modulIds = pages.Where(p => p.ContainsKey(DbColumns.ModulID_Upper) && p[DbColumns.ModulID_Upper] != null).Select(p => (int)p[DbColumns.ModulID_Upper]).Distinct().ToList();
-            if (modulIds.Any())
+            // المرور على كل Page لجلب الموديول والقائمة الرئيسية وتمرير سياق الـ ID
+            var pagesById = pages.ToDictionary(p => (int)p[DbColumns.PageID_Upper]);
+            foreach (var pageId in pagesById.Keys)
             {
-                var moduls = await FetchDataAsync(connection, DbTables.Modul, DbColumns.MID, modulIds);
-                allDocuments.AddRange(moduls.Select(row => TransformRowToDocument(row, DbTables.Modul)));
+                var page = pagesById[pageId];
+                if (page.TryGetValue(DbColumns.ModulID_Upper, out var modulIdObj) && modulIdObj != null)
+                {
+                    var moduls = await FetchDataAsync(connection, DbTables.Modul, DbColumns.MID, new List<int> { (int)modulIdObj });
+                    allDocuments.AddRange(moduls.Select(row => TransformRowToDocument(row, DbTables.Modul, pageId: pageId)));
+                }
+                if (page.TryGetValue(DbColumns.MasterID_Upper, out var menuMasterIdObj) && menuMasterIdObj != null)
+                {
+                    var menuMasters = await FetchDataAsync(connection, DbTables.MenuMaster, DbColumns.MID, new List<int> { (int)menuMasterIdObj });
+                    allDocuments.AddRange(menuMasters.Select(row => TransformRowToDocument(row, DbTables.MenuMaster, pageId: pageId)));
+                }
             }
-
-            var menuMasterIds = pages.Where(p => p.ContainsKey(DbColumns.MasterID_Upper) && p[DbColumns.MasterID_Upper] != null).Select(p => (int)p[DbColumns.MasterID_Upper]).Distinct().ToList();
-            if (menuMasterIds.Any())
-            {
-                var menuMasters = await FetchDataAsync(connection, DbTables.MenuMaster, DbColumns.MID, menuMasterIds);
-                allDocuments.AddRange(menuMasters.Select(row => TransformRowToDocument(row, DbTables.MenuMaster)));
-            }
+            // --- (نهاية التعديل الجذري) ---
 
             if (allListNames.Any())
             {
@@ -103,19 +108,29 @@ namespace SchemaGenerator.Services
         {
             if (ids == null || !ids.Any()) return new List<Dictionary<string, object>>();
 
-            Console.WriteLine($"  - Fetching from '{tableName}' where '{columnName}' IN (...)");
+            Console.WriteLine($"  - Fetching from '{tableName}' where '{columnName}' IN ({string.Join(",", ids.Take(5))}{(ids.Count > 5 ? "..." : "")})");
             var query = $"SELECT * FROM dbo.[{tableName}] WHERE [{columnName}] IN @Ids";
             var rows = await connection.QueryAsync(query, new { Ids = ids });
             return rows.Select(row => ((IDictionary<string, object>)row).ToDictionary(kvp => kvp.Key, kvp => kvp.Value)).ToList();
         }
 
-        /// <summary>
-        /// دالة مساعدة لتحويل الصف (Row) إلى مستند VectorDocument.
-        /// </summary>
-        private VectorDocument TransformRowToDocument(Dictionary<string, object> row, string tableName)
+        private VectorDocument TransformRowToDocument(Dictionary<string, object> row, string tableName, int? pageId = null, int? attributeId = null)
         {
             string rowAsJson = JsonSerializer.Serialize(row, _jsonOptions);
             string rowId = row.Values.FirstOrDefault()?.ToString() ?? Guid.NewGuid().ToString();
+
+            // Ensure context-specific rows (e.g., Modul/MenuMaster tied to PageID) remain unique per relationship.
+            // Otherwise, reusing the same DocumentId would overwrite the previous page/context metadata in Qdrant.
+            var contextSuffixBuilder = new StringBuilder();
+            if (pageId.HasValue)
+            {
+                contextSuffixBuilder.Append($"_P{pageId.Value}");
+            }
+            if (attributeId.HasValue)
+            {
+                contextSuffixBuilder.Append($"_A{attributeId.Value}");
+            }
+            string contextSuffix = contextSuffixBuilder.ToString();
 
             var metadata = new Dictionary<string, string>
             {
@@ -125,14 +140,28 @@ namespace SchemaGenerator.Services
                 { VectorDbMeta.TenantId, VectorDbMeta.TenantAll }
             };
 
-            if (row.TryGetValue(DbColumns.PageID_Upper, out var pageIdValue) || row.TryGetValue(DbColumns.PageId_Lower, out pageIdValue))
+            // --- (منطق الربط المحسّن) ---
+            // 1. استخدم الـ ID الممرر بشكل صريح (لأنه يمثل العلاقة)
+            if (pageId.HasValue)
+            {
+                metadata[VectorDbMeta.PageId] = pageId.Value.ToString();
+            }
+            // 2. إذا لم يوجد، ابحث عنه في بيانات الصف نفسه
+            else if (row.TryGetValue(DbColumns.PageID_Upper, out var pageIdValue) || row.TryGetValue(DbColumns.PageId_Lower, out pageIdValue))
             {
                 if (pageIdValue != null) metadata[VectorDbMeta.PageId] = pageIdValue.ToString();
             }
-            if (row.TryGetValue(DbColumns.AttributeId, out var attrIdValue) && attrIdValue != null)
+
+            if (attributeId.HasValue)
+            {
+                metadata[VectorDbMeta.AttributeId] = attributeId.Value.ToString();
+            }
+            else if (row.TryGetValue(DbColumns.AttributeId, out var attrIdValue) && attrIdValue != null)
             {
                 metadata[VectorDbMeta.AttributeId] = attrIdValue.ToString();
             }
+            // --- (نهاية منطق الربط) ---
+
             if (row.TryGetValue(DbColumns.DetailId, out var detailIdValue) && detailIdValue != null)
             {
                 metadata[VectorDbMeta.DetailId] = detailIdValue.ToString();
@@ -148,7 +177,7 @@ namespace SchemaGenerator.Services
 
             return new VectorDocument
             {
-                DocumentId = $"Data_{tableName}_{rowId}",
+                DocumentId = $"Data_{tableName}_{rowId}{contextSuffix}",
                 TextContent = rowAsJson,
                 IsDeleted = false,
                 Metadata = metadata

@@ -35,7 +35,7 @@ namespace DynamicAi.Application.Services
 
             Console.WriteLine($"[SqlGeneration] User Question: \"{userQuestion}\"");
             Console.WriteLine($"[SqlGeneration] Context Bundle Received:");
-            Console.WriteLine($"  - Schema Scripts: {contextBundle.SchemaScripts?.Count ?? 0}");
+            Console.WriteLine($"  - Unified Context: {(!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))}");
             Console.WriteLine($"  - Dictionary Entries: {contextBundle.DictionaryEntries?.Count ?? 0}");
             Console.WriteLine($"  - Business Rules: {contextBundle.BusinessRules?.Count ?? 0}");
 
@@ -46,27 +46,16 @@ namespace DynamicAi.Application.Services
             Console.WriteLine("\n[SqlGeneration] STEP 1: Analyzing Context Bundle...");
             Console.ResetColor();
 
-            if (contextBundle.SchemaScripts != null && contextBundle.SchemaScripts.Any())
+            if (!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))
             {
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[SqlGeneration] ✓ Schema Scripts available: {contextBundle.SchemaScripts.Count}");
-                Console.ResetColor();
-                Console.ForegroundColor = ConsoleColor.Gray;
-                foreach (var script in contextBundle.SchemaScripts.Take(2))
-                {
-                    var preview = script.Length > 100 ? script.Substring(0, 100) + "..." : script;
-                    Console.WriteLine($"  Preview: {preview}");
-                }
-                if (contextBundle.SchemaScripts.Count > 2)
-                {
-                    Console.WriteLine($"  ... and {contextBundle.SchemaScripts.Count - 2} more");
-                }
+                Console.WriteLine($"[SqlGeneration] ✓ Unified Page Context available.");
                 Console.ResetColor();
             }
             else
             {
                 Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("[SqlGeneration] ⚠ No Schema Scripts provided");
+                Console.WriteLine("[SqlGeneration] ⚠ No Unified Page Context provided");
                 Console.ResetColor();
             }
 
@@ -74,17 +63,6 @@ namespace DynamicAi.Application.Services
             {
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine($"[SqlGeneration] ✓ Dictionary Entries available: {contextBundle.DictionaryEntries.Count}");
-                Console.ResetColor();
-                Console.ForegroundColor = ConsoleColor.Gray;
-                foreach (var entry in contextBundle.DictionaryEntries.Take(2))
-                {
-                    var preview = entry.Length > 100 ? entry.Substring(0, 100) + "..." : entry;
-                    Console.WriteLine($"  Preview: {preview}");
-                }
-                if (contextBundle.DictionaryEntries.Count > 2)
-                {
-                    Console.WriteLine($"  ... and {contextBundle.DictionaryEntries.Count - 2} more");
-                }
                 Console.ResetColor();
             }
             else
@@ -98,12 +76,6 @@ namespace DynamicAi.Application.Services
             {
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine($"[SqlGeneration] ✓ Business Rules available: {contextBundle.BusinessRules.Count}");
-                Console.ResetColor();
-                Console.ForegroundColor = ConsoleColor.Gray;
-                foreach (var rule in contextBundle.BusinessRules)
-                {
-                    Console.WriteLine($"  Rule: {rule}");
-                }
                 Console.ResetColor();
             }
             else
@@ -126,27 +98,37 @@ namespace DynamicAi.Application.Services
             promptBuilder.AppendLine("You are an expert SQL Server developer tasked with writing T-SQL queries for an ERP system.");
             promptBuilder.AppendLine("You must strictly follow all rules. Answer with T-SQL code only. Do not add any explanations.");
 
-            promptBuilder.AppendLine("\n--- RULES ---");
-            promptBuilder.AppendLine("1. ONLY use the Tables, Views, and Columns provided in the 'SCHEMA CONTEXT'.");
-            promptBuilder.AppendLine("2. Use the 'DICTIONARY CONTEXT' to map user terms (Arabic) to the correct database ColumnNames (English).");
-            promptBuilder.AppendLine("3. (CRITICAL) You MUST include the 'BUSINESS RULES' (TailConditions) in your WHERE clause.");
-            promptBuilder.AppendLine("4. If the question cannot be answered with the given context, respond with 'ERROR: Insufficient context.'");
+            promptBuilder.AppendLine("\n--- CORE RESTRICTIONS ---");
+            promptBuilder.AppendLine("1. ONLY use Tables/Columns provided in 'HIERARCHY & SCHEMA CONTEXT'. Do NOT hallucinate columns.");
+            promptBuilder.AppendLine("2. (CRITICAL) You MUST include the 'BUSINESS RULES' (TailConditions) in your WHERE clause.");
+            
+            promptBuilder.AppendLine("\n--- INTELLIGENT LOGIC & SYNTAX RULES ---");
+            
+            promptBuilder.AppendLine("1. DATE LOGIC: If a month is mentioned without a year:");
+            promptBuilder.AppendLine("   - Use T-SQL: `WHERE MONTH(DateCol) = X`. Do NOT assume a specific year unless specified.");
+            promptBuilder.AppendLine("   - If needing a range, calculate relative to GETDATE().");
+
+            promptBuilder.AppendLine("2. TEXT SEARCH: For names/descriptions, NEVER use '='. ALWAYS use `LIKE N'%Value%'`.");
+            promptBuilder.AppendLine("   - IMPORTANT: You MUST prefix string literals with 'N' to support Arabic characters (e.g., `N'أحمد'`).");
+
+            promptBuilder.AppendLine("3. MATH SAFETY: When performing calculations (SUM, AVG, +, -), ALWAYS wrap columns with `ISNULL(Column, 0)`.");
+            promptBuilder.AppendLine("   - Example: `SUM(ISNULL(PaidAmount, 0))` instead of `SUM(PaidAmount)`.");
+
+            promptBuilder.AppendLine("4. OUTPUT FORMAT: Use descriptive ARABIC aliases for columns.");
+            promptBuilder.AppendLine("   - Example: `SELECT Sum(Total) AS [اجمالي المبيعات]`. Use terms from 'DICTIONARY CONTEXT' for aliases.");
+
+            promptBuilder.AppendLine("5. SAFETY: If no aggregation (SUM/COUNT) is requested, ALWAYS add `TOP 100` to the query.");
 
             Console.ForegroundColor = ConsoleColor.Gray;
-            Console.WriteLine("[SqlGeneration] Building prompt section: SCHEMA CONTEXT...");
+            Console.WriteLine("[SqlGeneration] Building prompt section: HIERARCHY & SCHEMA CONTEXT...");
             Console.ResetColor();
-            promptBuilder.AppendLine("\n--- SCHEMA CONTEXT (The available Tables/Views) ---");
-            if (contextBundle.SchemaScripts != null && contextBundle.SchemaScripts.Any())
+            promptBuilder.AppendLine("\n--- HIERARCHY & SCHEMA CONTEXT (The available Page structure and its Views) ---");
+            if (!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))
             {
-                int schemaIndex = 1;
-                foreach (var script in contextBundle.SchemaScripts)
-                {
-                    promptBuilder.AppendLine($"\n[Schema Script {schemaIndex}]");
-                    promptBuilder.AppendLine(script);
-                    schemaIndex++;
-                }
+                promptBuilder.AppendLine("This JSON object represents the complete page structure. The `SchemaScript` property contains the T-SQL CREATE VIEW statement.");
+                promptBuilder.AppendLine(contextBundle.UnifiedPageContext);
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[SqlGeneration] ✓ Added {contextBundle.SchemaScripts.Count} schema script(s)");
+                Console.WriteLine($"[SqlGeneration] ✓ Added Unified Page Context.");
                 Console.ResetColor();
             }
             else
@@ -209,8 +191,9 @@ namespace DynamicAi.Application.Services
             Console.WriteLine($"[SqlGeneration] ✓ Prompt built successfully in {promptDuration:F0}ms");
             Console.WriteLine($"[SqlGeneration] Prompt size: {fullPrompt.Length} characters");
             Console.WriteLine($"[SqlGeneration] Prompt structure:");
-            Console.WriteLine($"  - Rules: 4");
-            Console.WriteLine($"  - Schema scripts: {contextBundle.SchemaScripts?.Count ?? 0}");
+            Console.WriteLine($"  - Core Restrictions: 2");
+            Console.WriteLine($"  - Intelligent Rules: 5");
+            Console.WriteLine($"  - Unified Context: {(!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))}");
             Console.WriteLine($"  - Dictionary entries: {contextBundle.DictionaryEntries?.Count ?? 0}");
             Console.WriteLine($"  - Business rules: {contextBundle.BusinessRules?.Count ?? 0}");
             Console.ResetColor();

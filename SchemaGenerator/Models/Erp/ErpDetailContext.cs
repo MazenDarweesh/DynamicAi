@@ -1,4 +1,6 @@
-﻿namespace SchemaGenerator.Models.Erp
+﻿using System.Collections.Generic;
+
+namespace SchemaGenerator.Models.Erp
 {
 
     /// <summary>
@@ -25,5 +27,10 @@
         /// (هام) شروط الفلترة الخاصة بهذا الـ View التفصيلي
         /// </summary>
         public string TailCondition { get; set; }
+
+        /// <summary>
+        /// (جديد) القاموس الذي يحتوي على بيانات الأعمدة من ListSetups
+        /// </summary>
+        public Dictionary<string, ErpColumnContext> ColumnContext { get; set; } = new Dictionary<string, ErpColumnContext>();
     }
 }

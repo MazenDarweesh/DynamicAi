@@ -9,9 +9,9 @@ namespace DynamicAi.Application.Models
     public class RetrievalContextBundle
     {
         /// <summary>
-        /// الـ Scripts الخاصة بالسكيما (CREATE VIEW, CREATE TABLE chunks)
+        /// (جديد) كائن JSON يمثل شجرة الصفحة الكاملة (Page -> Attributes -> Details).
         /// </summary>
-        public List<string> SchemaScripts { get; set; } = new List<string>();
+        public string UnifiedPageContext { get; set; }
 
         /// <summary>
         /// "القاموس" - صفوف البيانات من ListSetups (كنصوص JSON)

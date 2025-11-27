@@ -2,7 +2,11 @@
 using Microsoft.Extensions.Configuration;
 using Qdrant.Client;
 using Qdrant.Client.Grpc;
+using SchemaGenerator.Common;
 using SchemaGenerator.Interfaces;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace SchemaGenerator.Services
 {
@@ -33,17 +37,14 @@ namespace SchemaGenerator.Services
 
             try
             {
-                // محاولة الحصول على معلومات المجموعة
                 var collectionInfo = await GetCollectionInfoAsync(collectionName);
                 
                 if (collectionInfo == null)
                 {
-                    // المجموعة غير موجودة - إنشاؤها مع الفهارس
                     return await CreateCollectionWithIndexesAsync(collectionName);
                 }
                 
-                // المجموعة موجودة - التحقق من أبعاد المتجهات
-                return await ValidateVectorDimensionsAsync(collectionName, collectionInfo);
+                return await ValidateExistingCollectionAsync(collectionName, collectionInfo);
             }
             catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.Unauthenticated)
             {
@@ -60,7 +61,7 @@ namespace SchemaGenerator.Services
                     ex.Status.Detail);
                 return false;
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 PrintError("Connection Failed",
                     $"Qdrant connection failed: {ex.GetType().Name}",
@@ -74,9 +75,6 @@ namespace SchemaGenerator.Services
             }
         }
 
-        /// <summary>
-        /// (مُعدل) إنشاء مجموعة جديدة مع الفهارس المحسّنة
-        /// </summary>
         private async Task<bool> CreateCollectionWithIndexesAsync(string collectionName)
         {
             try
@@ -89,21 +87,16 @@ namespace SchemaGenerator.Services
                 
                 await _qdrantClient.CreateCollectionAsync(
                     collectionName: collectionName,
-                    vectorsConfig: new VectorParams
-                    {
-                        Size = (ulong)actualDimension,
-                        Distance = Distance.Cosine
-                    }
+                    vectorsConfig: new VectorParams { Size = (ulong)actualDimension, Distance = Distance.Cosine }
                 );
                 
                 PrintSuccess($"✓ Collection '{collectionName}' created successfully (Dimension: {actualDimension}, Metric: Cosine).");
 
-                // (الأهم) إنشاء الفهارس بعد إنشاء المجموعة مباشرة
-                await CreatePayloadIndexesAsync(collectionName);
+                await CreateAllPayloadIndexesAsync(collectionName);
 
                 return true;
             }
-            catch (Exception createEx)
+            catch (System.Exception createEx)
             {
                 PrintError("Collection Creation Failed",
                     $"Failed to create collection: {createEx.Message}",
@@ -112,31 +105,83 @@ namespace SchemaGenerator.Services
             }
         }
 
-        /// <summary>
-        /// (جديد) دالة لإنشاء جميع الفهارس المطلوبة
-        /// </summary>
-        private async Task CreatePayloadIndexesAsync(string collectionName)
+        private async Task<bool> ValidateExistingCollectionAsync(string collectionName, CollectionInfo collectionInfo)
         {
-            Console.WriteLine($"\n🔧 Creating Payload Indexes for optimized filtering...");
+            if (!await ValidateVectorDimensionsAsync(collectionName, collectionInfo))
+            {
+                return false;
+            }
 
-            // String/Keyword Indexes
-            await CreateIndexAsync(collectionName, "tenant_id", PayloadSchemaType.Keyword, "Tenant isolation");
-            await CreateIndexAsync(collectionName, "source_type", PayloadSchemaType.Keyword, "data/schema distinction");
-            await CreateIndexAsync(collectionName, "table_name", PayloadSchemaType.Keyword, "Table/View name in metadata");
-            await CreateIndexAsync(collectionName, "object_name", PayloadSchemaType.Keyword, "Schema object name (View/Table/SP)");
-            await CreateIndexAsync(collectionName, "list_name", PayloadSchemaType.Keyword, "ListSetups exact matching");
-            await CreateIndexAsync(collectionName, "object_type", PayloadSchemaType.Keyword, "VIEW/TABLE/PROCEDURE");
+            // --- (بداية التعديل الذكي) ---
+            // التحقق من الفهارس الموجودة وإنشاء الناقص منها
+            return await EnsurePayloadIndexesAsync(collectionName, collectionInfo);
+            // --- (نهاية التعديل الذكي) ---
+        }
 
-            // Integer Indexes (Critical for performance)
-            await CreateIndexAsync(collectionName, "page_id", PayloadSchemaType.Integer, "Page ID exact lookup");
-            await CreateIndexAsync(collectionName, "attribute_id", PayloadSchemaType.Integer, "Attribute ID exact lookup");
-            await CreateIndexAsync(collectionName, "detail_id", PayloadSchemaType.Integer, "Detail ID exact lookup");
-            await CreateIndexAsync(collectionName, "chunk_index", PayloadSchemaType.Integer, "Multi-chunk ordering");
+        private async Task<bool> EnsurePayloadIndexesAsync(string collectionName, CollectionInfo collectionInfo)
+        {
+            Console.WriteLine($"\n🔧 Verifying payload indexes for existing collection...");
+
+            var requiredIndexes = new Dictionary<string, PayloadSchemaType>
+            {
+                { VectorDbMeta.TenantId, PayloadSchemaType.Keyword },
+                { VectorDbMeta.SourceType, PayloadSchemaType.Keyword },
+                { VectorDbMeta.TableName, PayloadSchemaType.Keyword },
+                { VectorDbMeta.ObjectName, PayloadSchemaType.Keyword },
+                { VectorDbMeta.ListName, PayloadSchemaType.Keyword },
+                { VectorDbMeta.PageId, PayloadSchemaType.Integer },
+                { VectorDbMeta.AttributeId, PayloadSchemaType.Integer },
+                { VectorDbMeta.DetailId, PayloadSchemaType.Integer },
+                { VectorDbMeta.ChunkIndex, PayloadSchemaType.Integer }
+            };
+
+            var existingIndexes = collectionInfo.PayloadSchema.Keys;
+            var missingIndexes = requiredIndexes.Where(kvp => !existingIndexes.Contains(kvp.Key)).ToList();
+
+            if (!missingIndexes.Any())
+            {
+                PrintSuccess("✓ All required payload indexes are present.");
+                return true;
+            }
+
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"Found {missingIndexes.Count} missing index(es). Creating them now...");
+            Console.ResetColor();
+
+            foreach (var missingIndex in missingIndexes)
+            {
+                await CreateIndexAsync(collectionName, missingIndex.Key, missingIndex.Value);
+            }
+
+            PrintSuccess("\n✓ All missing indexes created successfully.");
+            return true;
+        }
+
+        private async Task CreateAllPayloadIndexesAsync(string collectionName)
+        {
+            Console.WriteLine($"\n🔧 Creating all payload indexes for new collection...");
+            var requiredIndexes = new Dictionary<string, PayloadSchemaType>
+            {
+                { VectorDbMeta.TenantId, PayloadSchemaType.Keyword },
+                { VectorDbMeta.SourceType, PayloadSchemaType.Keyword },
+                { VectorDbMeta.TableName, PayloadSchemaType.Keyword },
+                { VectorDbMeta.ObjectName, PayloadSchemaType.Keyword },
+                { VectorDbMeta.ListName, PayloadSchemaType.Keyword },
+                { VectorDbMeta.PageId, PayloadSchemaType.Integer },
+                { VectorDbMeta.AttributeId, PayloadSchemaType.Integer },
+                { VectorDbMeta.DetailId, PayloadSchemaType.Integer },
+                { VectorDbMeta.ChunkIndex, PayloadSchemaType.Integer }
+            };
+
+            foreach (var index in requiredIndexes)
+            {
+                await CreateIndexAsync(collectionName, index.Key, index.Value);
+            }
 
             PrintSuccess("\n✓ All payload indexes configured successfully.");
         }
 
-        private async Task CreateIndexAsync(string collection, string field, PayloadSchemaType type, string description)
+        private async Task CreateIndexAsync(string collection, string field, PayloadSchemaType type)
         {
             try
             {
@@ -146,7 +191,7 @@ namespace SchemaGenerator.Services
                 Console.WriteLine("✓");
                 Console.ResetColor();
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine($"⚠️  Warning: Index '{field}' may already exist. {ex.Message}");
@@ -154,16 +199,12 @@ namespace SchemaGenerator.Services
             }
         }
         
-        /// <summary>
-        /// الحصول على معلومات المجموعة (أو null إذا لم توجد)
-        /// </summary>
         private async Task<CollectionInfo?> GetCollectionInfoAsync(string collectionName)
         {
             try
             {
                 Console.WriteLine($"Connecting to Qdrant Cloud...");
                 Console.WriteLine($"Collection: {collectionName}");
-                
                 return await _qdrantClient.GetCollectionInfoAsync(collectionName);
             }
             catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
@@ -175,18 +216,11 @@ namespace SchemaGenerator.Services
             }
         }
 
-        /// <summary>
-        /// التحقق من تطابق أبعاد المتجهات
-        /// </summary>
         private async Task<bool> ValidateVectorDimensionsAsync(string collectionName, CollectionInfo collectionInfo)
         {
             Console.WriteLine($"Testing embedding service to determine vector dimensions...");
-            
             var actualDimension = await GetEmbeddingDimensionAsync();
-            // --- (بداية التعديل) ---
-            // المسار الصحيح والمباشر للحصول على الحجم من التكوين
             var expectedDimension = collectionInfo.Config.Params.VectorsConfig.Params.Size;
-            // --- (نهاية التعديل) ---
 
             PrintSuccess(
                 $"✓ Qdrant connection successful!",
@@ -194,94 +228,32 @@ namespace SchemaGenerator.Services
                 $"✓ Collection expects vector dimension: {expectedDimension}",
                 $"✓ Embedding service produces dimension: {actualDimension}");
 
-            // التحقق من التطابق
             if ((ulong)actualDimension != expectedDimension)
             {
-                return await HandleDimensionMismatchAsync(collectionName, actualDimension, expectedDimension);
+                PrintError("FATAL: Dimension Mismatch", 
+                    $"The existing collection expects vectors of size {expectedDimension}, but the current embedding model produces size {actualDimension}.",
+                    "This cannot be fixed automatically. You must manually delete the collection in Qdrant and restart this process.");
+                return false;
             }
 
             return true;
         }
 
-        /// <summary>
-        /// معالجة عدم تطابق الأبعاد
-        /// </summary>
-        private async Task<bool> HandleDimensionMismatchAsync(
-            string collectionName, 
-            int actualDimension, 
-            ulong expectedDimension)
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"\n✗ ERROR: Dimension mismatch!");
-            Console.WriteLine($"  Collection expects: {expectedDimension}");
-            Console.WriteLine($"  Embedding produces: {actualDimension}");
-            Console.WriteLine($"\nOptions:");
-            Console.WriteLine($"  1. Delete and recreate collection with dimension {actualDimension}");
-            Console.WriteLine($"  2. Use a different embedding model that produces {expectedDimension} dimensions");
-            Console.ResetColor();
-
-            Console.Write($"\nDo you want to delete and recreate the collection? (yes/no): ");
-            var response = Console.ReadLine()?.Trim().ToLower();
-
-            if (response == "yes" || response == "y")
-            {
-                try
-                {
-                    Console.WriteLine($"Deleting collection '{collectionName}'...");
-                    await _qdrantClient.DeleteCollectionAsync(collectionName);
-
-                    Console.WriteLine($"Creating collection with dimension {actualDimension}...");
-                    await _qdrantClient.CreateCollectionAsync(
-                        collectionName: collectionName,
-                        vectorsConfig: new VectorParams
-                        {
-                            Size = (ulong)actualDimension,
-                            Distance = Distance.Cosine
-                        }
-                    );
-
-                    PrintSuccess($"✓ Collection recreated successfully with dimension {actualDimension}!");
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    PrintError("Recreation Failed", ex.Message);
-                    return false;
-                }
-            }
-            else
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("Vector dimension mismatch. Cannot proceed.");
-                Console.ResetColor();
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// الحصول على أبعاد المتجهات من خدمة التضمين
-        /// </summary>
         private async Task<int> GetEmbeddingDimensionAsync()
         {
             var testEmbedding = await _embeddingService.GenerateAsync(new[] { "test" });
             return testEmbedding.First().Vector.Length;
         }
 
-        /// <summary>
-        /// طباعة رأس القسم
-        /// </summary>
         private void PrintHeader()
         {
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.WriteLine("\n═══════════════════════════════════════════════════════");
-            Console.WriteLine("   QDRANT CONNECTION VALIDATION");
+            Console.WriteLine("   QDRANT CONNECTION & SCHEMA VALIDATION");
             Console.WriteLine("═══════════════════════════════════════════════════════");
             Console.ResetColor();
         }
 
-        /// <summary>
-        /// طباعة رسائل النجاح
-        /// </summary>
         private void PrintSuccess(params string[] messages)
         {
             Console.ForegroundColor = ConsoleColor.Green;
@@ -292,9 +264,6 @@ namespace SchemaGenerator.Services
             Console.ResetColor();
         }
 
-        /// <summary>
-        /// طباعة رسائل الخطأ
-        /// </summary>
         private void PrintError(string title, params string[] messages)
         {
             Console.ForegroundColor = ConsoleColor.Red;

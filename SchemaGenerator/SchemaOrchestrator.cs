@@ -81,7 +81,6 @@ namespace SchemaGenerator
 
             try
             {
-                // محاولة استعادة نقطة التفتيش
                 checkpoint = await LoadCheckpointAsync();
 
                 if (checkpoint != null)
@@ -96,7 +95,6 @@ namespace SchemaGenerator
                     {
                         checkpoint = null;
                         Console.WriteLine("[Checkpoint] Starting fresh pipeline...");
-                        
                         await ClearUploadStateAsync();
                     }
                     else
@@ -105,13 +103,11 @@ namespace SchemaGenerator
                     }
                 }
 
-                // تهيئة نقطة تفتيش جديدة إذا لم توجد
                 if (checkpoint == null)
                 {
                     checkpoint = new PipelineCheckpoint();
                     await ClearUploadStateAsync();
                 }
-
 
                 // === [Phase 1: Build Context Map] ===
                 if (checkpoint.LastCompletedPhase < 1)
@@ -119,6 +115,7 @@ namespace SchemaGenerator
                     Console.WriteLine($"[Phase 1] Building ERP Context Map from {_targetPageIds.Count} Target Page(s)...");
                     checkpoint.ContextMap = await _metadataService.BuildContextMapAsync(_connectionString, _dbName, _targetPageIds);
                     Console.WriteLine($"[Phase 1] Context Map built. Found {checkpoint.ContextMap.Count} relevant Page Contexts.");
+
                     checkpoint.LastCompletedPhase = 1;
                     await SaveCheckpointAsync(checkpoint);
                 }
@@ -163,7 +160,6 @@ namespace SchemaGenerator
                     await SaveCheckpointAsync(checkpoint);
                 }
 
-
                 // === [Phase 4: Process Data (CDC)] ===
                 if (checkpoint.LastCompletedPhase < 4)
                 {
@@ -171,7 +167,7 @@ namespace SchemaGenerator
                     checkpoint.DataDocuments = await _dataExtractorService.ExtractDataChangesAsync(
                         _connectionString, _dbName, checkpoint.ContextMap, _stateFilePath);
                     Console.WriteLine($"[Phase 4] Data extraction complete. Found {checkpoint.DataDocuments.Count} relevant rows.");
-                    
+
                     checkpoint.LastCompletedPhase = 4;
                     await SaveCheckpointAsync(checkpoint);
                 }
@@ -184,14 +180,8 @@ namespace SchemaGenerator
                 if (checkpoint.LastCompletedPhase < 5)
                 {
                     Console.WriteLine("[Phase 5] Checking Schema modification dates (Fast Check)...");
-
                     var state = await _stateService.LoadStateAsync(_stateFilePath);
-
-                    var currentDates = await _schemaReaderService.GetObjectsModificationDatesAsync(
-                        _connectionString,
-                        checkpoint.TargetViewNames!
-                    );
-
+                    var currentDates = await _schemaReaderService.GetObjectsModificationDatesAsync(_connectionString, checkpoint.TargetViewNames!);
                     var changedObjectNames = new List<string>();
 
                     foreach (var objName in checkpoint.TargetViewNames!)
@@ -216,14 +206,7 @@ namespace SchemaGenerator
                     if (changedObjectNames.Any())
                     {
                         Console.WriteLine($"[Phase 5] Generating SMO scripts for {changedObjectNames.Count} changed objects...");
-
-                        var schemaDocs = await _schemaReaderService.ExtractSchemasAsync(
-                            _connectionString,
-                            _dbName,
-                            changedObjectNames,
-                            new List<string>()
-                        );
-
+                        var schemaDocs = await _schemaReaderService.ExtractSchemasAsync(_connectionString, _dbName, changedObjectNames, new List<string>());
                         checkpoint.SchemaDocuments = schemaDocs;
                         checkpoint.DocumentsToUpload.AddRange(schemaDocs);
                     }
@@ -239,7 +222,6 @@ namespace SchemaGenerator
                     }
                     
                     Console.WriteLine($"[Phase 5] Found {checkpoint.DocumentsToUpload.Count} total new/modified documents to upload.");
-
                     checkpoint.LastCompletedPhase = 5;
                     await SaveCheckpointAsync(checkpoint);
                 }
@@ -247,7 +229,6 @@ namespace SchemaGenerator
                 {
                     Console.WriteLine($"[Phase 5] ✓ Skipped (already completed). {checkpoint.DocumentsToUpload!.Count} documents ready.");
                 }
-
 
                 // === [Phase 6: Load to VectorDB] ===
                 if (checkpoint.LastCompletedPhase < 6)
@@ -282,7 +263,6 @@ namespace SchemaGenerator
                 }
 
                 Console.WriteLine("--- Knowledge Base Ingestion Pipeline: FINISHED SUCCESSFULLY ---");
-                
                 await DeleteCheckpointAsync();
             }
             catch (Exception ex)

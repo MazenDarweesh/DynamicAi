@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Qdrant.Client;
 using Qdrant.Client.Grpc;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using QdrantConstants = DynamicAi.Application.DbConstants.VectorDbMeta;
 
 namespace DynamicAi.Application.Services
@@ -133,7 +134,7 @@ namespace DynamicAi.Application.Services
                 Console.WriteLine($"[RagRetrieval] Using SEMANTIC search for Page.");
             }
 
-            var pageResults = await SearchQdrantAsync(embedding, pageFilter, 5, "Pages");
+            var pageResults = await SearchQdrantAsync(embedding, pageFilter, 1, "Pages");
 
             if (!pageResults.Any())
             {
@@ -144,18 +145,43 @@ namespace DynamicAi.Application.Services
             }
 
             var matchedPageJson = pageResults.First();
-            var finalPageData = JsonDocument.Parse(matchedPageJson).RootElement;
-            int pageId = finalPageData.GetProperty(DbColumns.PageID_Upper).GetInt32();
+            var pageNode = JsonNode.Parse(matchedPageJson)!.AsObject();
+            int pageId = pageNode[DbColumns.PageID_Upper]!.GetValue<int>();
 
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine($"[RagRetrieval] ✓ Using Page with PageID: {pageId}");
             Console.ResetColor();
 
             // ============================================================================
+            // STEP 2.5: جلب سياق الموديول والقائمة الرئيسية (Module & MenuMaster Context)
+            // ============================================================================
+            Console.ForegroundColor = ConsoleColor.Magenta;
+            Console.WriteLine($"\n[RagRetrieval] STEP 2.5: Fetching Module & Menu context for PageID: {pageId}...");
+            Console.ResetColor();
+
+            var moduleFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.Modul, (QdrantConstants.PageId, pageId));
+            var moduleResults = await SearchQdrantAsync(embedding, moduleFilter, 1, DbTables.Modul);
+            if (moduleResults.Any())
+            {
+                pageNode["ModuleContext"] = JsonNode.Parse(moduleResults.First());
+            }
+
+            var menuMasterFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.MenuMaster, (QdrantConstants.PageId, pageId));
+            var menuMasterResults = await SearchQdrantAsync(embedding, menuMasterFilter, 1, DbTables.MenuMaster);
+            if (menuMasterResults.Any())
+            {
+                pageNode["MenuMasterContext"] = JsonNode.Parse(menuMasterResults.First());
+            }
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"[RagRetrieval] ✓ Found {moduleResults.Count} Module(s) and {menuMasterResults.Count} MenuMaster(s).");
+            Console.ResetColor();
+
+            // ============================================================================
             // STEP 3: إيجاد الهيكل (PageAttribute Discovery) - [OPTIMIZED]
             // ============================================================================
             Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("\n[RagRetrieval] STEP 3: Searching for PageAttribute...");
+            Console.WriteLine("\n[RagRetrieval] STEP 3: Searching for PageAttributes...");
             Console.ResetColor();
 
             Filter attrFilter;
@@ -177,87 +203,99 @@ namespace DynamicAi.Application.Services
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine("[RagRetrieval] ⚠ No PageAttribute found - returning partial context");
                 Console.ResetColor();
+                contextBundle.UnifiedPageContext = pageNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
                 return contextBundle;
             }
 
-            var matchedAttrJson = attrResults.First();
-            var finalAttrData = JsonDocument.Parse(matchedAttrJson).RootElement;
+            var attributesNode = new JsonArray();
+            pageNode["PageAttributes"] = attributesNode;
+            var attributeMap = new Dictionary<int, JsonObject>();
+            var companyRuleKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            string viewName = explicitTableName ?? finalAttrData.GetProperty(DbColumns.TableName).GetString() ?? string.Empty;
-            string listName = explicitListName ?? finalAttrData.GetProperty(DbColumns.ListName).GetString() ?? string.Empty;
-            string tailCondition = finalAttrData.GetProperty(DbColumns.TailCondition).GetString() ?? string.Empty;
-
-            if (finalAttrData.TryGetProperty(DbColumns.AttributeId, out var matchedAttrId))
+            foreach (var attrJson in attrResults)
             {
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"[RagRetrieval] Using PageAttribute with AttributeID: {matchedAttrId.GetInt32()}");
+                var attrNode = JsonNode.Parse(attrJson)!.AsObject();
+                attributesNode.Add(attrNode);
+                var attrId = attrNode[DbColumns.AttributeId]!.GetValue<int>();
+                attributeMap[attrId] = attrNode;
+
+                // استخراج قواعد العمل والأسماء الهامة
+                string tailCondition = attrNode[DbColumns.TailCondition]?.GetValue<string>() ?? string.Empty;
+                if (!string.IsNullOrEmpty(tailCondition) && !contextBundle.BusinessRules.Contains(tailCondition))
+                {
+                    contextBundle.BusinessRules.Add(tailCondition);
+                }
+
+                string listName = attrNode[DbColumns.ListName]?.GetValue<string>() ?? string.Empty;
+                if (!string.IsNullOrEmpty(listName))
+                {
+                    var listFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups, (QdrantConstants.ListName, listName));
+                    var listResults = await SearchQdrantAsync(embedding, listFilter, 50, DbTables.ListSetups);
+                    contextBundle.DictionaryEntries.AddRange(listResults);
+                }
+
+                string viewName = attrNode[DbColumns.TableName]?.GetValue<string>() ?? string.Empty;
+                AppendCompanyFilterRule(attrNode, viewName, "PageAttribute", contextBundle, companyRuleKeys);
+
+                if (!string.IsNullOrEmpty(viewName))
+                {
+                    var schemaFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeSchema, null, (QdrantConstants.ObjectName, viewName));
+                    var schemaResults = await SearchQdrantAsync(embedding, schemaFilter, 1, "Schema");
+                    if (schemaResults.Any())
+                    {
+                        attrNode["SchemaScript"] = schemaResults.First();
+                    }
+                }
+            }
+
+            // ============================================================================
+            // STEP 3.5: جلب تفاصيل الصفحة (PageDetail Context)
+            // ============================================================================
+            var allAttributeIds = attributeMap.Keys.ToList();
+            if (allAttributeIds.Any())
+            {
+                Console.ForegroundColor = ConsoleColor.Magenta;
+                Console.WriteLine($"\n[RagRetrieval] STEP 3.5: Fetching PageDetails for {allAttributeIds.Count} Attribute(s)...");
+                Console.ResetColor();
+
+                int totalDetailsLinked = 0;
+
+                foreach (var attributeId in allAttributeIds)
+                {
+                    var detailFilter = CreateFilter(
+                        tenantId,
+                        QdrantConstants.SourceTypeData,
+                        DbTables.PageDetail,
+                        (QdrantConstants.AttributeId, attributeId));
+
+                    var detailResults = await SearchQdrantAsync(embedding, detailFilter, 50, $"{DbTables.PageDetail} (Attribute {attributeId})");
+
+                foreach (var detailJson in detailResults)
+                {
+                    var detailNode = JsonNode.Parse(detailJson)!.AsObject();
+                    if (detailNode.TryGetPropertyValue(DbColumns.PageAttributeId, out var parentAttrIdNode) &&
+                        attributeMap.TryGetValue(parentAttrIdNode!.GetValue<int>(), out var parentAttrNode))
+                    {
+                        if (parentAttrNode["PageDetails"] is not JsonArray detailsArray)
+                        {
+                            detailsArray = new JsonArray();
+                            parentAttrNode["PageDetails"] = detailsArray;
+                        }
+                        detailsArray.Add(detailNode);
+                            totalDetailsLinked++;
+
+                            var detailViewName = detailNode[DbColumns.TableName]?.GetValue<string>() ?? string.Empty;
+                            AppendCompanyFilterRule(detailNode, detailViewName, "PageDetail", contextBundle, companyRuleKeys);
+                        }
+                    }
+                }
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[RagRetrieval] ✓ Linked {totalDetailsLinked} PageDetail(s) across {allAttributeIds.Count} attribute(s).");
                 Console.ResetColor();
             }
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[RagRetrieval] ✓ Found PageAttribute:");
-            Console.WriteLine($"[RagRetrieval]   - ViewName: {viewName}");
-            Console.WriteLine($"[RagRetrieval]   - ListName: {listName}");
-            Console.WriteLine($"[RagRetrieval]   - TailCondition: {(string.IsNullOrEmpty(tailCondition) ? "(none)" : tailCondition)}");
-            Console.ResetColor();
-
-            if (!string.IsNullOrEmpty(tailCondition))
-            {
-                contextBundle.BusinessRules.Add(tailCondition);
-                Console.WriteLine($"[RagRetrieval]   - Added business rule to context bundle");
-            }
-
-            // ============================================================================
-            // STEP 4: إيجاد القاموس (Dictionary/ListSetups Discovery) - [OPTIMIZED]
-            // ============================================================================
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("\n[RagRetrieval] STEP 4: Searching for Dictionary entries (ListSetups)...");
-            Console.ResetColor();
-
-            Filter listFilter;
-            if (!string.IsNullOrEmpty(listName))
-            {
-                listFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups, (QdrantConstants.ListName, listName));
-                Console.WriteLine($"[RagRetrieval] Using EXACT filter for ListName: '{listName}'");
-            }
-            else
-            {
-                listFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups);
-                Console.WriteLine($"[RagRetrieval] Using SEMANTIC search for ListSetups.");
-            }
-
-            var listResults = await SearchQdrantAsync(embedding, listFilter, 50, "ListSetups");
-            contextBundle.DictionaryEntries.AddRange(listResults);
-
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[RagRetrieval] ✓ Found {listResults.Count} dictionary entries");
-            Console.ResetColor();
-
-            // ============================================================================
-            // STEP 5: إيجاد السكيما (Schema Discovery) - [OPTIMIZED]
-            // ============================================================================
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("\n[RagRetrieval] STEP 5: Searching for Schema scripts...");
-            Console.ResetColor();
-
-            Filter schemaFilter;
-            if (!string.IsNullOrEmpty(viewName))
-            {
-                schemaFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeSchema, null, (QdrantConstants.ObjectName, viewName));
-                Console.WriteLine($"[RagRetrieval] Using EXACT filter for Schema with ObjectName: '{viewName}'");
-            }
-            else
-            {
-                schemaFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeSchema, null);
-                Console.WriteLine($"[RagRetrieval] Using SEMANTIC search for Schemas.");
-            }
-
-            var schemaResults = await SearchQdrantAsync(embedding, schemaFilter, 20, "Schema");
-            contextBundle.SchemaScripts.AddRange(schemaResults);
-
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[RagRetrieval] ✓ Found {schemaResults.Count} schema scripts");
-            Console.ResetColor();
+            contextBundle.UnifiedPageContext = pageNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
 
             // ============================================================================
             // النتيجة النهائية
@@ -266,7 +304,7 @@ namespace DynamicAi.Application.Services
 
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine($"\n[RagRetrieval] ═══════════════ CONTEXT BUNDLE SUMMARY ═══════════════");
-            Console.WriteLine($"[RagRetrieval] Schema Scripts:      {contextBundle.SchemaScripts.Count}");
+            Console.WriteLine($"[RagRetrieval] Unified Context Size: {contextBundle.UnifiedPageContext?.Length ?? 0} chars");
             Console.WriteLine($"[RagRetrieval] Dictionary Entries:  {contextBundle.DictionaryEntries.Count}");
             Console.WriteLine($"[RagRetrieval] Business Rules:      {contextBundle.BusinessRules.Count}");
             Console.WriteLine($"[RagRetrieval] Total Execution:     {totalDuration:F0}ms");
@@ -276,6 +314,63 @@ namespace DynamicAi.Application.Services
             Console.ResetColor();
 
             return contextBundle;
+        }
+
+        private void AppendCompanyFilterRule(
+            JsonObject? node,
+            string? viewName,
+            string ruleScope,
+            RetrievalContextBundle contextBundle,
+            HashSet<string> companyRuleKeys)
+        {
+            if (node == null)
+            {
+                return;
+            }
+
+            if (!TryGetPropertyValueCaseInsensitive(node, "IsCompany", out var _))
+            {
+                return;
+            }
+
+            TryGetPropertyValueCaseInsensitive(node, "CompanyName", out var companyNameNode);
+            var companyNameValue = companyNameNode?.GetValue<string>()?.Trim();
+
+            string key = $"COMPANY_RULE::{ruleScope}::{viewName ?? "UnknownView"}";
+            if (!companyRuleKeys.Add(key))
+            {
+                return;
+            }
+
+            string resolvedView = string.IsNullOrWhiteSpace(viewName) ? "UnknownView" : viewName;
+            string companyValuePhrase = string.IsNullOrWhiteSpace(companyNameValue)
+                ? "القيمة الموجودة في حقل CompanyName لنفس الصف"
+                : $"القيمة '{companyNameValue}' المخزّنة في حقل CompanyName لنفس الصف";
+
+            string rule =
+                $"[Company Filter · {ruleScope} · {resolvedView}] إذا كان الحقل IsCompany قيمته TRUE أو NULL فلابد من إضافة الشرط `ComID = @CurrentCompanyId`. أما إذا كانت قيمته FALSE فلابد من إضافة الشرط `ComID = {companyValuePhrase}` (أي مقارنة ComID بالقيمة الموجودة داخل CompanyName).";
+
+            contextBundle.BusinessRules.Add(rule);
+        }
+
+        private bool TryGetPropertyValueCaseInsensitive(JsonObject node, string propertyName, out JsonNode? value)
+        {
+            if (node.TryGetPropertyValue(propertyName, out value))
+            {
+                return true;
+            }
+
+            foreach (var kvp in node)
+            {
+                if (string.Equals(kvp.Key, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = kvp.Value;
+                    return true;
+                }
+            }
+
+            value = null;
+            return false;
         }
 
         /// <summary>

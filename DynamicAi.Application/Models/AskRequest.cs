@@ -11,5 +11,6 @@ namespace DynamicAi.Application.Models
     {
         public string Question { get; set; }
         public string TenantId { get; set; } = "ALL"; // (افتراضي لـ MVP)
+        public int? ComID { get; set; } // معرف الشركة الحالية
     }
 }
