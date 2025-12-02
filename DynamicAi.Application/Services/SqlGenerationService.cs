@@ -103,12 +103,19 @@ namespace DynamicAi.Application.Services
             // ============================================================================ 
             // . القواعد الأساسية (Core Rules)
             // ============================================================================ 
-            promptBuilder.AppendLine("\n--- CORE RULES (CRITICAL) ---");
-            promptBuilder.AppendLine("1. **FORBIDDEN SOURCES**: You are STRICTLY FORBIDDEN from searching for column names inside the `SchemaScript` (CREATE VIEW/TABLE SQL) provided in the Hierarchy Context. These scripts are for structural reference only.");
-            promptBuilder.AppendLine("2. **MANDATORY SEARCH PATH**: To find a column, you MUST ONLY search in the 'DICTIONARY CONTEXT' (ListSetups).");
-            promptBuilder.AppendLine("   - **Step A**: Identify the `ListName` from the Master View (`PageAttribute`) or Details View (`PageDetail`).");
-            promptBuilder.AppendLine("   - **Step B**: Search ONLY within the `ListSetups` entries linked to that `ListName`.");
-            promptBuilder.AppendLine("   - **Step C**: Match the user's Arabic/English word to `arColumnLabel` or `enColumnLabel` to find the mapping.");
+            //promptBuilder.AppendLine("\n--- CORE RULES (CRITICAL) ---");
+            //// (القاعدة الجديدة: حصر مصادر الجداول)
+            //promptBuilder.AppendLine("2. **STRICT TABLE WHITELIST (DATA SOURCES)**: You are STRICTLY LIMITED to using tables/views from these specific metadata fields ONLY:");
+            //promptBuilder.AppendLine("   - A) `TableName` from the `PageAttribute` (The Master View).");
+            //promptBuilder.AppendLine("   - B) `TableName` from the `PageDetail` (The Detail View).");
+            //promptBuilder.AppendLine("   - C) `DroModel` from `ListSetups` (Lookup Tables), BUT ONLY when resolving a column where `InsertType` == 'dropdown'.");
+            //promptBuilder.AppendLine("   - **PROHIBITION**: Using any other table/view (even if found in SchemaScript) that is NOT referenced in these three fields is a HALLUCINATION and is FORBIDDEN.");
+
+            //promptBuilder.AppendLine("2. **MANDATORY SEARCH PATH**: To find a column, you MUST ONLY search in the 'DICTIONARY CONTEXT' (ListSetups).");
+            //promptBuilder.AppendLine("   - **Step A**: Identify the `ListName` from the Master View (`PageAttribute`) or Details View (`PageDetail`).");
+            //promptBuilder.AppendLine("   - **Step B**: Search ONLY within the `ListSetups` entries linked to that `ListName`.");
+            //promptBuilder.AppendLine("   - **Step C**: Match the user's Arabic/English word to `arColumnLabel` or `enColumnLabel` to find the mapping.");
+
 
 
             // --- تعديل هام جداً لقواعد الاستجابة ---

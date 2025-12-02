@@ -81,28 +81,28 @@ namespace DynamicAi.Api.Controllers
             //// ============================================================================
             //// New: Handle INTERACTION_REQUIRED (AI needs clarification)
             //// ============================================================================
-            //catch (InvalidOperationException ex) when (ex.Message.StartsWith("INTERACTION_REQUIRED:", StringComparison.OrdinalIgnoreCase))
-            //{
-            //    var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
+            catch (InvalidOperationException ex) when (ex.Message.StartsWith("INTERACTION_REQUIRED:", StringComparison.OrdinalIgnoreCase))
+            {
+                var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
 
-            //    Console.ForegroundColor = ConsoleColor.Yellow;
-            //    Console.WriteLine("\n████████████████████████████████████████████████████████████████████████████");
-            //    Console.WriteLine("█                                                                          █");
-            //    Console.WriteLine("█                 API REQUEST - CLARIFICATION REQUIRED                    █");
-            //    Console.WriteLine("█                                                                          █");
-            //    Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
-            //    Console.ResetColor();
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("\n████████████████████████████████████████████████████████████████████████████");
+                Console.WriteLine("█                                                                          █");
+                Console.WriteLine("█                 API REQUEST - CLARIFICATION REQUIRED                    █");
+                Console.WriteLine("█                                                                          █");
+                Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
+                Console.ResetColor();
 
-            //    var aiQuestion = ex.Message.Replace("INTERACTION_REQUIRED:", "").Trim();
+                var aiQuestion = ex.Message.Replace("INTERACTION_REQUIRED:", "").Trim();
 
-            //    Console.ForegroundColor = ConsoleColor.Yellow;
-            //    Console.WriteLine($"[API] AI Question: \"{aiQuestion}\"");
-            //    Console.WriteLine($"[API] Total API request duration: {apiDuration:F0}ms");
-            //    Console.WriteLine($"[API] Response: OK (200) - Requires User Interaction\n\n");
-            //    Console.ResetColor();
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"[API] AI Question: \"{aiQuestion}\"");
+                Console.WriteLine($"[API] Total API request duration: {apiDuration:F0}ms");
+                Console.WriteLine($"[API] Response: OK (200) - Requires User Interaction\n\n");
+                Console.ResetColor();
 
-            //    return Ok(new { Type = "Question", Message = aiQuestion });
-            //}
+                return Ok(new { Type = "Question", Message = aiQuestion });
+            }
             catch (SecurityException secEx)
             {
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;

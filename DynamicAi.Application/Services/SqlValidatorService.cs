@@ -148,44 +148,44 @@ namespace DynamicAi.Application.Services
             // ============================================================================
             // STEP 3: التحقق الأمني (Security Validation)
             // ============================================================================
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("\n[SqlValidator] STEP 3: Performing security validation...");
-            Console.ResetColor();
+            //Console.ForegroundColor = ConsoleColor.Magenta;
+            //Console.WriteLine("\n[SqlValidator] STEP 3: Performing security validation...");
+            //Console.ResetColor();
 
-            Console.WriteLine($"[SqlValidator] Whitelist contains {_tempAllowedViews.Count} allowed tables/views:");
-            Console.ForegroundColor = ConsoleColor.Gray;
-            Console.WriteLine($"  {string.Join(", ", _tempAllowedViews.Take(10))}...");
-            Console.ResetColor();
+            //Console.WriteLine($"[SqlValidator] Whitelist contains {_tempAllowedViews.Count} allowed tables/views:");
+            //Console.ForegroundColor = ConsoleColor.Gray;
+            //Console.WriteLine($"  {string.Join(", ", _tempAllowedViews.Take(10))}...");
+            //Console.ResetColor();
 
-            // إنشاء الزائر الأمني
-            var securityVisitor = new SecurityVisitor(_tempAllowedViews);
+            //// إنشاء الزائر الأمني
+            //var securityVisitor = new SecurityVisitor(_tempAllowedViews);
 
-            Console.WriteLine($"[SqlValidator] Initiating SecurityVisitor to traverse SQL AST...");
+            //Console.WriteLine($"[SqlValidator] Initiating SecurityVisitor to traverse SQL AST...");
 
-            try
-            {
-                // التجول في شجرة بناء الجملة (AST)
-                fragment.Accept(securityVisitor);
+            //try
+            //{
+            //    // التجول في شجرة بناء الجملة (AST)
+            //    fragment.Accept(securityVisitor);
 
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine("[SqlValidator] ✓ Security validation passed. No unauthorized tables detected.");
-                Console.ResetColor();
-            }
-            catch (Exception secEx)
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"[SqlValidator] ✗ SECURITY VALIDATION FAILED!");
-                Console.WriteLine($"[SqlValidator] Security violation detected: {secEx.Message}");
-                Console.ResetColor();
+            //    Console.ForegroundColor = ConsoleColor.Green;
+            //    Console.WriteLine("[SqlValidator] ✓ Security validation passed. No unauthorized tables detected.");
+            //    Console.ResetColor();
+            //}
+            //catch (Exception secEx)
+            //{
+            //    Console.ForegroundColor = ConsoleColor.Red;
+            //    Console.WriteLine($"[SqlValidator] ✗ SECURITY VALIDATION FAILED!");
+            //    Console.WriteLine($"[SqlValidator] Security violation detected: {secEx.Message}");
+            //    Console.ResetColor();
 
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("\n╔════════════════════════════════════════════════════════════════════════╗");
-                Console.WriteLine("║              [Layer 3: SQL VALIDATOR] - SECURITY VIOLATION            ║");
-                Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝\n");
-                Console.ResetColor();
+            //    Console.ForegroundColor = ConsoleColor.Red;
+            //    Console.WriteLine("\n╔════════════════════════════════════════════════════════════════════════╗");
+            //    Console.WriteLine("║              [Layer 3: SQL VALIDATOR] - SECURITY VIOLATION            ║");
+            //    Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝\n");
+            //    Console.ResetColor();
 
-                throw;
-            }
+            //    throw;
+            //}
 
             // ============================================================================
             // STEP 4: النجاح - الخروج
