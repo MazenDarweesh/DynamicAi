@@ -2,6 +2,7 @@
 using DynamicAi.Application.Models;
 using Microsoft.SemanticKernel.ChatCompletion;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace DynamicAi.Application.Services
 {
@@ -39,9 +40,9 @@ namespace DynamicAi.Application.Services
             Console.WriteLine($"  - Dictionary Entries: {contextBundle.DictionaryEntries?.Count ?? 0}");
             Console.WriteLine($"  - Business Rules: {contextBundle.BusinessRules?.Count ?? 0}");
 
-            // ============================================================================
+            // ============================================================================ 
             // STEP 1: تحليل محتويات Context Bundle
-            // ============================================================================
+            // ============================================================================ 
             Console.ForegroundColor = ConsoleColor.Magenta;
             Console.WriteLine("\n[SqlGeneration] STEP 1: Analyzing Context Bundle...");
             Console.ResetColor();
@@ -85,9 +86,9 @@ namespace DynamicAi.Application.Services
                 Console.ResetColor();
             }
 
-            // ============================================================================
+            // ============================================================================ 
             // STEP 2: بناء الـ Prompt الاحترافي
-            // ============================================================================
+            // ============================================================================ 
             Console.ForegroundColor = ConsoleColor.Magenta;
             Console.WriteLine("\n[SqlGeneration] STEP 2: Building AI prompt with rich context...");
             Console.ResetColor();
@@ -95,29 +96,128 @@ namespace DynamicAi.Application.Services
             var promptStart = DateTime.UtcNow;
             var promptBuilder = new StringBuilder();
             
-            promptBuilder.AppendLine("You are an expert SQL Server developer tasked with writing T-SQL queries for an ERP system.");
-            promptBuilder.AppendLine("You must strictly follow all rules. Answer with T-SQL code only. Do not add any explanations.");
+            // 1. تعريف الشخصية والدور (The Persona) - (تم التحديث لـ Architect)
+            promptBuilder.AppendLine("You are an expert ERP Database Architect specialized in a specific Dynamic AI system.");
+            promptBuilder.AppendLine("Your goal is to map user questions to a T-SQL query strictly following the system's metadata cycle.");
+            promptBuilder.AppendLine("You MUST strictly follow all rules. If you generate SQL, output only the T-SQL code. Do not add any explanations.");
+            // ============================================================================ 
+            // . القواعد الأساسية (Core Rules)
+            // ============================================================================ 
+            promptBuilder.AppendLine("\n--- CORE RULES (CRITICAL) ---");
+            promptBuilder.AppendLine("1. **FORBIDDEN SOURCES**: You are STRICTLY FORBIDDEN from searching for column names inside the `SchemaScript` (CREATE VIEW/TABLE SQL) provided in the Hierarchy Context. These scripts are for structural reference only.");
+            promptBuilder.AppendLine("2. **MANDATORY SEARCH PATH**: To find a column, you MUST ONLY search in the 'DICTIONARY CONTEXT' (ListSetups).");
+            promptBuilder.AppendLine("   - **Step A**: Identify the `ListName` from the Master View (`PageAttribute`) or Details View (`PageDetail`).");
+            promptBuilder.AppendLine("   - **Step B**: Search ONLY within the `ListSetups` entries linked to that `ListName`.");
+            promptBuilder.AppendLine("   - **Step C**: Match the user's Arabic/English word to `arColumnLabel` or `enColumnLabel` to find the mapping.");
 
-            promptBuilder.AppendLine("\n--- CORE RESTRICTIONS ---");
-            promptBuilder.AppendLine("1. ONLY use Tables/Columns provided in 'HIERARCHY & SCHEMA CONTEXT'. Do NOT hallucinate columns.");
-            promptBuilder.AppendLine("2. (CRITICAL) You MUST include the 'BUSINESS RULES' (TailConditions) in your WHERE clause.");
+
+            // --- تعديل هام جداً لقواعد الاستجابة ---
+            promptBuilder.AppendLine("\n--- RESPONSE FORMAT RULES (STRICT) ---");
+            promptBuilder.AppendLine("1. **NO HYBRID RESPONSES**: You must output EITHER valid T-SQL code OR a clarification message. NEVER BOTH.");
+           // promptBuilder.AppendLine("2. **IF CLARIFICATION NEEDED**: Output ONLY `CLARIFICATION_NEEDED: [Message in Arabic]`. Do NOT write any SQL after it.");
+            promptBuilder.AppendLine("3. **IF SQL GENERATED**: Output ONLY the SQL code inside markdown tags.");
+
+
+            // 2. شرح الدورة (The System Cycle - المفهوم العقلي الجديد)
+            promptBuilder.AppendLine("\n--- THE SYSTEM CYCLE (MENTAL MODEL) ---");
+            promptBuilder.AppendLine("1. **Identify Page**: First, determine which 'Page' the user is asking about from the HIERARCHY CONTEXT.");
+            promptBuilder.AppendLine("2. **Master View (PageAttribute)**: The page's main data source is defined in the HIERARCHY CONTEXT (PageAttribute.TableName). This is the primary FROM table.");
+            promptBuilder.AppendLine("3. **Details View (PageDetail)**: If the user asks for item details (e.g., Product Name, Item Quantity), you MUST use an INNER JOIN to the detail view/table (PageDetail.TableName) using the appropriate key.");
+            promptBuilder.AppendLine("4. **MANDATORY COLUMN MAPPING**: The ONLY source for translating the user's requested field (Arabic/English) to a DB Column Name is the 'DICTIONARY CONTEXT' (ListSetups). **NEVER GUESS** a column name. Match the user's word to `arColumnLabel` or `enColumnLabel` to find the correct `ColumnName` or `DroText` mapping.");
             
-            promptBuilder.AppendLine("\n--- INTELLIGENT LOGIC & SYNTAX RULES ---");
+            // 3. قواعد التفاعلية ومنع الهلوسة (Interactivity & Safety - قواعد حاسمة)
+            promptBuilder.AppendLine("\n--- INTERACTIVITY & SAFETY RULES (CRITICAL) ---");
+            promptBuilder.AppendLine("1. **NO HALLUCINATION**: You MUST only use Tables/Views/Columns explicitly provided in the HIERARCHY and DICTIONARY CONTEXTS. Inventorying data is strictly forbidden.");
+            promptBuilder.AppendLine("2. **MANDATORY FILTER**: You MUST include the 'BUSINESS RULES' (TailConditions) in your WHERE clause.");
+            promptBuilder.AppendLine("3. **NO HALLUCINATION**: If the user asks for a field, and you cannot find a matching `arColumnLabel` or `enColumnLabel` in the DICTIONARY CONTEXT, the field DOES NOT EXIST. Do not invent columns like 'AreaName' or 'SystemID' if they are not explicitly linked via the ListSetups provided.");
+            promptBuilder.AppendLine("4. **ALIASING RULE**: You MUST use the `arColumnLabel` from the ListSetups entry as the final SQL column alias (e.g., `SELECT GovName AS [الحي]`).");
+
+            // ============================================================================ 
+            // (جديد) قاعدة إلزامية لـ ComID - CRITICAL
+            // ============================================================================ 
+            promptBuilder.AppendLine("\n3. **MANDATORY COMPANY FILTER (CRITICAL - NEVER FORGET)**:");
+            promptBuilder.AppendLine("   ⚠️ EXTREMELY IMPORTANT - Multi-Tenant Security:");
+            promptBuilder.AppendLine("   - EVERY query MUST include: `AND ComID = @CurrentCompanyId` in the WHERE clause");
+            promptBuilder.AppendLine("   - This is a SECURITY requirement to isolate data by company");
+            promptBuilder.AppendLine("   - NEVER skip this condition, even for aggregations (SUM, COUNT, AVG)");
+            promptBuilder.AppendLine("   - The parameter `@CurrentCompanyId` will be provided by the system at runtime");
+            promptBuilder.AppendLine("");
+            promptBuilder.AppendLine("   **CORRECT Examples**:");
+            promptBuilder.AppendLine("   ✓ `SELECT SUM(Total) FROM Sales WHERE MONTH(Date) = 9 AND ComID = @CurrentCompanyId`");
+            promptBuilder.AppendLine("   ✓ `SELECT * FROM Contracts WHERE ContractID = 123 AND ComID = @CurrentCompanyId`");
+            promptBuilder.AppendLine("   ✓ `SELECT TOP 5 * FROM Invoices WHERE ... (Business Rules) ... AND ComID = @CurrentCompanyId`");
+            promptBuilder.AppendLine("");
+            promptBuilder.AppendLine("   **WRONG Examples (NEVER DO THIS)**:");
+            promptBuilder.AppendLine("   ✗ `SELECT SUM(Total) FROM Sales WHERE MONTH(Date) = 9` (Missing ComID - SECURITY BREACH!)");
+            promptBuilder.AppendLine("   ✗ `SELECT * FROM Contracts WHERE ContractID = 123` (Missing ComID - SECURITY BREACH!)");
             
-            promptBuilder.AppendLine("1. DATE LOGIC: If a month is mentioned without a year:");
-            promptBuilder.AppendLine("   - Use T-SQL: `WHERE MONTH(DateCol) = X`. Do NOT assume a specific year unless specified.");
+            // 4. القواعد التقنية (T-SQL SYNTAX RULES)
+            promptBuilder.AppendLine("\n--- T-SQL SYNTAX RULES ---");
+            promptBuilder.AppendLine("1. DATE LOGIC: If a month is mentioned without a year: Use T-SQL: `WHERE MONTH(DateCol) = X`. Do NOT assume a specific year unless specified.");
             promptBuilder.AppendLine("   - If needing a range, calculate relative to GETDATE().");
-
             promptBuilder.AppendLine("2. TEXT SEARCH: For names/descriptions, NEVER use '='. ALWAYS use `LIKE N'%Value%'`.");
             promptBuilder.AppendLine("   - IMPORTANT: You MUST prefix string literals with 'N' to support Arabic characters (e.g., `N'أحمد'`).");
-
             promptBuilder.AppendLine("3. MATH SAFETY: When performing calculations (SUM, AVG, +, -), ALWAYS wrap columns with `ISNULL(Column, 0)`.");
             promptBuilder.AppendLine("   - Example: `SUM(ISNULL(PaidAmount, 0))` instead of `SUM(PaidAmount)`.");
-
             promptBuilder.AppendLine("4. OUTPUT FORMAT: Use descriptive ARABIC aliases for columns.");
             promptBuilder.AppendLine("   - Example: `SELECT Sum(Total) AS [اجمالي المبيعات]`. Use terms from 'DICTIONARY CONTEXT' for aliases.");
-
             promptBuilder.AppendLine("5. SAFETY: If no aggregation (SUM/COUNT) is requested, ALWAYS add `TOP 100` to the query.");
+            promptBuilder.AppendLine("6. **STRICT ALIASING (PREVENT AMBIGUITY)**: You MUST assign an alias to every table (e.g., `FROM Table AS T1`). You MUST prefix EVERY column in the `SELECT`, `WHERE`, `JOIN`, and `ORDER BY` clauses with its alias (e.g., `T1.IsResale`, `T2.ContractType`). NEVER use a column name without its alias.");
+            
+
+            // 5. Syntax Rules (CTE Banned Here)
+            promptBuilder.AppendLine("\n--- T-SQL SYNTAX RULES ---");
+            promptBuilder.AppendLine("1. **STRICT ALIASING**: Use aliases (e.g., `T1.Column`).");
+            // [تعديل هام جداً لمنع CTE]
+            promptBuilder.AppendLine("2. **NO CTEs ALLOWED**: You are FORBIDDEN from using Common Table Expressions (`WITH ...`).");
+            promptBuilder.AppendLine("   - USE ONLY standard `SELECT`, `JOIN`, and `SUBQUERIES` in the `WHERE` clause.");
+            promptBuilder.AppendLine("   - REASON: Performance and security constraints.");
+            promptBuilder.AppendLine("3. **DATE LOGIC**: Use `WHERE MONTH(Col) = X`.");
+            promptBuilder.AppendLine("4. **SEARCH**: Use `LIKE N'%Val%'`.");
+            promptBuilder.AppendLine("5. **LIMITS**: Use `TOP 100`.");
+            // ============================================================================ 
+            // (محدّث بشكل كامل) 6. DYNAMIC SCHEMA INTELLIGENCE (METADATA LOGIC)
+            // ============================================================================ 
+            promptBuilder.AppendLine("\n--- DYNAMIC SCHEMA INTELLIGENCE (METADATA LOGIC) ---");
+            promptBuilder.AppendLine("You must interpret the provided Context JSON to understand relationships and column definitions dynamically. Do NOT rely on guessed column names.");
+
+            promptBuilder.AppendLine("\n1. **MASTER-DETAIL RELATIONSHIP LOGIC**:");
+            promptBuilder.AppendLine("   To join a Master View (PageAttribute) with its Details (PageDetail), follow these dynamic linking keys:");
+            promptBuilder.AppendLine("   - **Master Key**: Look for the `Primary` property in the `PageAttribute` context. This is the PK of the Master View.");
+            promptBuilder.AppendLine("   - **Detail Key**: Look for the `ForeignKey` property in the `PageDetail` context. This is the FK in the Detail View.");
+            promptBuilder.AppendLine("   - **JOIN Rule**: `ON MasterView.[Primary_Column] = DetailView.[ForeignKey_Column]`.");
+
+            promptBuilder.AppendLine("\n--- COLUMN RESOLUTION ALGORITHM (EXECUTE MENTALLY BEFORE WRITING SQL) ---");
+            promptBuilder.AppendLine("You are FORBIDDEN from guessing column names. You MUST follow this strict 4-step algorithm for EVERY column requested:");
+
+            promptBuilder.AppendLine("\n**STEP 1: SEARCH (The Lookup)**");
+            promptBuilder.AppendLine("- Take the user's Arabic word (e.g., 'الحي').");
+            promptBuilder.AppendLine("- SCAN the 'DICTIONARY CONTEXT' (ListSetups) to find an entry where `arColumnLabel` MATCHES 'الحي'.");
+            promptBuilder.AppendLine("- IF NOT FOUND -> RETURN `CLARIFICATION_NEEDED: Cannot find column 'الحي'`. DO NOT GUESS.");
+
+            promptBuilder.AppendLine("\n**STEP 2: IDENTIFY METADATA**");
+            promptBuilder.AppendLine("- Once found, extract these exact values from the entry:");
+            promptBuilder.AppendLine("  * `ColumnName`: (The FK column in current view, e.g., 'Gov')");
+            promptBuilder.AppendLine("  * `InsertType`: (e.g., 'dropdown' or 'text')");
+            promptBuilder.AppendLine("  * `DroModel`: (The Lookup Table, e.g., 'GovView')");
+            promptBuilder.AppendLine("  * `DroValue`: (The PK of Lookup Table, e.g., 'GOVID')");
+            promptBuilder.AppendLine("  * `DroText`: (The Name Column to show, e.g., 'GovName')");
+
+            promptBuilder.AppendLine("\n**STEP 3: DETERMINE TARGET COLUMN**");
+            promptBuilder.AppendLine("- IF `InsertType` == 'dropdown':");
+            promptBuilder.AppendLine("    -> Your TARGET SELECT COLUMN is `DroText` (e.g., 'GovName').");
+            promptBuilder.AppendLine("    -> Your JOIN KEY is `ColumnName` = `DroValue` (e.g., Gov = GOVID).");
+            promptBuilder.AppendLine("- ELSE:");
+            promptBuilder.AppendLine("    -> Your TARGET SELECT COLUMN is just `ColumnName`.");
+
+            promptBuilder.AppendLine("\n**STEP 4: LOCATION CHECK (Optimization)**");
+            promptBuilder.AppendLine("- CHECK: Is the TARGET SELECT COLUMN (e.g., 'GovName') already in the `PageDetail` or `PageAttribute` column list?");
+            promptBuilder.AppendLine("  * **YES** -> `SELECT T.[GovName] AS [الحي]` (NO JOIN NEEDED).");
+            promptBuilder.AppendLine("  * **NO** -> `LEFT JOIN [DroModel] ON T.[ColumnName] = [DroModel].[DroValue]` then `SELECT [DroModel].[DroText] AS [الحي]`.");
+
+
+            promptBuilder.AppendLine("\n   **IMPORTANT NOTE ON ALIASES**:");
+            promptBuilder.AppendLine("   - Always alias the final selected column using the `arColumnLabel` from ListSetups (e.g., `SELECT GovName AS [الحي]`).");
 
             Console.ForegroundColor = ConsoleColor.Gray;
             Console.WriteLine("[SqlGeneration] Building prompt section: HIERARCHY & SCHEMA CONTEXT...");
@@ -191,8 +291,9 @@ namespace DynamicAi.Application.Services
             Console.WriteLine($"[SqlGeneration] ✓ Prompt built successfully in {promptDuration:F0}ms");
             Console.WriteLine($"[SqlGeneration] Prompt size: {fullPrompt.Length} characters");
             Console.WriteLine($"[SqlGeneration] Prompt structure:");
-            Console.WriteLine($"  - Core Restrictions: 2");
-            Console.WriteLine($"  - Intelligent Rules: 5");
+            Console.WriteLine($"  - System Cycle Rules: 4");
+            Console.WriteLine($"  - Interactivity & Safety Rules: 3");
+            Console.WriteLine($"  - T-SQL Syntax Rules: 5");
             Console.WriteLine($"  - Unified Context: {(!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))}");
             Console.WriteLine($"  - Dictionary entries: {contextBundle.DictionaryEntries?.Count ?? 0}");
             Console.WriteLine($"  - Business rules: {contextBundle.BusinessRules?.Count ?? 0}");
@@ -205,9 +306,9 @@ namespace DynamicAi.Application.Services
             Console.WriteLine("[SqlGeneration] ═══ END OF PROMPT ═══\n");
             Console.ResetColor();
 
-            // ============================================================================
+            // ============================================================================ 
             // STEP 3: استدعاء AI Model (Gemini)
-            // ============================================================================
+            // ============================================================================ 
             Console.ForegroundColor = ConsoleColor.Magenta;
             Console.WriteLine("[SqlGeneration] STEP 3: Sending request to Gemini AI...");
             Console.ResetColor();
@@ -234,9 +335,9 @@ namespace DynamicAi.Application.Services
             Console.WriteLine($"{response.Content}");
             Console.ResetColor();
 
-            // ============================================================================
+            // ============================================================================ 
             // STEP 4: استخراج وتنظيف SQL
-            // ============================================================================
+            // ============================================================================ 
             Console.ForegroundColor = ConsoleColor.Magenta;
             Console.WriteLine("\n[SqlGeneration] STEP 4: Extracting and cleaning SQL...");
             Console.ResetColor();
@@ -253,9 +354,9 @@ namespace DynamicAi.Application.Services
             Console.WriteLine(extractedSql);
             Console.ResetColor();
 
-            // ============================================================================
+            // ============================================================================ 
             // [LOGGING] نهاية عملية SQL Generation
-            // ============================================================================
+            // ============================================================================ 
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine("\n╔════════════════════════════════════════════════════════════════════════╗");
             Console.WriteLine("║            [Layer 2: SQL GENERATION] - COMPLETED ✓                     ║");
@@ -273,9 +374,8 @@ namespace DynamicAi.Application.Services
             Console.WriteLine($"[SqlGeneration] Cleaning: Input length: {content?.Length ?? 0} characters");
             Console.ResetColor();
 
-            // (تنظيف بسيط لإزالة "```sql")
             content = content.Trim();
-            
+
             Console.ForegroundColor = ConsoleColor.Gray;
             Console.WriteLine($"[SqlGeneration] Cleaning: Checking for markdown code fences...");
             Console.ResetColor();

@@ -11,6 +11,9 @@ using Polly;
 using System.Net;
 
 // 1. بناء الـ Builder (لقراءة الإعدادات و DI)
+// ensure console output uses UTF-8 so Arabic characters render correctly
+Console.OutputEncoding = System.Text.Encoding.UTF8;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // 2. إعداد الخدمات (DI)

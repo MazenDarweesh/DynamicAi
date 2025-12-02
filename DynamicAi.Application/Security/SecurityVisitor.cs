@@ -12,6 +12,10 @@ namespace DynamicAi.Application.Security
     public class SecurityVisitor : TSqlFragmentVisitor
     {
         /// <summary>
+        /// (جديد) قائمة مؤقتة لتخزين أسماء الـ CTEs المعرفة داخل الكويري الحالي.
+        /// </summary>
+        private readonly HashSet<string> _definedCtes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        /// <summary>
         /// القائمة البيضاء (Whitelist) للجداول والـ Views المسموح بالاستعلام منها.
         /// (سيتم ملؤها من خدمة التحقق).
         /// </summary>
@@ -30,6 +34,65 @@ namespace DynamicAi.Application.Security
         {
             // (نحولها إلى HashSet لسرعة البحث)
             _allowedViews = new HashSet<string>(allowedViews, StringComparer.OrdinalIgnoreCase);
+        }
+
+        // --- 1. تسجيل الـ CTE عند تعريفه ---
+        public override void Visit(CommonTableExpression node)
+        {
+            if (node.ExpressionName?.Value != null)
+            {
+                var cteName = node.ExpressionName.Value;
+                _definedCtes.Add(cteName);
+
+                // (Optional Debugging)
+                // Console.WriteLine($"[SecurityVisitor] CTE Defined: {cteName}");
+            }
+            base.Visit(node);
+        }
+        // --- 2. التحقق عند استخدام أي جدول ---
+        public override void Visit(NamedTableReference node)
+        {
+            if (node.SchemaObject?.BaseIdentifier?.Value != null)
+            {
+                var tableName = node.SchemaObject.BaseIdentifier.Value;
+
+                // التحقق الثلاثي:
+                // 1. هل هو جدول مسموح (Whitelist)؟
+                bool isAllowedTable = _allowedViews.Contains(tableName);
+
+                // 2. هل هو CTE تم تعريفه محلياً؟
+                bool isDefinedCte = _definedCtes.Contains(tableName);
+
+                // 3. (شبكة الأمان) هل يبدأ بالبادئة المخصصة للـ CTEs؟
+                bool isGeneratedCte = tableName.StartsWith("CTE_Gen_", StringComparison.OrdinalIgnoreCase);
+
+                if (!isAllowedTable && !isDefinedCte && !isGeneratedCte)
+                {
+                    // طباعة خطأ تفصيلي للمساعدة في الـ Debugging
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"[SecurityVisitor] ⛔ Blocked Table: '{tableName}'");
+                    Console.WriteLine($"  - In Whitelist? {isAllowedTable}");
+                    Console.WriteLine($"  - In Local CTEs? {isDefinedCte}");
+                    Console.WriteLine($"  - Has CTE Prefix? {isGeneratedCte}");
+                    Console.ResetColor();
+
+                    throw new SecurityException($"Security Validation Failed: Access to table/object '{tableName}' is not permitted. It is neither in the whitelist nor a valid local CTE.");
+                }
+            }
+            base.Visit(node);
+        }
+
+        // --- 3. فرض القائمة السوداء (Blacklist) على الدوال ---
+        public override void Visit(FunctionCall node)
+        {
+            if (node.FunctionName?.Value != null)
+            {
+                if (_blacklistedFunctions.Contains(node.FunctionName.Value))
+                {
+                    throw new SecurityException($"Security Validation Failed: Use of function '{node.FunctionName.Value}' is not allowed.");
+                }
+            }
+            base.Visit(node);
         }
 
         // --- 1. منع أوامر الكتابة (DELETE, UPDATE, INSERT) ---
@@ -100,36 +163,7 @@ namespace DynamicAi.Application.Security
             throw new SecurityException("Security Validation Failed: CREATE PROCEDURE statements are not allowed.");
         }
 
-        // --- 2. فرض القائمة البيضاء (Whitelist) على الجداول ---
+       
 
-        public override void Visit(NamedTableReference node)
-        {
-            // (هذا هو المكان الذي يتحقق فيه من أسماء الجداول في جملة FROM/JOIN)
-            if (node.SchemaObject?.BaseIdentifier?.Value != null)
-            {
-                var tableName = node.SchemaObject.BaseIdentifier.Value;
-
-                // (الأهم) التحقق من القائمة البيضاء
-                if (!_allowedViews.Contains(tableName))
-                {
-                    throw new SecurityException($"Security Validation Failed: Access to table '{tableName}' is not permitted.");
-                }
-            }
-            base.Visit(node); // (استمر في زيارة باقي الأجزاء)
-        }
-
-        // --- 3. فرض القائمة السوداء (Blacklist) على الدوال ---
-
-        public override void Visit(FunctionCall node)
-        {
-            if (node.FunctionName?.Value != null)
-            {
-                if (_blacklistedFunctions.Contains(node.FunctionName.Value))
-                {
-                    throw new SecurityException($"Security Validation Failed: Use of function '{node.FunctionName.Value}' is not allowed.");
-                }
-            }
-            base.Visit(node);
-        }
     }
 }

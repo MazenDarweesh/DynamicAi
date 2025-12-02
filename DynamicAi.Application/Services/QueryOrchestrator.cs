@@ -3,6 +3,7 @@ using DynamicAi.Application.Models; // (لاستخدام RewrittenSqlResult)
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace DynamicAi.Application.Services
@@ -100,16 +101,21 @@ namespace DynamicAi.Application.Services
                 Console.WriteLine($"{rawSql}\n");
                 Console.ResetColor();
 
-                // --- (بداية التعديل) ---
-                // التحقق من استجابة "السياق غير كافٍ" قبل المتابعة
-                if (rawSql.Trim().StartsWith("ERROR: Insufficient context.", StringComparison.OrdinalIgnoreCase))
-                {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine("[Orchestrator] AI indicated insufficient context. Stopping pipeline gracefully.");
-                    Console.ResetColor();
-                    throw new InvalidOperationException("I could not answer the question with the available context. The RAG retrieval might have failed to find relevant information.");
-                }
-                // --- (نهاية التعديل) ---
+                //// ============================================================================
+                //// Interactivity Check: Handle CLARIFICATION_NEEDED
+                //// ============================================================================
+                //if (rawSql.Trim().StartsWith("CLARIFICATION_NEEDED:", StringComparison.OrdinalIgnoreCase))
+                //{
+                //    var clarificationMessage = rawSql.Replace("CLARIFICATION_NEEDED:", "", StringComparison.OrdinalIgnoreCase).Trim();
+
+                //    Console.ForegroundColor = ConsoleColor.Yellow;
+                //    Console.WriteLine($"[Orchestrator] ✋ Interactivity Triggered: AI requesting clarification from user.");
+                //    Console.WriteLine($"[Orchestrator] Clarification Message: \"{clarificationMessage}\"");
+                //    Console.ResetColor();
+                    
+                //    // Throw a specific exception that the Controller will catch and handle
+                //    throw new InvalidOperationException($"INTERACTION_REQUIRED: {clarificationMessage}");
+                //}
 
                 // ============================================================================
                 // Layer 3: SQL Validation - التحقق من الأمان
