@@ -3,7 +3,7 @@
     public class QueryLog
     {
         public Guid Id { get; set; }
-        public string RawQuestion { get; set; }
+        public string RawQuestion { get; set; } = string.Empty;
         public string? GeneratedSql { get; set; }
         public bool WasSuccessful { get; set; }
         public string? ErrorMessage { get; set; }

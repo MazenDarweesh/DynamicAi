@@ -31,6 +31,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseCors("AllowAngularDev");
 app.UseAuthorization();
 app.MapControllers();
 
@@ -52,7 +53,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     // --- تسجيل عميل Qdrant ---
     var qdrantHost = configuration["Qdrant:Host"]!;
     var qdrantApiKey = configuration["Qdrant:ApiKey"];
-    
+
     services.AddSingleton(sp =>
     {
         var uri = new Uri(qdrantHost);
@@ -80,7 +81,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
             apiKey: googleApiKey,
             httpClient: httpClient
         );
-        
+
         return embeddingService.AsEmbeddingGenerator();
     });
 
@@ -93,7 +94,8 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
         .WaitAndRetryAsync(
             retryCount: 5,
             sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt) * 5),
-            onRetry: (outcome, timespan, retryCount, ctx) => {
+            onRetry: (outcome, timespan, retryCount, ctx) =>
+            {
                 Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.WriteLine($"[Polly] Rate limit detected. Retry #{retryCount} after {timespan.TotalSeconds:F1}s...");
                 Console.ResetColor();
@@ -133,4 +135,16 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddControllers();
     services.AddEndpointsApiExplorer();
     services.AddSwaggerGen();
+
+    // --- CORS Configuration ---
+    services.AddCors(options =>
+    {
+        options.AddPolicy("AllowAngularDev",
+            policy =>
+            {
+                policy.WithOrigins("http://localhost:4200") // Default Angular port
+                      .AllowAnyMethod()
+                      .AllowAnyHeader();
+            });
+    });
 }

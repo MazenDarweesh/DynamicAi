@@ -20,6 +20,12 @@ namespace DynamicAi.Api.Controllers
             _queryOrchestrator = queryOrchestrator;
         }
 
+        [HttpGet("ping")]
+        public IActionResult Ping()
+        {
+            return Ok(new { Message = "Pong", Time = DateTime.UtcNow });
+        }
+
         /// <summary>
         /// نقطة الدخول الرئيسية للـ API
         /// </summary>
@@ -61,7 +67,7 @@ namespace DynamicAi.Api.Controllers
             {
                 // تشغيل Pipeline بالكامل مع إرسال ComID
                 var result = await _queryOrchestrator.HandleQueryAsync(request.Question, request.TenantId, request.ComID);
-                
+
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
 
                 // نجاح العملية
@@ -183,7 +189,7 @@ namespace DynamicAi.Api.Controllers
                 Console.WriteLine($"[API] Error Message: {ex.Message}");
                 Console.WriteLine($"[API] Failed after {apiDuration:F0}ms");
                 Console.WriteLine($"[API] Response: InternalServerError (500)");
-                
+
                 if (ex.StackTrace != null)
                 {
                     Console.WriteLine($"[API] Stack Trace:");
