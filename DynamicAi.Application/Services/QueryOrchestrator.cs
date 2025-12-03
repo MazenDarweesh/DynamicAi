@@ -95,27 +95,21 @@ namespace DynamicAi.Application.Services
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine($"[Orchestrator] ✓ Layer 2 completed in {layer2Duration:F0}ms");
                 Console.ResetColor();
+                // ============================================================================
+                // Interactivity Check: Handle CLARIFICATION_NEEDED
+                // ============================================================================
+                if (rawSql.Trim().StartsWith("CLARIFICATION_NEEDED:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var clarificationMessage = rawSql.Replace("CLARIFICATION_NEEDED:", "", StringComparison.OrdinalIgnoreCase).Trim();
 
-                Console.WriteLine($"[Orchestrator] Generated SQL:");
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"{rawSql}\n");
-                Console.ResetColor();
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"[Orchestrator] ✋ Interactivity Triggered: AI requesting clarification from user.");
+                    Console.WriteLine($"[Orchestrator] Clarification Message: \"{clarificationMessage}\"");
+                    Console.ResetColor();
 
-                //// ============================================================================
-                //// Interactivity Check: Handle CLARIFICATION_NEEDED
-                //// ============================================================================
-                //if (rawSql.Trim().StartsWith("CLARIFICATION_NEEDED:", StringComparison.OrdinalIgnoreCase))
-                //{
-                //    var clarificationMessage = rawSql.Replace("CLARIFICATION_NEEDED:", "", StringComparison.OrdinalIgnoreCase).Trim();
-
-                //    Console.ForegroundColor = ConsoleColor.Yellow;
-                //    Console.WriteLine($"[Orchestrator] ✋ Interactivity Triggered: AI requesting clarification from user.");
-                //    Console.WriteLine($"[Orchestrator] Clarification Message: \"{clarificationMessage}\"");
-                //    Console.ResetColor();
-                    
-                //    // Throw a specific exception that the Controller will catch and handle
-                //    throw new InvalidOperationException($"INTERACTION_REQUIRED: {clarificationMessage}");
-                //}
+                    // Throw a specific exception that the Controller will catch and handle
+                    throw new InvalidOperationException($"INTERACTION_REQUIRED: {clarificationMessage}");
+                }
 
                 // ============================================================================
                 // Layer 3: SQL Validation - التحقق من الأمان

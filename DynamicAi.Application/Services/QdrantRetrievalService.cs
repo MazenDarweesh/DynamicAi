@@ -270,22 +270,31 @@ namespace DynamicAi.Application.Services
 
                     var detailResults = await SearchQdrantAsync(embedding, detailFilter, 50, $"{DbTables.PageDetail} (Attribute {attributeId})");
 
-                foreach (var detailJson in detailResults)
-                {
-                    var detailNode = JsonNode.Parse(detailJson)!.AsObject();
-                    if (detailNode.TryGetPropertyValue(DbColumns.PageAttributeId, out var parentAttrIdNode) &&
-                        attributeMap.TryGetValue(parentAttrIdNode!.GetValue<int>(), out var parentAttrNode))
+                    foreach (var detailJson in detailResults)
                     {
-                        if (parentAttrNode["PageDetails"] is not JsonArray detailsArray)
+                        var detailNode = JsonNode.Parse(detailJson)!.AsObject();
+                        if (detailNode.TryGetPropertyValue(DbColumns.PageAttributeId, out var parentAttrIdNode) &&
+                            attributeMap.TryGetValue(parentAttrIdNode!.GetValue<int>(), out var parentAttrNode))
                         {
-                            detailsArray = new JsonArray();
-                            parentAttrNode["PageDetails"] = detailsArray;
-                        }
-                        detailsArray.Add(detailNode);
+                            if (parentAttrNode["PageDetails"] is not JsonArray detailsArray)
+                            {
+                                detailsArray = new JsonArray();
+                                parentAttrNode["PageDetails"] = detailsArray;
+                            }
+                            detailsArray.Add(detailNode);
                             totalDetailsLinked++;
 
                             var detailViewName = detailNode[DbColumns.TableName]?.GetValue<string>() ?? string.Empty;
                             AppendCompanyFilterRule(detailNode, detailViewName, "PageDetail", contextBundle, companyRuleKeys);
+
+                            // (FIX) Also fetch dictionary entries for the Detail View
+                            string detailListName = detailNode[DbColumns.ListName]?.GetValue<string>() ?? string.Empty;
+                            if (!string.IsNullOrEmpty(detailListName))
+                            {
+                                var detailListFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups, (QdrantConstants.ListName, detailListName));
+                                var detailListResults = await SearchQdrantAsync(embedding, detailListFilter, 50, $"{DbTables.ListSetups} (Detail {detailListName})");
+                                contextBundle.DictionaryEntries.AddRange(detailListResults);
+                            }
                         }
                     }
                 }
@@ -557,7 +566,7 @@ namespace DynamicAi.Application.Services
                 try
                 {
                     // Search without the problematic filter to see what's actually in Qdrant
-                    var diagnosticFilter = CreateFilter( "ALL", QdrantConstants.SourceTypeData, DbTables.Pages);
+                    var diagnosticFilter = CreateFilter("ALL", QdrantConstants.SourceTypeData, DbTables.Pages);
 
                     // [FIXED] استخدام التوقيع الصحيح هنا أيضًا
                     var diagnosticResult = await _qdrantClient.SearchAsync(

@@ -1,6 +1,7 @@
 ﻿using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -95,7 +96,7 @@ namespace DynamicAi.Application.Services
 
             var promptStart = DateTime.UtcNow;
             var promptBuilder = new StringBuilder();
-            
+
             // 1. تعريف الشخصية والدور (The Persona) - (تم التحديث لـ Architect)
             promptBuilder.AppendLine("You are an expert ERP Database Architect specialized in a specific Dynamic AI system.");
             promptBuilder.AppendLine("Your goal is to map user questions to a T-SQL query strictly following the system's metadata cycle.");
@@ -103,25 +104,25 @@ namespace DynamicAi.Application.Services
             // ============================================================================ 
             // . القواعد الأساسية (Core Rules)
             // ============================================================================ 
-            //promptBuilder.AppendLine("\n--- CORE RULES (CRITICAL) ---");
-            //// (القاعدة الجديدة: حصر مصادر الجداول)
-            //promptBuilder.AppendLine("2. **STRICT TABLE WHITELIST (DATA SOURCES)**: You are STRICTLY LIMITED to using tables/views from these specific metadata fields ONLY:");
-            //promptBuilder.AppendLine("   - A) `TableName` from the `PageAttribute` (The Master View).");
-            //promptBuilder.AppendLine("   - B) `TableName` from the `PageDetail` (The Detail View).");
-            //promptBuilder.AppendLine("   - C) `DroModel` from `ListSetups` (Lookup Tables), BUT ONLY when resolving a column where `InsertType` == 'dropdown'.");
-            //promptBuilder.AppendLine("   - **PROHIBITION**: Using any other table/view (even if found in SchemaScript) that is NOT referenced in these three fields is a HALLUCINATION and is FORBIDDEN.");
+            promptBuilder.AppendLine("\n--- CORE RULES (CRITICAL) ---");
+            // (القاعدة الجديدة: حصر مصادر الجداول)
+            promptBuilder.AppendLine("2. **STRICT TABLE WHITELIST (DATA SOURCES)**: You are STRICTLY LIMITED to using tables/views from these specific metadata fields ONLY:");
+            promptBuilder.AppendLine("   - A) `TableName` from the `PageAttribute` (The Master View).");
+            promptBuilder.AppendLine("   - B) `TableName` from the `PageDetail` (The Detail View).");
+            promptBuilder.AppendLine("   - C) `DroModel` from `ListSetups` (Lookup Tables), BUT ONLY when resolving a column where `InsertType` == 'dropdown'.");
+            promptBuilder.AppendLine("   - **PROHIBITION**: Using any other table/view (even if found in SchemaScript) that is NOT referenced in these three fields is a HALLUCINATION and is FORBIDDEN.");
 
-            //promptBuilder.AppendLine("2. **MANDATORY SEARCH PATH**: To find a column, you MUST ONLY search in the 'DICTIONARY CONTEXT' (ListSetups).");
-            //promptBuilder.AppendLine("   - **Step A**: Identify the `ListName` from the Master View (`PageAttribute`) or Details View (`PageDetail`).");
-            //promptBuilder.AppendLine("   - **Step B**: Search ONLY within the `ListSetups` entries linked to that `ListName`.");
-            //promptBuilder.AppendLine("   - **Step C**: Match the user's Arabic/English word to `arColumnLabel` or `enColumnLabel` to find the mapping.");
+            promptBuilder.AppendLine("2. **MANDATORY SEARCH PATH**: To find a column, you MUST ONLY search in the 'DICTIONARY CONTEXT' (ListSetups).");
+            promptBuilder.AppendLine("   - **Step A**: Identify the `ListName` from the Master View (`PageAttribute`) or Details View (`PageDetail`).");
+            promptBuilder.AppendLine("   - **Step B**: Search ONLY within the `ListSetups` entries linked to that `ListName`.");
+            promptBuilder.AppendLine("   - **Step C**: Match the user's Arabic/English word to `arColumnLabel` or `enColumnLabel` to find the mapping.");
 
 
 
             // --- تعديل هام جداً لقواعد الاستجابة ---
             promptBuilder.AppendLine("\n--- RESPONSE FORMAT RULES (STRICT) ---");
             promptBuilder.AppendLine("1. **NO HYBRID RESPONSES**: You must output EITHER valid T-SQL code OR a clarification message. NEVER BOTH.");
-           // promptBuilder.AppendLine("2. **IF CLARIFICATION NEEDED**: Output ONLY `CLARIFICATION_NEEDED: [Message in Arabic]`. Do NOT write any SQL after it.");
+            promptBuilder.AppendLine("2. **IF CLARIFICATION NEEDED**: Output ONLY `CLARIFICATION_NEEDED: [Message in Arabic]`. Do NOT write any SQL after it.");
             promptBuilder.AppendLine("3. **IF SQL GENERATED**: Output ONLY the SQL code inside markdown tags.");
 
 
@@ -131,7 +132,7 @@ namespace DynamicAi.Application.Services
             promptBuilder.AppendLine("2. **Master View (PageAttribute)**: The page's main data source is defined in the HIERARCHY CONTEXT (PageAttribute.TableName). This is the primary FROM table.");
             promptBuilder.AppendLine("3. **Details View (PageDetail)**: If the user asks for item details (e.g., Product Name, Item Quantity), you MUST use an INNER JOIN to the detail view/table (PageDetail.TableName) using the appropriate key.");
             promptBuilder.AppendLine("4. **MANDATORY COLUMN MAPPING**: The ONLY source for translating the user's requested field (Arabic/English) to a DB Column Name is the 'DICTIONARY CONTEXT' (ListSetups). **NEVER GUESS** a column name. Match the user's word to `arColumnLabel` or `enColumnLabel` to find the correct `ColumnName` or `DroText` mapping.");
-            
+
             // 3. قواعد التفاعلية ومنع الهلوسة (Interactivity & Safety - قواعد حاسمة)
             promptBuilder.AppendLine("\n--- INTERACTIVITY & SAFETY RULES (CRITICAL) ---");
             promptBuilder.AppendLine("1. **NO HALLUCINATION**: You MUST only use Tables/Views/Columns explicitly provided in the HIERARCHY and DICTIONARY CONTEXTS. Inventorying data is strictly forbidden.");
@@ -157,7 +158,7 @@ namespace DynamicAi.Application.Services
             promptBuilder.AppendLine("   **WRONG Examples (NEVER DO THIS)**:");
             promptBuilder.AppendLine("   ✗ `SELECT SUM(Total) FROM Sales WHERE MONTH(Date) = 9` (Missing ComID - SECURITY BREACH!)");
             promptBuilder.AppendLine("   ✗ `SELECT * FROM Contracts WHERE ContractID = 123` (Missing ComID - SECURITY BREACH!)");
-            
+
             // 4. القواعد التقنية (T-SQL SYNTAX RULES)
             promptBuilder.AppendLine("\n--- T-SQL SYNTAX RULES ---");
             promptBuilder.AppendLine("1. DATE LOGIC: If a month is mentioned without a year: Use T-SQL: `WHERE MONTH(DateCol) = X`. Do NOT assume a specific year unless specified.");
@@ -170,7 +171,7 @@ namespace DynamicAi.Application.Services
             promptBuilder.AppendLine("   - Example: `SELECT Sum(Total) AS [اجمالي المبيعات]`. Use terms from 'DICTIONARY CONTEXT' for aliases.");
             promptBuilder.AppendLine("5. SAFETY: If no aggregation (SUM/COUNT) is requested, ALWAYS add `TOP 100` to the query.");
             promptBuilder.AppendLine("6. **STRICT ALIASING (PREVENT AMBIGUITY)**: You MUST assign an alias to every table (e.g., `FROM Table AS T1`). You MUST prefix EVERY column in the `SELECT`, `WHERE`, `JOIN`, and `ORDER BY` clauses with its alias (e.g., `T1.IsResale`, `T2.ContractType`). NEVER use a column name without its alias.");
-            
+
 
             // 5. Syntax Rules (CTE Banned Here)
             promptBuilder.AppendLine("\n--- T-SQL SYNTAX RULES ---");
@@ -329,7 +330,18 @@ namespace DynamicAi.Application.Services
             Console.ResetColor();
 
             var aiStart = DateTime.UtcNow;
-            var response = await _chatService.GetChatMessageContentAsync(chatHistory);
+
+            // (New) Enforce Consistency
+            var executionSettings = new PromptExecutionSettings
+            {
+                ExtensionData = new Dictionary<string, object>
+                {
+                    { "temperature", 0.0 }, // Zero temperature for deterministic output
+                    { "topP", 0.1 }         // Low topP for more focused sampling
+                }
+            };
+
+            var response = await _chatService.GetChatMessageContentAsync(chatHistory, executionSettings);
             var aiDuration = (DateTime.UtcNow - aiStart).TotalMilliseconds;
 
             Console.ForegroundColor = ConsoleColor.Green;
@@ -341,7 +353,6 @@ namespace DynamicAi.Application.Services
             Console.ForegroundColor = ConsoleColor.Yellow;
             Console.WriteLine($"{response.Content}");
             Console.ResetColor();
-
             // ============================================================================ 
             // STEP 4: استخراج وتنظيف SQL
             // ============================================================================ 
@@ -374,25 +385,25 @@ namespace DynamicAi.Application.Services
             return extractedSql;
         }
 
-        private string ExtractSql(string content)
+        private string ExtractSql(string? content)
         {
             Console.ForegroundColor = ConsoleColor.Gray;
             Console.WriteLine($"[SqlGeneration] Cleaning: Starting SQL extraction...");
             Console.WriteLine($"[SqlGeneration] Cleaning: Input length: {content?.Length ?? 0} characters");
             Console.ResetColor();
 
+            if (string.IsNullOrWhiteSpace(content)) return string.Empty;
+
             content = content.Trim();
 
-            Console.ForegroundColor = ConsoleColor.Gray;
-            Console.WriteLine($"[SqlGeneration] Cleaning: Checking for markdown code fences...");
-            Console.ResetColor();
-
-            if (content.StartsWith("```sql", StringComparison.OrdinalIgnoreCase))
+            // Regex to match markdown code blocks with optional language identifier
+            // Matches ``` followed by optional text (like 'sql', 'tsql'), then whitespace/newline
+            var match = System.Text.RegularExpressions.Regex.Match(content, @"^```\w*\s+");
+            if (match.Success)
             {
-                Console.ForegroundColor = ConsoleColor.Gray;
-                Console.WriteLine($"[SqlGeneration] Cleaning: Removing '```sql' prefix");
+                Console.WriteLine($"[SqlGeneration] Cleaning: Removing markdown start fence '{match.Value.Trim()}'");
                 Console.ResetColor();
-                content = content.Substring(6);
+                content = content.Substring(match.Length);
             }
             else if (content.StartsWith("```"))
             {
@@ -411,7 +422,7 @@ namespace DynamicAi.Application.Services
             }
 
             var cleaned = content.Trim();
-            
+
             Console.ForegroundColor = ConsoleColor.Gray;
             Console.WriteLine($"[SqlGeneration] Cleaning: Output length: {cleaned.Length} characters");
             Console.ResetColor();

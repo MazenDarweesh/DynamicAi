@@ -33,7 +33,7 @@
                 "watch",
                 "run",
                 "--project",
-                "${workspaceFolder}/DynamicAi.sln"
+                "${workspaceFolder}/DynamicAi/DynamicAi.Api.csproj"
             ],
             "problemMatcher": "$msCompile"
         }
