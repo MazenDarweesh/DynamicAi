@@ -223,9 +223,16 @@ namespace DynamicAi.Application.Services
             promptBuilder.AppendLine("  * **YES** -> `SELECT T.[GovName] AS [الحي]` (NO JOIN NEEDED).");
             promptBuilder.AppendLine("  * **NO** -> `LEFT JOIN [DroModel] ON T.[ColumnName] = [DroModel].[DroValue]` then `SELECT [DroModel].[DroText] AS [الحي]`.");
 
-
             promptBuilder.AppendLine("\n   **IMPORTANT NOTE ON ALIASES**:");
             promptBuilder.AppendLine("   - Always alias the final selected column using the `arColumnLabel` from ListSetups (e.g., `SELECT GovName AS [الحي]`).");
+
+            promptBuilder.AppendLine("\n**STEP 5: VISIBILITY CHECK (For Broad Queries)**");
+            promptBuilder.AppendLine("- IF the user asks for 'all columns', 'all data', or 'show me the table':");
+            promptBuilder.AppendLine("  * **NEVER** use `SELECT *`.");
+            promptBuilder.AppendLine("  * **FILTER** the `ListSetups` entries for the current ListName.");
+            promptBuilder.AppendLine("  * **SELECT ONLY** columns where the `Visible` property is `true` (or `1`).");
+            promptBuilder.AppendLine("  * **EXCLUDE** any columns where `Visible` is `false` (or `0`).");
+            promptBuilder.AppendLine("  * **APPLY** the Aliasing Rule to each selected column (e.g., `SELECT Col1 AS [Label1], Col2 AS [Label2] ...`).");
 
             Console.ForegroundColor = ConsoleColor.Gray;
             Console.WriteLine("[SqlGeneration] Building prompt section: HIERARCHY & SCHEMA CONTEXT...");

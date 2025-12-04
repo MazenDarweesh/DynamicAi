@@ -479,7 +479,7 @@ import { environment } from '../environments/environment';
 export class App implements OnInit, AfterViewChecked {
   @ViewChild('scrollContainer') private scrollContainer!: ElementRef;
 
-  status = 'Checking AI System...';
+  status = 'Connected! ✅';
   apiUrl = environment.apiUrl;
   errorMsg = '';
 
@@ -490,7 +490,8 @@ export class App implements OnInit, AfterViewChecked {
   constructor(private apiService: ApiService, private cdr: ChangeDetectorRef) { }
 
   ngOnInit() {
-    this.checkConnection();
+    // Initial check disabled to save tokens
+    // this.checkConnection();
   }
 
   ngAfterViewChecked() {
