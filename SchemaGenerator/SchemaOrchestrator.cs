@@ -39,7 +39,7 @@ namespace SchemaGenerator
 
         private readonly List<int> _targetPageIds = new List<int>
         {
-            244//, 7912, 330, 332, 333, 336
+            244, 289 // 7912, 330, 332, 333, 336, 
         };
 
         public SchemaOrchestrator(
@@ -134,16 +134,16 @@ namespace SchemaGenerator
                         .Where(name => !string.IsNullOrEmpty(name))
                         .Distinct().ToList();
 
-                    checkpoint.TargetMetadataTables = new List<string> 
-                    { 
-                        DbTables.Pages, 
-                        DbTables.PageAttribute, 
-                        DbTables.PageDetail, 
-                        DbTables.Modul, 
-                        DbTables.MenuMaster, 
-                        DbTables.ListSetups 
+                    checkpoint.TargetMetadataTables = new List<string>
+                    {
+                        DbTables.Pages,
+                        DbTables.PageAttribute,
+                        DbTables.PageDetail,
+                        DbTables.Modul,
+                        DbTables.MenuMaster,
+                        DbTables.ListSetups
                     };
-                    
+
                     checkpoint.LastCompletedPhase = 2;
                     await SaveCheckpointAsync(checkpoint);
                 }
@@ -181,19 +181,39 @@ namespace SchemaGenerator
                 {
                     Console.WriteLine("[Phase 5] Checking Schema modification dates (Fast Check)...");
                     var state = await _stateService.LoadStateAsync(_stateFilePath);
-                    var currentDates = await _schemaReaderService.GetObjectsModificationDatesAsync(_connectionString, checkpoint.TargetViewNames!);
+
+                    // تنظيف أسماء الـ Views من الأقواس المربعة [ViewName] -> ViewName
+                    var normalizedTargetViewNames = checkpoint.TargetViewNames!
+                        .Select(name => name.Trim('[', ']'))
+                        .ToList();
+
+                    var currentDates = await _schemaReaderService.GetObjectsModificationDatesAsync(_connectionString, normalizedTargetViewNames);
                     var changedObjectNames = new List<string>();
 
-                    foreach (var objName in checkpoint.TargetViewNames!)
+                    foreach (var objName in normalizedTargetViewNames)
                     {
+                        // أولاً: تحقق إذا كان الكائن موجود في قاعدة البيانات
                         if (currentDates.TryGetValue(objName, out var currentDate))
                         {
+                            // تحقق إذا كان جديد أو تم تعديله
                             if (!state.SchemaDates.TryGetValue(objName, out var storedDate) || currentDate > storedDate)
                             {
                                 Console.ForegroundColor = ConsoleColor.Yellow;
                                 Console.WriteLine($"  -> Change detected in '{objName}':");
                                 Console.WriteLine($"     - DB Modify Date:   {currentDate}");
                                 Console.WriteLine($"     - Last Known Date:  {(storedDate == default ? "N/A (New Object)" : storedDate.ToString())}");
+                                Console.ResetColor();
+                                changedObjectNames.Add(objName);
+                            }
+                        }
+                        else
+                        {
+                            // الكائن غير موجود في currentDates - ربما جدول وليس View
+                            // حاول إضافته إذا لم يكن في state file (جديد تماماً)
+                            if (!state.SchemaDates.ContainsKey(objName))
+                            {
+                                Console.ForegroundColor = ConsoleColor.Cyan;
+                                Console.WriteLine($"  -> New object detected: '{objName}' (not in DB modify_date, will attempt extraction)");
                                 Console.ResetColor();
                                 changedObjectNames.Add(objName);
                             }
@@ -220,7 +240,7 @@ namespace SchemaGenerator
                     {
                         checkpoint.DocumentsToUpload.AddRange(checkpoint.DataDocuments);
                     }
-                    
+
                     Console.WriteLine($"[Phase 5] Found {checkpoint.DocumentsToUpload.Count} total new/modified documents to upload.");
                     checkpoint.LastCompletedPhase = 5;
                     await SaveCheckpointAsync(checkpoint);
@@ -257,7 +277,7 @@ namespace SchemaGenerator
                     {
                         Console.WriteLine("[Phase 6] No changes found. Pipeline is up-to-date.");
                     }
-                    
+
                     checkpoint.LastCompletedPhase = 6;
                     await SaveCheckpointAsync(checkpoint);
                 }
@@ -271,7 +291,7 @@ namespace SchemaGenerator
                 Console.WriteLine($"--- KNOWLEDGE BASE PIPELINE: FAILED ---");
                 Console.WriteLine($"Error: {ex.Message}");
                 Console.WriteLine($"StackTrace: {ex.StackTrace}");
-                
+
                 if (checkpoint != null)
                 {
                     Console.ForegroundColor = ConsoleColor.Yellow;
@@ -279,7 +299,7 @@ namespace SchemaGenerator
                     Console.WriteLine($"[Checkpoint] You can resume from this point on the next run.");
                 }
                 Console.ResetColor();
-                
+
                 throw;
             }
         }

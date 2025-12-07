@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Configuration;
 using SchemaGenerator;
 using SchemaGenerator.Interfaces;
 using SchemaGenerator.Services;
@@ -12,7 +13,12 @@ using Qdrant.Client;
 using Microsoft.Extensions.AI;
 
 // 1. بناء الـ Host (لقراءة الإعدادات و DI)
-var builder = Host.CreateDefaultBuilder(args);
+var builder = Host.CreateDefaultBuilder(args)
+    .ConfigureAppConfiguration((context, config) =>
+    {
+        // تحميل User Secrets (دائماً لـ Console Apps)
+        config.AddUserSecrets<Program>(optional: true);
+    });
 
 // 2. إعداد الخدمات (DI)
 builder.ConfigureServices((context, services) =>
@@ -28,14 +34,14 @@ builder.ConfigureServices((context, services) =>
     services.AddTransient<IChangeTrackingStrategy, CdcChangeStrategy>();
     services.AddTransient<IErpDataExtractorService, ErpDataExtractorService>();
     services.AddTransient<IVectorDbService, QdrantVectorDbService>();
-    
+
     // (جديد) تسجيل خدمة التحقق من Qdrant
     services.AddTransient<IQdrantValidationService, QdrantValidationService>();
 
     // --- تسجيل عميل Qdrant ---
     var qdrantHost = context.Configuration["Qdrant:Host"]!;
     var qdrantApiKey = context.Configuration["Qdrant:ApiKey"];
-    
+
     services.AddSingleton(sp =>
     {
         var uri = new Uri(qdrantHost);
@@ -63,7 +69,7 @@ builder.ConfigureServices((context, services) =>
             apiKey: googleApiKey,
             httpClient: httpClient
         );
-        
+
         return embeddingService.AsEmbeddingGenerator();
     });
 
@@ -76,7 +82,8 @@ builder.ConfigureServices((context, services) =>
         .WaitAndRetryAsync(
             retryCount: 5,
             sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt) * 5),
-            onRetry: (outcome, timespan, retryCount, ctx) => {
+            onRetry: (outcome, timespan, retryCount, ctx) =>
+            {
                 Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.WriteLine($"[Polly] Rate limit detected. Retry #{retryCount} after {timespan.TotalSeconds:F1}s...");
                 Console.ResetColor();
@@ -130,3 +137,6 @@ if (!isValid)
 // ============================================================================
 var orchestrator = host.Services.GetRequiredService<ISchemaOrchestrator>();
 await orchestrator.GenerateSchemaAsync();
+
+// Dummy class for User Secrets assembly reference
+public partial class Program { }
