@@ -296,17 +296,54 @@ namespace DynamicAi.Application.Services
             Console.WriteLine("[SqlGeneration] Building prompt section: DICTIONARY CONTEXT...");
             Console.ResetColor();
             promptBuilder.AppendLine("\n--- DICTIONARY CONTEXT (User Labels to DB Columns) ---");
+
+            // Unit 2: Compact Dictionary Format - Add header explaining the format
+            promptBuilder.AppendLine("Format: [Index] ColumnName | InsertType | arColumnLabel | enColumnLabel | DroModel:DroValue:DroText (if dropdown)");
+            promptBuilder.AppendLine("---");
+
             if (contextBundle.DictionaryEntries != null && contextBundle.DictionaryEntries.Any())
             {
                 int dictIndex = 1;
                 foreach (var entry in contextBundle.DictionaryEntries)
                 {
-                    promptBuilder.AppendLine($"\n[Dictionary Entry {dictIndex}]");
-                    promptBuilder.AppendLine(entry);
+                    // Parse JSON and convert to compact format
+                    try
+                    {
+                        var node = System.Text.Json.JsonDocument.Parse(entry);
+                        var root = node.RootElement;
+
+                        var columnName = root.TryGetProperty("ColumnName", out var cn) ? cn.GetString() ?? "" : "";
+                        var insertType = root.TryGetProperty("InsertType", out var it) ? it.GetString() ?? "" : "";
+                        var arLabel = root.TryGetProperty("arColumnLabel", out var ar) ? ar.GetString() ?? "" : "";
+                        var enLabel = root.TryGetProperty("enColumnLabel", out var en) ? en.GetString() ?? "" : "";
+
+                        // Build compact entry
+                        var compactEntry = $"[{dictIndex}] {columnName} | {insertType} | {arLabel} | {enLabel}";
+
+                        // Add dropdown info if applicable
+                        if (insertType == "dropdown")
+                        {
+                            var droModel = root.TryGetProperty("DroModel", out var dm) ? dm.GetString() ?? "" : "";
+                            var droValue = root.TryGetProperty("DroValue", out var dv) ? dv.GetString() ?? "" : "";
+                            var droText = root.TryGetProperty("DroText", out var dt) ? dt.GetString() ?? "" : "";
+
+                            if (!string.IsNullOrEmpty(droModel))
+                            {
+                                compactEntry += $" | {droModel}:{droValue}:{droText}";
+                            }
+                        }
+
+                        promptBuilder.AppendLine(compactEntry);
+                    }
+                    catch
+                    {
+                        // Fallback: use original entry if parsing fails
+                        promptBuilder.AppendLine($"[{dictIndex}] {entry}");
+                    }
                     dictIndex++;
                 }
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[SqlGeneration] ✓ Added {contextBundle.DictionaryEntries.Count} dictionary entry/entries");
+                Console.WriteLine($"[SqlGeneration] ✓ Added {contextBundle.DictionaryEntries.Count} dictionary entry/entries (COMPACT FORMAT)");
                 Console.ResetColor();
             }
             else
