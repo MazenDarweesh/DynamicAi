@@ -2,7 +2,9 @@
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Qdrant.Client;
 using Qdrant.Client.Grpc;
 using System.Text.Json;
@@ -14,21 +16,36 @@ namespace DynamicAi.Application.Services
     /// <summary>
     /// (تنفيذ Layer 1 الذكي)
     /// ينفذ "خوارزمية البحث متعدد الخطوات" التي تجمع السياق الكامل.
+    /// Includes RAG Context Cache (L2) to avoid repeated Qdrant searches for the same page.
     /// </summary>
     public class QdrantRetrievalService : IRagRetrievalService
     {
         private readonly QdrantClient _qdrantClient;
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
+        private readonly IMemoryCache _memoryCache;
+        private readonly ILogger<QdrantRetrievalService> _logger;
         private readonly string _collectionName;
+
+        // RAG Cache settings
+        private readonly bool _ragCacheEnabled;
+        private readonly int _ragCacheTTLMinutes;
 
         public QdrantRetrievalService(
             QdrantClient qdrantClient,
             IEmbeddingGenerator<string, Embedding<float>> embeddingService,
-            IConfiguration configuration)
+            IMemoryCache memoryCache,
+            IConfiguration configuration,
+            ILogger<QdrantRetrievalService> logger)
         {
             _qdrantClient = qdrantClient;
             _embeddingService = embeddingService;
+            _memoryCache = memoryCache;
+            _logger = logger;
             _collectionName = configuration["Qdrant:CollectionName"]!;
+
+            // Load RAG Cache settings
+            _ragCacheEnabled = bool.Parse(configuration["Caching:RagContextCache:Enabled"] ?? "true");
+            _ragCacheTTLMinutes = int.Parse(configuration["Caching:RagContextCache:TTLMinutes"] ?? "240");
         }
 
         /// <summary>
@@ -151,6 +168,44 @@ namespace DynamicAi.Application.Services
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine($"[RagRetrieval] ✓ Using Page with PageID: {pageId}");
             Console.ResetColor();
+
+            // ============================================================================
+            // RAG CONTEXT CACHE CHECK (L2) - Check if we have cached context for this page
+            // ============================================================================
+            if (_ragCacheEnabled)
+            {
+                string cacheKey = $"RagContext:{tenantId}:{pageId}";
+                if (_memoryCache.TryGetValue(cacheKey, out CachedPageContext? cachedContext) && cachedContext != null)
+                {
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"\n[RagRetrieval] ✓ RAG CACHE HIT! Using cached context for PageID {pageId}");
+                    Console.WriteLine($"[RagRetrieval] Cached at: {cachedContext.CachedAt:HH:mm:ss}");
+                    Console.WriteLine($"[RagRetrieval] Skipping Steps 2.5-6 (saved ~3s!)");
+                    Console.ResetColor();
+
+                    _logger.LogInformation("[RagCache] HIT for PageID {PageId}", pageId);
+
+                    var cacheDuration = (DateTime.UtcNow - totalStart).TotalMilliseconds;
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"\n[RagRetrieval] ═══════════════ CONTEXT BUNDLE (FROM CACHE) ═══════════════");
+                    Console.WriteLine($"[RagRetrieval] Unified Context Size: {cachedContext.UnifiedPageContext?.Length ?? 0} chars");
+                    Console.WriteLine($"[RagRetrieval] Dictionary Entries:  {cachedContext.DictionaryEntries.Count}");
+                    Console.WriteLine($"[RagRetrieval] Business Rules:      {cachedContext.BusinessRules.Count}");
+                    Console.WriteLine($"[RagRetrieval] Total Execution:     {cacheDuration:F0}ms (CACHE HIT!)");
+                    Console.WriteLine("\n╔════════════════════════════════════════════════════════════════════════╗");
+                    Console.WriteLine("║        [Layer 1: RAG RETRIEVAL] - COMPLETED (FROM CACHE) ✓            ║");
+                    Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝\n");
+                    Console.ResetColor();
+
+                    return cachedContext.ToBundle();
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"\n[RagRetrieval] ✗ RAG CACHE MISS for PageID {pageId} - Continuing full retrieval");
+                    Console.ResetColor();
+                }
+            }
 
             // ============================================================================
             // STEP 2.5: جلب سياق الموديول والقائمة الرئيسية (Module & MenuMaster Context)
@@ -321,6 +376,34 @@ namespace DynamicAi.Application.Services
             Console.WriteLine("║        [Layer 1: MULTI-STEP RAG RETRIEVAL] - COMPLETED ✓              ║");
             Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝\n");
             Console.ResetColor();
+
+            // ============================================================================
+            // RAG CONTEXT CACHE STORE (L2) - Cache the context for future requests
+            // ============================================================================
+            if (_ragCacheEnabled)
+            {
+                string cacheKey = $"RagContext:{tenantId}:{pageId}";
+                var cachedContext = new CachedPageContext
+                {
+                    PageId = pageId,
+                    UnifiedPageContext = contextBundle.UnifiedPageContext,
+                    DictionaryEntries = contextBundle.DictionaryEntries,
+                    BusinessRules = contextBundle.BusinessRules,
+                    CachedAt = DateTime.UtcNow
+                };
+
+                var cacheOptions = new MemoryCacheEntryOptions()
+                    .SetAbsoluteExpiration(TimeSpan.FromMinutes(_ragCacheTTLMinutes))
+                    .SetSlidingExpiration(TimeSpan.FromMinutes(_ragCacheTTLMinutes / 2));
+
+                _memoryCache.Set(cacheKey, cachedContext, cacheOptions);
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[RagRetrieval] ✓ Cached context for PageID {pageId} (TTL: {_ragCacheTTLMinutes} minutes)");
+                Console.ResetColor();
+
+                _logger.LogInformation("[RagCache] Stored context for PageID {PageId}", pageId);
+            }
 
             return contextBundle;
         }

@@ -212,14 +212,15 @@ namespace DynamicAi.Application.Services
             // ============================================================================ 
             promptBuilder.AppendLine("\n6. **DEFAULT ORDERING (MANDATORY when no ORDER BY specified by user)**:");
             promptBuilder.AppendLine("   - If the user does NOT explicitly request a specific order/sort, you MUST add ORDER BY clause automatically.");
-            promptBuilder.AppendLine("   - **⚠️ IMPORTANT NOTE**: The column names below (DocDate, DocNo, etc.) are EXAMPLES ONLY to help you understand the CONCEPT.");
+            promptBuilder.AppendLine("   - **⚠️ IMPORTANT NOTE**: The column names below (DocNo, DocDate, etc.) are EXAMPLES ONLY to help you understand the CONCEPT.");
             promptBuilder.AppendLine("     You MUST determine the ACTUAL column name from the HIERARCHY CONTEXT and DICTIONARY CONTEXT provided.");
-            promptBuilder.AppendLine("     Look for columns with date/datetime types or ID/key patterns in the schema and ListSetups.");
+            promptBuilder.AppendLine("     Look for columns with ID/key/Auto patterns, date/datetime types in the schema and ListSetups.");
             promptBuilder.AppendLine("   - **ORDER PRIORITY (Descending - Newest/Largest First)**:");
-            promptBuilder.AppendLine("     * **Priority 1**: If a Date/DateTime column exists in the schema → ORDER BY [ActualDateColumn] DESC");
-            promptBuilder.AppendLine("     * **Priority 2**: If no Date column but an ID/Primary Key column exists → ORDER BY [ActualIDColumn] DESC");
-            promptBuilder.AppendLine("     * **Priority 3**: If neither, use the first numeric column available → ORDER BY [ActualNumericColumn] DESC");
-            promptBuilder.AppendLine("   - **RATIONALE**: Users typically want to see the most recent or highest-value records first.");
+            promptBuilder.AppendLine("     * **Priority 1**: If a Document Number/ID column exists (e.g., DocNo, InvoiceNo, RecordID, ID) → ORDER BY [ActualDocNoColumn] DESC");
+            promptBuilder.AppendLine("     * **Priority 2**: If no Doc Number but a Date/DateTime column exists → ORDER BY [ActualDateColumn] DESC");
+            promptBuilder.AppendLine("     * **Priority 3**: If neither, use numeric column → ORDER BY [ActualNumericColumn] DESC");
+            promptBuilder.AppendLine("     * **Priority 4**: If no numeric column, use alphabetical order on text column → ORDER BY [ActualTextColumn] DESC");
+            promptBuilder.AppendLine("   - **RATIONALE**: Users typically want to see the highest document numbers (latest invoices) first.");
             promptBuilder.AppendLine("   - **KEYWORDS indicating user wants specific order (DO NOT apply default)**:");
             promptBuilder.AppendLine("     * Arabic: 'رتب', 'ترتيب', 'من الأصغر', 'من الأكبر', 'تصاعدي', 'تنازلي', 'الأول', 'الأخير'");
             promptBuilder.AppendLine("     * English: 'order by', 'sort', 'ascending', 'descending', 'first', 'last', 'oldest', 'newest'");
