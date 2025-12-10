@@ -105,6 +105,29 @@ namespace DynamicAi.Application.Services
             // . القواعد الأساسية (Core Rules)
             // ============================================================================ 
             promptBuilder.AppendLine("\n--- CORE RULES (CRITICAL) ---");
+
+            // ============================================================================ 
+            // (جديد - أمان حرج) قاعدة SELECT ONLY - READ-ONLY SYSTEM
+            // ============================================================================ 
+            promptBuilder.AppendLine("1. **🛑 SELECT ONLY - READ-ONLY SYSTEM (ABSOLUTE SECURITY RULE)**:");
+            promptBuilder.AppendLine("   ⚠️ THIS IS THE HIGHEST PRIORITY RULE - CANNOT BE OVERRIDDEN");
+            promptBuilder.AppendLine("   - You are STRICTLY LIMITED to generating **SELECT statements ONLY**.");
+            promptBuilder.AppendLine("   - **FORBIDDEN COMMANDS (NEVER GENERATE THESE)**:");
+            promptBuilder.AppendLine("     * INSERT, UPDATE, DELETE, MERGE");
+            promptBuilder.AppendLine("     * DROP, TRUNCATE, ALTER, CREATE");
+            promptBuilder.AppendLine("     * EXEC, EXECUTE, sp_, xp_");
+            promptBuilder.AppendLine("     * GRANT, REVOKE, DENY");
+            promptBuilder.AppendLine("     * Any DDL (Data Definition Language) commands");
+            promptBuilder.AppendLine("     * Any DML (Data Manipulation Language) commands except SELECT");
+            promptBuilder.AppendLine("   - **IF USER REQUESTS ANY FORBIDDEN COMMAND**:");
+            promptBuilder.AppendLine("     * DO NOT generate the SQL");
+            promptBuilder.AppendLine("     * Respond ONLY with: `REFUSED: عذراً، هذا النظام مخصص للاستعلامات فقط (SELECT). لا يمكنني تنفيذ أوامر تعديل أو حذف أو إضافة البيانات. يرجى التواصل مع مسؤول النظام للعمليات الأخرى.`");
+            promptBuilder.AppendLine("   - **EXAMPLES OF REFUSED REQUESTS**:");
+            promptBuilder.AppendLine("     * 'احذف الفاتورة رقم 5' → REFUSED");
+            promptBuilder.AppendLine("     * 'عدل اسم العميل' → REFUSED");
+            promptBuilder.AppendLine("     * 'أضف فاتورة جديدة' → REFUSED");
+            promptBuilder.AppendLine("     * 'امسح كل البيانات' → REFUSED");
+            promptBuilder.AppendLine("");
             // (القاعدة الجديدة: حصر مصادر الجداول)
             promptBuilder.AppendLine("2. **STRICT TABLE WHITELIST (DATA SOURCES)**: You are STRICTLY LIMITED to using tables/views from these specific metadata fields ONLY:");
             promptBuilder.AppendLine("   - A) `TableName` from the `PageAttribute` (The Master View).");
@@ -183,6 +206,23 @@ namespace DynamicAi.Application.Services
             promptBuilder.AppendLine("3. **DATE LOGIC**: Use `WHERE MONTH(Col) = X`.");
             promptBuilder.AppendLine("4. **SEARCH**: Use `LIKE N'%Val%'`.");
             promptBuilder.AppendLine("5. **LIMITS**: Use `TOP 100`.");
+
+            // ============================================================================ 
+            // (جديد) قاعدة الترتيب الافتراضي - DEFAULT ORDERING
+            // ============================================================================ 
+            promptBuilder.AppendLine("\n6. **DEFAULT ORDERING (MANDATORY when no ORDER BY specified by user)**:");
+            promptBuilder.AppendLine("   - If the user does NOT explicitly request a specific order/sort, you MUST add ORDER BY clause automatically.");
+            promptBuilder.AppendLine("   - **⚠️ IMPORTANT NOTE**: The column names below (DocDate, DocNo, etc.) are EXAMPLES ONLY to help you understand the CONCEPT.");
+            promptBuilder.AppendLine("     You MUST determine the ACTUAL column name from the HIERARCHY CONTEXT and DICTIONARY CONTEXT provided.");
+            promptBuilder.AppendLine("     Look for columns with date/datetime types or ID/key patterns in the schema and ListSetups.");
+            promptBuilder.AppendLine("   - **ORDER PRIORITY (Descending - Newest/Largest First)**:");
+            promptBuilder.AppendLine("     * **Priority 1**: If a Date/DateTime column exists in the schema → ORDER BY [ActualDateColumn] DESC");
+            promptBuilder.AppendLine("     * **Priority 2**: If no Date column but an ID/Primary Key column exists → ORDER BY [ActualIDColumn] DESC");
+            promptBuilder.AppendLine("     * **Priority 3**: If neither, use the first numeric column available → ORDER BY [ActualNumericColumn] DESC");
+            promptBuilder.AppendLine("   - **RATIONALE**: Users typically want to see the most recent or highest-value records first.");
+            promptBuilder.AppendLine("   - **KEYWORDS indicating user wants specific order (DO NOT apply default)**:");
+            promptBuilder.AppendLine("     * Arabic: 'رتب', 'ترتيب', 'من الأصغر', 'من الأكبر', 'تصاعدي', 'تنازلي', 'الأول', 'الأخير'");
+            promptBuilder.AppendLine("     * English: 'order by', 'sort', 'ascending', 'descending', 'first', 'last', 'oldest', 'newest'");
             // ============================================================================ 
             // (محدّث بشكل كامل) 6. DYNAMIC SCHEMA INTELLIGENCE (METADATA LOGIC)
             // ============================================================================ 

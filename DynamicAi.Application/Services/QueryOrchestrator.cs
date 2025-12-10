@@ -1,9 +1,9 @@
 ﻿using DynamicAi.Application.Interfaces;
-using DynamicAi.Application.Models; // (لاستخدام RewrittenSqlResult)
+using DynamicAi.Application.Models;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace DynamicAi.Application.Services
@@ -14,24 +14,33 @@ namespace DynamicAi.Application.Services
     /// </summary>
     public class QueryOrchestrator : IQueryOrchestrator
     {
-        private readonly IRagRetrievalService _retrievalService;       // (Layer 1 - من اليوم الأول)
-        private readonly ISqlGenerationService _generationService;   // (Layer 2 - من اليوم الثاني)
-        private readonly ISqlValidatorService _validatorService;       // (Layer 3 - من اليوم الثالث)
-        private readonly ISqlRewriterService _rewriterService;         // (Layer 4 - من اليوم الرابع)
-        private readonly ISandboxedSqlExecutor _executorService;       // (Layer 5 - من اليوم الرابع)
+        private readonly IRagRetrievalService _retrievalService;         // (Layer 1)
+        private readonly ISqlGenerationService _generationService;       // (Layer 2)
+        private readonly ISqlValidatorService _validatorService;         // (Layer 3)
+        private readonly ISqlRewriterService _rewriterService;           // (Layer 4)
+        private readonly ISandboxedSqlExecutor _executorService;         // (Layer 5)
+        private readonly IQueryCacheService _queryCacheService;          // (Cache Layer)
+        private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
+        private readonly bool _queryCacheEnabled;
 
         public QueryOrchestrator(
             IRagRetrievalService retrievalService,
             ISqlGenerationService generationService,
             ISqlValidatorService validatorService,
             ISqlRewriterService rewriterService,
-            ISandboxedSqlExecutor executorService)
+            ISandboxedSqlExecutor executorService,
+            IQueryCacheService queryCacheService,
+            IEmbeddingGenerator<string, Embedding<float>> embeddingService,
+            IConfiguration configuration)
         {
             _retrievalService = retrievalService;
             _generationService = generationService;
             _validatorService = validatorService;
             _rewriterService = rewriterService;
             _executorService = executorService;
+            _queryCacheService = queryCacheService;
+            _embeddingService = embeddingService;
+            _queryCacheEnabled = bool.Parse(configuration["Caching:QueryCache:Enabled"] ?? "true");
         }
 
         /// <summary>
@@ -58,9 +67,46 @@ namespace DynamicAi.Application.Services
             var startTime = DateTime.UtcNow;
             string rawSql = string.Empty;
             RewrittenSqlResult? rewrittenResult = null;
+            float[]? questionEmbedding = null;
+            int? pageId = null;
+            double layer1Duration = 0, layer2Duration = 0; // Initialized for cache HIT path
 
             try
             {
+                // ============================================================================
+                // Layer 0: Query Cache Check - البحث عن نتيجة مخزنة
+                // ============================================================================
+                if (_queryCacheEnabled)
+                {
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.WriteLine("╔════════════════════════════════════════════════════════════════════════╗");
+                    Console.WriteLine("║               [Layer 0: QUERY CACHE] - CHECKING                        ║");
+                    Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
+                    Console.ResetColor();
+
+                    var cacheCheckStart = DateTime.UtcNow;
+                    var embedding = await _embeddingService.GenerateAsync(userQuestion);
+                    questionEmbedding = embedding.Vector.ToArray();
+
+                    var cachedResult = await _queryCacheService.TryGetCachedSqlAsync(
+                        questionEmbedding, tenantId, comID ?? 0);
+
+                    var cacheCheckDuration = (DateTime.UtcNow - cacheCheckStart).TotalMilliseconds;
+
+                    if (cachedResult != null)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        Console.WriteLine($"[Orchestrator] ✓ Cache HIT in {cacheCheckDuration:F0}ms - Skipping Layers 1-2!");
+                        Console.ResetColor();
+
+                        rawSql = cachedResult.Sql;
+                        // Skip to Layer 3 (validation)
+                        goto SkipToValidation;
+                    }
+
+                    Console.WriteLine($"[Orchestrator] Cache checked in {cacheCheckDuration:F0}ms - proceeding to full pipeline\n");
+                }
+
                 // ============================================================================
                 // Layer 1: RAG - استرجاع السياق من قاعدة المعرفة
                 // ============================================================================
@@ -72,12 +118,15 @@ namespace DynamicAi.Application.Services
 
                 var layer1Start = DateTime.UtcNow;
                 var contextSnippets = await _retrievalService.RetrieveContextAsync(userQuestion, tenantId);
-                var layer1Duration = (DateTime.UtcNow - layer1Start).TotalMilliseconds;
+                layer1Duration = (DateTime.UtcNow - layer1Start).TotalMilliseconds;
 
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine($"[Orchestrator] ✓ Layer 1 completed in {layer1Duration:F0}ms");
                 Console.WriteLine($"[Orchestrator] Retrieved context bundle with Unified Context: {!string.IsNullOrEmpty(contextSnippets.UnifiedPageContext)}, {contextSnippets?.DictionaryEntries?.Count ?? 0} dictionary entry(ies), and {contextSnippets?.BusinessRules?.Count ?? 0} business rule(s).\n");
                 Console.ResetColor();
+
+                // Extract PageId for cache storage
+                pageId = ExtractPageIdFromContext(contextSnippets?.UnifiedPageContext);
 
                 // ============================================================================
                 // Layer 2: SQL Generation - توليد SQL من LLM
@@ -90,7 +139,7 @@ namespace DynamicAi.Application.Services
 
                 var layer2Start = DateTime.UtcNow;
                 rawSql = await _generationService.GenerateSqlAsync(userQuestion, contextSnippets);
-                var layer2Duration = (DateTime.UtcNow - layer2Start).TotalMilliseconds;
+                layer2Duration = (DateTime.UtcNow - layer2Start).TotalMilliseconds;
 
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine($"[Orchestrator] ✓ Layer 2 completed in {layer2Duration:F0}ms");
@@ -111,6 +160,15 @@ namespace DynamicAi.Application.Services
                     throw new InvalidOperationException($"INTERACTION_REQUIRED: {clarificationMessage}");
                 }
 
+                // Store in cache after successful generation
+                if (_queryCacheEnabled && questionEmbedding != null)
+                {
+                    await _queryCacheService.StoreCachedSqlAsync(
+                        userQuestion, questionEmbedding, rawSql,
+                        pageId ?? 0, tenantId, comID ?? 0);
+                }
+
+            SkipToValidation:
                 // ============================================================================
                 // Layer 3: SQL Validation - التحقق من الأمان
                 // ============================================================================
@@ -218,6 +276,29 @@ namespace DynamicAi.Application.Services
                 Console.WriteLine();
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Extracts PageId from the UnifiedPageContext JSON.
+        /// </summary>
+        private int? ExtractPageIdFromContext(string? unifiedContext)
+        {
+            if (string.IsNullOrEmpty(unifiedContext)) return null;
+
+            try
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(
+                    unifiedContext, @"""PageID""\s*:\s*(\d+)");
+                if (match.Success)
+                {
+                    return int.Parse(match.Groups[1].Value);
+                }
+            }
+            catch
+            {
+                // Ignore parsing errors
+            }
+            return null;
         }
     }
 }

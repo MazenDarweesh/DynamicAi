@@ -50,6 +50,10 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddTransient<ISandboxedSqlExecutor, SandboxedSqlExecutor>();
     services.AddTransient<IRagRetrievalService, QdrantRetrievalService>();
 
+    // --- Caching Services ---
+    services.AddMemoryCache(); // For RAG and Session caching
+    services.AddSingleton<IQueryCacheService, QueryCacheService>();
+
     // --- تسجيل عميل Qdrant ---
     var qdrantHost = configuration["Qdrant:Host"]!;
     var qdrantApiKey = configuration["Qdrant:ApiKey"];
