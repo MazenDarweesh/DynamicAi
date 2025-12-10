@@ -359,6 +359,49 @@ namespace DynamicAi.Application.Services
                 Console.ResetColor();
             }
 
+            // ============================================================================
+            // DICTIONARY FILTERING (Module 4 Unit 1) - Reduce prompt size
+            // ============================================================================
+            int originalCount = contextBundle.DictionaryEntries.Count;
+            if (originalCount > 0)
+            {
+                // Extract keywords from user question for relevance matching
+                var questionKeywords = userQuestion
+                    .Split(new[] { ' ', '،', ',', '؟', '?', '.', '!', ':', '؛' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Where(w => w.Length > 2)
+                    .Select(w => w.ToLowerInvariant())
+                    .ToHashSet();
+
+                contextBundle.DictionaryEntries = contextBundle.DictionaryEntries
+                    .Where(entry =>
+                    {
+                        // Keep if visible=true
+                        if (entry.Contains("\"visible\":true", StringComparison.OrdinalIgnoreCase) ||
+                            entry.Contains("\"visible\":1", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+
+                        // Keep if arColumnLabel or enColumnLabel matches any question keyword
+                        foreach (var keyword in questionKeywords)
+                        {
+                            if (entry.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                            {
+                                return true;
+                            }
+                        }
+
+                        return false;
+                    })
+                    .Distinct() // Remove duplicates
+                    .ToList();
+
+                int filteredCount = contextBundle.DictionaryEntries.Count;
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"[RagRetrieval] ✓ Dictionary Filtering: {originalCount} → {filteredCount} entries ({(originalCount - filteredCount) * 100 / Math.Max(originalCount, 1)}% reduction)");
+                Console.ResetColor();
+            }
+
             contextBundle.UnifiedPageContext = pageNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
 
             // ============================================================================
