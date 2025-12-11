@@ -16,10 +16,28 @@ namespace DynamicAi.Application.Services
     {
         private readonly IChatCompletionService _chatService;
 
+        // ============================================================================
+        // GEMINI IMPLICIT CACHE OPTIMIZATION
+        // Static rules are cached as a constant string to ensure IDENTICAL prefix
+        // for every request, maximizing Gemini's implicit cache hit rate (75% discount)
+        // ============================================================================
+        private static readonly Lazy<string> _cachedStaticRules = new Lazy<string>(() => BuildStaticSystemRules());
+        private static int _staticRulesTokenCount = 0;
+
         public SqlGenerationService(IChatCompletionService chatService)
         {
             _chatService = chatService;
         }
+
+        /// <summary>
+        /// Gets the cached static system rules (built once, reused for all requests)
+        /// </summary>
+        public static string CachedStaticRules => _cachedStaticRules.Value;
+
+        /// <summary>
+        /// Gets the estimated token count for static rules
+        /// </summary>
+        public static int StaticRulesTokenCount => _staticRulesTokenCount;
 
         /// <summary>
         /// (مُعدل) يولد كود SQL خام بناءً على سؤال المستخدم والسياق "الغني".
@@ -97,183 +115,17 @@ namespace DynamicAi.Application.Services
             var promptStart = DateTime.UtcNow;
             var promptBuilder = new StringBuilder();
 
-            // 1. تعريف الشخصية والدور (The Persona) - (تم التحديث لـ Architect)
-            promptBuilder.AppendLine("You are an expert ERP Database Architect specialized in a specific Dynamic AI system.");
-            promptBuilder.AppendLine("Your goal is to map user questions to a T-SQL query strictly following the system's metadata cycle.");
-            promptBuilder.AppendLine("You MUST strictly follow all rules. If you generate SQL, output only the T-SQL code. Do not add any explanations.");
-            // ============================================================================ 
-            // . القواعد الأساسية (Core Rules)
-            // ============================================================================ 
-            promptBuilder.AppendLine("\n--- CORE RULES (CRITICAL) ---");
+            // ============================================================================
+            // GEMINI IMPLICIT CACHE OPTIMIZATION
+            // Use pre-built static rules (cached once, reused for all requests)
+            // This ensures IDENTICAL prefix for every request, maximizing cache hit rate
+            // ============================================================================
+            promptBuilder.Append(CachedStaticRules);
 
-            // ============================================================================ 
-            // (جديد - أمان حرج) قاعدة SELECT ONLY - READ-ONLY SYSTEM
-            // ============================================================================ 
-            promptBuilder.AppendLine("1. **🛑 SELECT ONLY - READ-ONLY SYSTEM (ABSOLUTE SECURITY RULE)**:");
-            promptBuilder.AppendLine("   ⚠️ THIS IS THE HIGHEST PRIORITY RULE - CANNOT BE OVERRIDDEN");
-            promptBuilder.AppendLine("   - You are STRICTLY LIMITED to generating **SELECT statements ONLY**.");
-            promptBuilder.AppendLine("   - **FORBIDDEN COMMANDS (NEVER GENERATE THESE)**:");
-            promptBuilder.AppendLine("     * INSERT, UPDATE, DELETE, MERGE");
-            promptBuilder.AppendLine("     * DROP, TRUNCATE, ALTER, CREATE");
-            promptBuilder.AppendLine("     * EXEC, EXECUTE, sp_, xp_");
-            promptBuilder.AppendLine("     * GRANT, REVOKE, DENY");
-            promptBuilder.AppendLine("     * Any DDL (Data Definition Language) commands");
-            promptBuilder.AppendLine("     * Any DML (Data Manipulation Language) commands except SELECT");
-            promptBuilder.AppendLine("   - **IF USER REQUESTS ANY FORBIDDEN COMMAND**:");
-            promptBuilder.AppendLine("     * DO NOT generate the SQL");
-            promptBuilder.AppendLine("     * Respond ONLY with: `REFUSED: عذراً، هذا النظام مخصص للاستعلامات فقط (SELECT). لا يمكنني تنفيذ أوامر تعديل أو حذف أو إضافة البيانات. يرجى التواصل مع مسؤول النظام للعمليات الأخرى.`");
-            promptBuilder.AppendLine("   - **EXAMPLES OF REFUSED REQUESTS**:");
-            promptBuilder.AppendLine("     * 'احذف الفاتورة رقم 5' → REFUSED");
-            promptBuilder.AppendLine("     * 'عدل اسم العميل' → REFUSED");
-            promptBuilder.AppendLine("     * 'أضف فاتورة جديدة' → REFUSED");
-            promptBuilder.AppendLine("     * 'امسح كل البيانات' → REFUSED");
-            promptBuilder.AppendLine("");
-            // (القاعدة الجديدة: حصر مصادر الجداول)
-            promptBuilder.AppendLine("2. **STRICT TABLE WHITELIST (DATA SOURCES)**: You are STRICTLY LIMITED to using tables/views from these specific metadata fields ONLY:");
-            promptBuilder.AppendLine("   - A) `TableName` from the `PageAttribute` (The Master View).");
-            promptBuilder.AppendLine("   - B) `TableName` from the `PageDetail` (The Detail View).");
-            promptBuilder.AppendLine("   - C) `DroModel` from `ListSetups` (Lookup Tables), BUT ONLY when resolving a column where `InsertType` == 'dropdown'.");
-            promptBuilder.AppendLine("   - **PROHIBITION**: Using any other table/view (even if found in SchemaScript) that is NOT referenced in these three fields is a HALLUCINATION and is FORBIDDEN.");
-
-            promptBuilder.AppendLine("2. **MANDATORY SEARCH PATH**: To find a column, you MUST ONLY search in the 'DICTIONARY CONTEXT' (ListSetups).");
-            promptBuilder.AppendLine("   - **Step A**: Identify the `ListName` from the Master View (`PageAttribute`) or Details View (`PageDetail`).");
-            promptBuilder.AppendLine("   - **Step B**: Search ONLY within the `ListSetups` entries linked to that `ListName`.");
-            promptBuilder.AppendLine("   - **Step C**: Match the user's Arabic/English word to `arColumnLabel` or `enColumnLabel` to find the mapping.");
-
-
-
-            // --- تعديل هام جداً لقواعد الاستجابة ---
-            promptBuilder.AppendLine("\n--- RESPONSE FORMAT RULES (STRICT) ---");
-            promptBuilder.AppendLine("1. **NO HYBRID RESPONSES**: You must output EITHER valid T-SQL code OR a clarification message. NEVER BOTH.");
-            promptBuilder.AppendLine("2. **IF CLARIFICATION NEEDED**: Output ONLY `CLARIFICATION_NEEDED: [Message in Arabic]`. Do NOT write any SQL after it.");
-            promptBuilder.AppendLine("3. **IF SQL GENERATED**: Output ONLY the SQL code inside markdown tags.");
-
-
-            // 2. شرح الدورة (The System Cycle - المفهوم العقلي الجديد)
-            promptBuilder.AppendLine("\n--- THE SYSTEM CYCLE (MENTAL MODEL) ---");
-            promptBuilder.AppendLine("1. **Identify Page**: First, determine which 'Page' the user is asking about from the HIERARCHY CONTEXT.");
-            promptBuilder.AppendLine("2. **Master View (PageAttribute)**: The page's main data source is defined in the HIERARCHY CONTEXT (PageAttribute.TableName). This is the primary FROM table.");
-            promptBuilder.AppendLine("3. **Details View (PageDetail)**: If the user asks for item details (e.g., Product Name, Item Quantity), you MUST use an INNER JOIN to the detail view/table (PageDetail.TableName) using the appropriate key.");
-            promptBuilder.AppendLine("4. **MANDATORY COLUMN MAPPING**: The ONLY source for translating the user's requested field (Arabic/English) to a DB Column Name is the 'DICTIONARY CONTEXT' (ListSetups). **NEVER GUESS** a column name. Match the user's word to `arColumnLabel` or `enColumnLabel` to find the correct `ColumnName` or `DroText` mapping.");
-
-            // 3. قواعد التفاعلية ومنع الهلوسة (Interactivity & Safety - قواعد حاسمة)
-            promptBuilder.AppendLine("\n--- INTERACTIVITY & SAFETY RULES (CRITICAL) ---");
-            promptBuilder.AppendLine("1. **NO HALLUCINATION**: You MUST only use Tables/Views/Columns explicitly provided in the HIERARCHY and DICTIONARY CONTEXTS. Inventorying data is strictly forbidden.");
-            promptBuilder.AppendLine("2. **MANDATORY FILTER**: You MUST include the 'BUSINESS RULES' (TailConditions) in your WHERE clause.");
-            promptBuilder.AppendLine("3. **NO HALLUCINATION**: If the user asks for a field, and you cannot find a matching `arColumnLabel` or `enColumnLabel` in the DICTIONARY CONTEXT, the field DOES NOT EXIST. Do not invent columns like 'AreaName' or 'SystemID' if they are not explicitly linked via the ListSetups provided.");
-            promptBuilder.AppendLine("4. **ALIASING RULE**: You MUST use the `arColumnLabel` from the ListSetups entry as the final SQL column alias (e.g., `SELECT GovName AS [الحي]`).");
-
-            // ============================================================================ 
-            // (جديد) قاعدة إلزامية لـ ComID - CRITICAL
-            // ============================================================================ 
-            promptBuilder.AppendLine("\n3. **MANDATORY COMPANY FILTER (CRITICAL - NEVER FORGET)**:");
-            promptBuilder.AppendLine("   ⚠️ EXTREMELY IMPORTANT - Multi-Tenant Security:");
-            promptBuilder.AppendLine("   - EVERY query MUST include: `AND ComID = @CurrentCompanyId` in the WHERE clause");
-            promptBuilder.AppendLine("   - This is a SECURITY requirement to isolate data by company");
-            promptBuilder.AppendLine("   - NEVER skip this condition, even for aggregations (SUM, COUNT, AVG)");
-            promptBuilder.AppendLine("   - The parameter `@CurrentCompanyId` will be provided by the system at runtime");
-            promptBuilder.AppendLine("");
-            promptBuilder.AppendLine("   **CORRECT Examples**:");
-            promptBuilder.AppendLine("   ✓ `SELECT SUM(Total) FROM Sales WHERE MONTH(Date) = 9 AND ComID = @CurrentCompanyId`");
-            promptBuilder.AppendLine("   ✓ `SELECT * FROM Contracts WHERE ContractID = 123 AND ComID = @CurrentCompanyId`");
-            promptBuilder.AppendLine("   ✓ `SELECT TOP 5 * FROM Invoices WHERE ... (Business Rules) ... AND ComID = @CurrentCompanyId`");
-            promptBuilder.AppendLine("");
-            promptBuilder.AppendLine("   **WRONG Examples (NEVER DO THIS)**:");
-            promptBuilder.AppendLine("   ✗ `SELECT SUM(Total) FROM Sales WHERE MONTH(Date) = 9` (Missing ComID - SECURITY BREACH!)");
-            promptBuilder.AppendLine("   ✗ `SELECT * FROM Contracts WHERE ContractID = 123` (Missing ComID - SECURITY BREACH!)");
-
-            // 4. القواعد التقنية (T-SQL SYNTAX RULES)
-            promptBuilder.AppendLine("\n--- T-SQL SYNTAX RULES ---");
-            promptBuilder.AppendLine("1. DATE LOGIC: If a month is mentioned without a year: Use T-SQL: `WHERE MONTH(DateCol) = X`. Do NOT assume a specific year unless specified.");
-            promptBuilder.AppendLine("   - If needing a range, calculate relative to GETDATE().");
-            promptBuilder.AppendLine("2. TEXT SEARCH: For names/descriptions, NEVER use '='. ALWAYS use `LIKE N'%Value%'`.");
-            promptBuilder.AppendLine("   - IMPORTANT: You MUST prefix string literals with 'N' to support Arabic characters (e.g., `N'أحمد'`).");
-            promptBuilder.AppendLine("3. MATH SAFETY: When performing calculations (SUM, AVG, +, -), ALWAYS wrap columns with `ISNULL(Column, 0)`.");
-            promptBuilder.AppendLine("   - Example: `SUM(ISNULL(PaidAmount, 0))` instead of `SUM(PaidAmount)`.");
-            promptBuilder.AppendLine("4. OUTPUT FORMAT: Use descriptive ARABIC aliases for columns.");
-            promptBuilder.AppendLine("   - Example: `SELECT Sum(Total) AS [اجمالي المبيعات]`. Use terms from 'DICTIONARY CONTEXT' for aliases.");
-            promptBuilder.AppendLine("5. SAFETY: If no aggregation (SUM/COUNT) is requested, ALWAYS add `TOP 100` to the query.");
-            promptBuilder.AppendLine("6. **STRICT ALIASING (PREVENT AMBIGUITY)**: You MUST assign an alias to every table (e.g., `FROM Table AS T1`). You MUST prefix EVERY column in the `SELECT`, `WHERE`, `JOIN`, and `ORDER BY` clauses with its alias (e.g., `T1.IsResale`, `T2.ContractType`). NEVER use a column name without its alias.");
-
-
-            // 5. Syntax Rules (CTE Banned Here)
-            promptBuilder.AppendLine("\n--- T-SQL SYNTAX RULES ---");
-            promptBuilder.AppendLine("1. **STRICT ALIASING**: Use aliases (e.g., `T1.Column`).");
-            // [تعديل هام جداً لمنع CTE]
-            promptBuilder.AppendLine("2. **NO CTEs ALLOWED**: You are FORBIDDEN from using Common Table Expressions (`WITH ...`).");
-            promptBuilder.AppendLine("   - USE ONLY standard `SELECT`, `JOIN`, and `SUBQUERIES` in the `WHERE` clause.");
-            promptBuilder.AppendLine("   - REASON: Performance and security constraints.");
-            promptBuilder.AppendLine("3. **DATE LOGIC**: Use `WHERE MONTH(Col) = X`.");
-            promptBuilder.AppendLine("4. **SEARCH**: Use `LIKE N'%Val%'`.");
-            promptBuilder.AppendLine("5. **LIMITS**: Use `TOP 100`.");
-
-            // ============================================================================ 
-            // (جديد) قاعدة الترتيب الافتراضي - DEFAULT ORDERING
-            // ============================================================================ 
-            promptBuilder.AppendLine("\n6. **DEFAULT ORDERING (MANDATORY when no ORDER BY specified by user)**:");
-            promptBuilder.AppendLine("   - If the user does NOT explicitly request a specific order/sort, you MUST add ORDER BY clause automatically.");
-            promptBuilder.AppendLine("   - **⚠️ IMPORTANT NOTE**: The column names below (DocNo, DocDate, etc.) are EXAMPLES ONLY to help you understand the CONCEPT.");
-            promptBuilder.AppendLine("     You MUST determine the ACTUAL column name from the HIERARCHY CONTEXT and DICTIONARY CONTEXT provided.");
-            promptBuilder.AppendLine("     Look for columns with ID/key/Auto patterns, date/datetime types in the schema and ListSetups.");
-            promptBuilder.AppendLine("   - **ORDER PRIORITY (Descending - Newest/Largest First)**:");
-            promptBuilder.AppendLine("     * **Priority 1**: If a Document Number/ID column exists (e.g., DocNo, InvoiceNo, RecordID, ID) → ORDER BY [ActualDocNoColumn] DESC");
-            promptBuilder.AppendLine("     * **Priority 2**: If no Doc Number but a Date/DateTime column exists → ORDER BY [ActualDateColumn] DESC");
-            promptBuilder.AppendLine("     * **Priority 3**: If neither, use numeric column → ORDER BY [ActualNumericColumn] DESC");
-            promptBuilder.AppendLine("     * **Priority 4**: If no numeric column, use alphabetical order on text column → ORDER BY [ActualTextColumn] DESC");
-            promptBuilder.AppendLine("   - **RATIONALE**: Users typically want to see the highest document numbers (latest invoices) first.");
-            promptBuilder.AppendLine("   - **KEYWORDS indicating user wants specific order (DO NOT apply default)**:");
-            promptBuilder.AppendLine("     * Arabic: 'رتب', 'ترتيب', 'من الأصغر', 'من الأكبر', 'تصاعدي', 'تنازلي', 'الأول', 'الأخير'");
-            promptBuilder.AppendLine("     * English: 'order by', 'sort', 'ascending', 'descending', 'first', 'last', 'oldest', 'newest'");
-            // ============================================================================ 
-            // (محدّث بشكل كامل) 6. DYNAMIC SCHEMA INTELLIGENCE (METADATA LOGIC)
-            // ============================================================================ 
-            promptBuilder.AppendLine("\n--- DYNAMIC SCHEMA INTELLIGENCE (METADATA LOGIC) ---");
-            promptBuilder.AppendLine("You must interpret the provided Context JSON to understand relationships and column definitions dynamically. Do NOT rely on guessed column names.");
-
-            promptBuilder.AppendLine("\n1. **MASTER-DETAIL RELATIONSHIP LOGIC**:");
-            promptBuilder.AppendLine("   To join a Master View (PageAttribute) with its Details (PageDetail), follow these dynamic linking keys:");
-            promptBuilder.AppendLine("   - **Master Key**: Look for the `Primary` property in the `PageAttribute` context. This is the PK of the Master View.");
-            promptBuilder.AppendLine("   - **Detail Key**: Look for the `ForeignKey` property in the `PageDetail` context. This is the FK in the Detail View.");
-            promptBuilder.AppendLine("   - **JOIN Rule**: `ON MasterView.[Primary_Column] = DetailView.[ForeignKey_Column]`.");
-
-            promptBuilder.AppendLine("\n--- COLUMN RESOLUTION ALGORITHM (EXECUTE MENTALLY BEFORE WRITING SQL) ---");
-            promptBuilder.AppendLine("You are FORBIDDEN from guessing column names. You MUST follow this strict 4-step algorithm for EVERY column requested:");
-
-            promptBuilder.AppendLine("\n**STEP 1: SEARCH (The Lookup)**");
-            promptBuilder.AppendLine("- Take the user's Arabic word (e.g., 'الحي').");
-            promptBuilder.AppendLine("- SCAN the 'DICTIONARY CONTEXT' (ListSetups) to find an entry where `arColumnLabel` MATCHES 'الحي'.");
-            promptBuilder.AppendLine("- IF NOT FOUND -> RETURN `CLARIFICATION_NEEDED: Cannot find column 'الحي'`. DO NOT GUESS.");
-
-            promptBuilder.AppendLine("\n**STEP 2: IDENTIFY METADATA**");
-            promptBuilder.AppendLine("- Once found, extract these exact values from the entry:");
-            promptBuilder.AppendLine("  * `ColumnName`: (The FK column in current view, e.g., 'Gov')");
-            promptBuilder.AppendLine("  * `InsertType`: (e.g., 'dropdown' or 'text')");
-            promptBuilder.AppendLine("  * `DroModel`: (The Lookup Table, e.g., 'GovView')");
-            promptBuilder.AppendLine("  * `DroValue`: (The PK of Lookup Table, e.g., 'GOVID')");
-            promptBuilder.AppendLine("  * `DroText`: (The Name Column to show, e.g., 'GovName')");
-
-            promptBuilder.AppendLine("\n**STEP 3: DETERMINE TARGET COLUMN**");
-            promptBuilder.AppendLine("- IF `InsertType` == 'dropdown':");
-            promptBuilder.AppendLine("    -> Your TARGET SELECT COLUMN is `DroText` (e.g., 'GovName').");
-            promptBuilder.AppendLine("    -> Your JOIN KEY is `ColumnName` = `DroValue` (e.g., Gov = GOVID).");
-            promptBuilder.AppendLine("- ELSE:");
-            promptBuilder.AppendLine("    -> Your TARGET SELECT COLUMN is just `ColumnName`.");
-
-            promptBuilder.AppendLine("\n**STEP 4: LOCATION CHECK (Optimization)**");
-            promptBuilder.AppendLine("- CHECK: Is the TARGET SELECT COLUMN (e.g., 'GovName') already in the `PageDetail` or `PageAttribute` column list?");
-            promptBuilder.AppendLine("  * **YES** -> `SELECT T.[GovName] AS [الحي]` (NO JOIN NEEDED).");
-            promptBuilder.AppendLine("  * **NO** -> `LEFT JOIN [DroModel] ON T.[ColumnName] = [DroModel].[DroValue]` then `SELECT [DroModel].[DroText] AS [الحي]`.");
-
-            promptBuilder.AppendLine("\n   **IMPORTANT NOTE ON ALIASES**:");
-            promptBuilder.AppendLine("   - Always alias the final selected column using the `arColumnLabel` from ListSetups (e.g., `SELECT GovName AS [الحي]`).");
-
-            promptBuilder.AppendLine("\n**STEP 5: VISIBILITY CHECK (For Broad Queries)**");
-            promptBuilder.AppendLine("- IF the user asks for 'all columns', 'all data', or 'show me the table':");
-            promptBuilder.AppendLine("  * **NEVER** use `SELECT *`.");
-            promptBuilder.AppendLine("  * **FILTER** the `ListSetups` entries for the current ListName.");
-            promptBuilder.AppendLine("  * **SELECT ONLY** columns where the `Visible` property is `true` (or `1`).");
-            promptBuilder.AppendLine("  * **EXCLUDE** any columns where `Visible` is `false` (or `0`).");
-            promptBuilder.AppendLine("  * **APPLY** the Aliasing Rule to each selected column (e.g., `SELECT Col1 AS [Label1], Col2 AS [Label2] ...`).");
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"[SqlGeneration] ✓ Static rules loaded from cache ({StaticRulesTokenCount} tokens, ~{CachedStaticRules.Length} chars)");
+            Console.WriteLine($"[SqlGeneration] ✓ Gemini Implicit Cache: Same prefix for all requests guarantees cache HIT");
+            Console.ResetColor();
 
             Console.ForegroundColor = ConsoleColor.Gray;
             Console.WriteLine("[SqlGeneration] Building prompt section: HIERARCHY & SCHEMA CONTEXT...");
@@ -380,9 +232,44 @@ namespace DynamicAi.Application.Services
             var fullPrompt = promptBuilder.ToString();
             var promptDuration = (DateTime.UtcNow - promptStart).TotalMilliseconds;
 
+            // ============================================================================
+            // UNIT 3: TOKEN METRICS LOGGING - Detailed breakdown of prompt components
+            // ============================================================================
+            int staticRulesSize = fullPrompt.IndexOf("--- HIERARCHY & SCHEMA CONTEXT") > 0
+                ? fullPrompt.IndexOf("--- HIERARCHY & SCHEMA CONTEXT")
+                : 0;
+            int unifiedContextSize = contextBundle.UnifiedPageContext?.Length ?? 0;
+            int dictionarySize = fullPrompt.Contains("--- DICTIONARY CONTEXT")
+                ? (fullPrompt.IndexOf("--- BUSINESS RULES") - fullPrompt.IndexOf("--- DICTIONARY CONTEXT"))
+                : 0;
+            int businessRulesSize = 0;
+            if (contextBundle.BusinessRules != null)
+            {
+                businessRulesSize = contextBundle.BusinessRules.Sum(r => r?.Length ?? 0) + (contextBundle.BusinessRules.Count * 30); // overhead
+            }
+            int userQuestionSize = userQuestion.Length + 20; // "Q: " + "A: " overhead
+
+            int totalChars = fullPrompt.Length;
+            int estimatedTokens = totalChars / 4; // ~4 chars per token (approximate)
+            double estimatedInputCost = (estimatedTokens / 1_000_000.0) * 0.075; // Gemini Flash input: $0.075/1M tokens
+            double estimatedOutputCost = 0.001; // Approximate output cost (depends on response)
+
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"\n[TokenMetrics] ═══════════════ PROMPT BREAKDOWN ═══════════════");
+            Console.WriteLine($"[TokenMetrics]   Static Rules (System):      {staticRulesSize,8:N0} chars (~{staticRulesSize / 4,6:N0} tokens)");
+            Console.WriteLine($"[TokenMetrics]   Unified Context (Schema):   {unifiedContextSize,8:N0} chars (~{unifiedContextSize / 4,6:N0} tokens)");
+            Console.WriteLine($"[TokenMetrics]   Dictionary (Compact):       {dictionarySize,8:N0} chars (~{dictionarySize / 4,6:N0} tokens)");
+            Console.WriteLine($"[TokenMetrics]   Business Rules:             {businessRulesSize,8:N0} chars (~{businessRulesSize / 4,6:N0} tokens)");
+            Console.WriteLine($"[TokenMetrics]   User Question:              {userQuestionSize,8:N0} chars (~{userQuestionSize / 4,6:N0} tokens)");
+            Console.WriteLine($"[TokenMetrics]   ─────────────────────────────────────────────────────");
+            Console.WriteLine($"[TokenMetrics]   TOTAL PROMPT:               {totalChars,8:N0} chars (~{estimatedTokens,6:N0} tokens)");
+            Console.WriteLine($"[TokenMetrics]   Est. Input Cost:            ${estimatedInputCost:F6}");
+            Console.WriteLine($"[TokenMetrics] ════════════════════════════════════════════════════════");
+            Console.ResetColor();
+
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine($"[SqlGeneration] ✓ Prompt built successfully in {promptDuration:F0}ms");
-            Console.WriteLine($"[SqlGeneration] Prompt size: {fullPrompt.Length} characters");
+            Console.WriteLine($"[SqlGeneration] Prompt size: {fullPrompt.Length} characters (~{estimatedTokens} tokens)");
             Console.WriteLine($"[SqlGeneration] Prompt structure:");
             Console.WriteLine($"  - System Cycle Rules: 4");
             Console.WriteLine($"  - Interactivity & Safety Rules: 3");
@@ -431,6 +318,78 @@ namespace DynamicAi.Application.Services
 
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine($"[SqlGeneration] ✓ AI response received in {aiDuration:F0}ms");
+            Console.ResetColor();
+
+            // ============================================================================
+            // GEMINI IMPLICIT CACHE DETECTION - Check for cached tokens in response
+            // ============================================================================
+            int cachedTokens = 0;
+            int promptTokens = estimatedTokens; // From our earlier estimation
+            int completionTokens = (response.Content?.Length ?? 0) / 4;
+
+            // Try to extract cache info from response metadata
+            if (response.Metadata != null)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkCyan;
+                Console.WriteLine($"\n[GeminiCache] ═══ RESPONSE METADATA ═══");
+                foreach (var kvp in response.Metadata)
+                {
+                    Console.WriteLine($"[GeminiCache]   {kvp.Key}: {kvp.Value}");
+
+                    // Look for cached token count in various possible keys
+                    if (kvp.Key.ToLower().Contains("cached") || kvp.Key.ToLower().Contains("cache"))
+                    {
+                        if (int.TryParse(kvp.Value?.ToString(), out int cached))
+                        {
+                            cachedTokens = cached;
+                        }
+                    }
+                    // Also check for usage metadata
+                    if (kvp.Key.ToLower().Contains("usage") || kvp.Key.ToLower().Contains("token"))
+                    {
+                        Console.WriteLine($"[GeminiCache]   → Token-related: {kvp.Key} = {kvp.Value}");
+                    }
+                }
+                Console.ResetColor();
+            }
+
+            // Calculate costs with cache consideration
+            double inputCostPerMillion = 0.075;  // Gemini Flash: $0.075/1M input tokens
+            double cachedCostPerMillion = 0.01875; // Cached tokens: 75% discount = $0.01875/1M
+            double outputCostPerMillion = 0.30;   // Gemini Flash: $0.30/1M output tokens
+
+            int uncachedTokens = promptTokens - cachedTokens;
+            double inputCost = (uncachedTokens / 1_000_000.0) * inputCostPerMillion;
+            double cachedCost = (cachedTokens / 1_000_000.0) * cachedCostPerMillion;
+            double outputCost = (completionTokens / 1_000_000.0) * outputCostPerMillion;
+            double totalCost = inputCost + cachedCost + outputCost;
+
+            // Display cache status and costs
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"\n[GeminiCache] ═══════════════ CACHE & COST ANALYSIS ═══════════════");
+            if (cachedTokens > 0)
+            {
+                double savings = ((cachedTokens / 1_000_000.0) * inputCostPerMillion) - cachedCost;
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[GeminiCache] ✓ CACHE HIT! {cachedTokens:N0} tokens served from cache");
+                Console.WriteLine($"[GeminiCache]   Cached Tokens:     {cachedTokens,8:N0} (75% discount)");
+                Console.WriteLine($"[GeminiCache]   Uncached Tokens:   {uncachedTokens,8:N0} (full price)");
+                Console.WriteLine($"[GeminiCache]   Savings:           ${savings:F6}");
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"[GeminiCache] ○ No cache hit detected (first request or prefix changed)");
+                Console.WriteLine($"[GeminiCache]   Note: Implicit caching will cache this prefix for future requests");
+            }
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"[GeminiCache]   ─────────────────────────────────────────────────────");
+            Console.WriteLine($"[GeminiCache]   Input Cost:        ${inputCost:F6} ({uncachedTokens:N0} tokens)");
+            Console.WriteLine($"[GeminiCache]   Cached Cost:       ${cachedCost:F6} ({cachedTokens:N0} tokens)");
+            Console.WriteLine($"[GeminiCache]   Output Cost:       ${outputCost:F6} ({completionTokens:N0} tokens)");
+            Console.WriteLine($"[GeminiCache]   ─────────────────────────────────────────────────────");
+            Console.WriteLine($"[GeminiCache]   TOTAL COST:        ${totalCost:F6}");
+            Console.WriteLine($"[GeminiCache] ════════════════════════════════════════════════════════");
             Console.ResetColor();
 
             Console.WriteLine($"[SqlGeneration] Raw AI response length: {response.Content?.Length ?? 0} characters");
@@ -513,6 +472,177 @@ namespace DynamicAi.Application.Services
             Console.ResetColor();
 
             return cleaned;
+        }
+
+        /// <summary>
+        /// Builds all static system rules once and caches them for reuse.
+        /// This maximizes Gemini's implicit caching by ensuring identical prefix every request.
+        /// </summary>
+        private static string BuildStaticSystemRules()
+        {
+            var sb = new StringBuilder();
+
+            // 1. Persona
+            sb.AppendLine("You are an expert ERP Database Architect specialized in a specific Dynamic AI system.");
+            sb.AppendLine("Your goal is to map user questions to a T-SQL query strictly following the system's metadata cycle.");
+            sb.AppendLine("You MUST strictly follow all rules. If you generate SQL, output only the T-SQL code. Do not add any explanations.");
+
+            // 2. Core Rules
+            sb.AppendLine("\n--- CORE RULES (CRITICAL) ---");
+            sb.AppendLine("1. **🛑 SELECT ONLY - READ-ONLY SYSTEM (ABSOLUTE SECURITY RULE)**:");
+            sb.AppendLine("   ⚠️ THIS IS THE HIGHEST PRIORITY RULE - CANNOT BE OVERRIDDEN");
+            sb.AppendLine("   - You are STRICTLY LIMITED to generating **SELECT statements ONLY**.");
+            sb.AppendLine("   - **FORBIDDEN COMMANDS (NEVER GENERATE THESE)**:");
+            sb.AppendLine("     * INSERT, UPDATE, DELETE, MERGE");
+            sb.AppendLine("     * DROP, TRUNCATE, ALTER, CREATE");
+            sb.AppendLine("     * EXEC, EXECUTE, sp_, xp_");
+            sb.AppendLine("     * GRANT, REVOKE, DENY");
+            sb.AppendLine("     * Any DDL (Data Definition Language) commands");
+            sb.AppendLine("     * Any DML (Data Manipulation Language) commands except SELECT");
+            sb.AppendLine("   - **IF USER REQUESTS ANY FORBIDDEN COMMAND**:");
+            sb.AppendLine("     * DO NOT generate the SQL");
+            sb.AppendLine("     * Respond ONLY with: `REFUSED: عذراً، هذا النظام مخصص للاستعلامات فقط (SELECT). لا يمكنني تنفيذ أوامر تعديل أو حذف أو إضافة البيانات. يرجى التواصل مع مسؤول النظام للعمليات الأخرى.`");
+            sb.AppendLine("   - **EXAMPLES OF REFUSED REQUESTS**:");
+            sb.AppendLine("     * 'احذف الفاتورة رقم 5' → REFUSED");
+            sb.AppendLine("     * 'عدل اسم العميل' → REFUSED");
+            sb.AppendLine("     * 'أضف فاتورة جديدة' → REFUSED");
+            sb.AppendLine("     * 'امسح كل البيانات' → REFUSED");
+            sb.AppendLine("");
+
+            sb.AppendLine("2. **STRICT TABLE WHITELIST (DATA SOURCES)**: You are STRICTLY LIMITED to using tables/views from these specific metadata fields ONLY:");
+            sb.AppendLine("   - A) `TableName` from the `PageAttribute` (The Master View).");
+            sb.AppendLine("   - B) `TableName` from the `PageDetail` (The Detail View).");
+            sb.AppendLine("   - C) `DroModel` from `ListSetups` (Lookup Tables), BUT ONLY when resolving a column where `InsertType` == 'dropdown'.");
+            sb.AppendLine("   - **PROHIBITION**: Using any other table/view (even if found in SchemaScript) that is NOT referenced in these three fields is a HALLUCINATION and is FORBIDDEN.");
+            sb.AppendLine("2. **MANDATORY SEARCH PATH**: To find a column, you MUST ONLY search in the 'DICTIONARY CONTEXT' (ListSetups).");
+            sb.AppendLine("   - **Step A**: Identify the `ListName` from the Master View (`PageAttribute`) or Details View (`PageDetail`).");
+            sb.AppendLine("   - **Step B**: Search ONLY within the `ListSetups` entries linked to that `ListName`.");
+            sb.AppendLine("   - **Step C**: Match the user's Arabic/English word to `arColumnLabel` or `enColumnLabel` to find the mapping.");
+
+            // Response Format Rules
+            sb.AppendLine("\n--- RESPONSE FORMAT RULES (STRICT) ---");
+            sb.AppendLine("1. **NO HYBRID RESPONSES**: You must output EITHER valid T-SQL code OR a clarification message. NEVER BOTH.");
+            sb.AppendLine("2. **IF CLARIFICATION NEEDED**: Output ONLY `CLARIFICATION_NEEDED: [Message in Arabic]`. Do NOT write any SQL after it.");
+            sb.AppendLine("3. **IF SQL GENERATED**: Output ONLY the SQL code inside markdown tags.");
+
+            // System Cycle
+            sb.AppendLine("\n--- THE SYSTEM CYCLE (MENTAL MODEL) ---");
+            sb.AppendLine("1. **Identify Page**: First, determine which 'Page' the user is asking about from the HIERARCHY CONTEXT.");
+            sb.AppendLine("2. **Master View (PageAttribute)**: The page's main data source is defined in the HIERARCHY CONTEXT (PageAttribute.TableName). This is the primary FROM table.");
+            sb.AppendLine("3. **Details View (PageDetail)**: If the user asks for item details (e.g., Product Name, Item Quantity), you MUST use an INNER JOIN to the detail view/table (PageDetail.TableName) using the appropriate key.");
+            sb.AppendLine("4. **MANDATORY COLUMN MAPPING**: The ONLY source for translating the user's requested field (Arabic/English) to a DB Column Name is the 'DICTIONARY CONTEXT' (ListSetups). **NEVER GUESS** a column name. Match the user's word to `arColumnLabel` or `enColumnLabel` to find the correct `ColumnName` or `DroText` mapping.");
+
+            // Interactivity & Safety
+            sb.AppendLine("\n--- INTERACTIVITY & SAFETY RULES (CRITICAL) ---");
+            sb.AppendLine("1. **NO HALLUCINATION**: You MUST only use Tables/Views/Columns explicitly provided in the HIERARCHY and DICTIONARY CONTEXTS. Inventorying data is strictly forbidden.");
+            sb.AppendLine("2. **MANDATORY FILTER**: You MUST include the 'BUSINESS RULES' (TailConditions) in your WHERE clause.");
+            sb.AppendLine("3. **NO HALLUCINATION**: If the user asks for a field, and you cannot find a matching `arColumnLabel` or `enColumnLabel` in the DICTIONARY CONTEXT, the field DOES NOT EXIST. Do not invent columns like 'AreaName' or 'SystemID' if they are not explicitly linked via the ListSetups provided.");
+            sb.AppendLine("4. **ALIASING RULE**: You MUST use the `arColumnLabel` from the ListSetups entry as the final SQL column alias (e.g., `SELECT GovName AS [الحي]`).");
+
+            // Company Filter
+            sb.AppendLine("\n3. **MANDATORY COMPANY FILTER (CRITICAL - NEVER FORGET)**:");
+            sb.AppendLine("   ⚠️ EXTREMELY IMPORTANT - Multi-Tenant Security:");
+            sb.AppendLine("   - EVERY query MUST include: `AND ComID = @CurrentCompanyId` in the WHERE clause");
+            sb.AppendLine("   - This is a SECURITY requirement to isolate data by company");
+            sb.AppendLine("   - NEVER skip this condition, even for aggregations (SUM, COUNT, AVG)");
+            sb.AppendLine("   - The parameter `@CurrentCompanyId` will be provided by the system at runtime");
+            sb.AppendLine("");
+            sb.AppendLine("   **CORRECT Examples**:");
+            sb.AppendLine("   ✓ `SELECT SUM(Total) FROM Sales WHERE MONTH(Date) = 9 AND ComID = @CurrentCompanyId`");
+            sb.AppendLine("   ✓ `SELECT * FROM Contracts WHERE ContractID = 123 AND ComID = @CurrentCompanyId`");
+            sb.AppendLine("   ✓ `SELECT TOP 5 * FROM Invoices WHERE ... (Business Rules) ... AND ComID = @CurrentCompanyId`");
+            sb.AppendLine("");
+            sb.AppendLine("   **WRONG Examples (NEVER DO THIS)**:");
+            sb.AppendLine("   ✗ `SELECT SUM(Total) FROM Sales WHERE MONTH(Date) = 9` (Missing ComID - SECURITY BREACH!)");
+            sb.AppendLine("   ✗ `SELECT * FROM Contracts WHERE ContractID = 123` (Missing ComID - SECURITY BREACH!)");
+
+            // T-SQL Syntax Rules
+            sb.AppendLine("\n--- T-SQL SYNTAX RULES ---");
+            sb.AppendLine("1. DATE LOGIC: If a month is mentioned without a year: Use T-SQL: `WHERE MONTH(DateCol) = X`. Do NOT assume a specific year unless specified.");
+            sb.AppendLine("   - If needing a range, calculate relative to GETDATE().");
+            sb.AppendLine("2. TEXT SEARCH: For names/descriptions, NEVER use '='. ALWAYS use `LIKE N'%Value%'`.");
+            sb.AppendLine("   - IMPORTANT: You MUST prefix string literals with 'N' to support Arabic characters (e.g., `N'أحمد'`).");
+            sb.AppendLine("3. MATH SAFETY: When performing calculations (SUM, AVG, +, -), ALWAYS wrap columns with `ISNULL(Column, 0)`.");
+            sb.AppendLine("   - Example: `SUM(ISNULL(PaidAmount, 0))` instead of `SUM(PaidAmount)`.");
+            sb.AppendLine("4. OUTPUT FORMAT: Use descriptive ARABIC aliases for columns.");
+            sb.AppendLine("   - Example: `SELECT Sum(Total) AS [اجمالي المبيعات]`. Use terms from 'DICTIONARY CONTEXT' for aliases.");
+            sb.AppendLine("5. SAFETY: If no aggregation (SUM/COUNT) is requested, ALWAYS add `TOP 100` to the query.");
+            sb.AppendLine("6. **STRICT ALIASING (PREVENT AMBIGUITY)**: You MUST assign an alias to every table (e.g., `FROM Table AS T1`). You MUST prefix EVERY column in the `SELECT`, `WHERE`, `JOIN`, and `ORDER BY` clauses with its alias (e.g., `T1.IsResale`, `T2.ContractType`). NEVER use a column name without its alias.");
+
+            // More T-SQL Rules
+            sb.AppendLine("\n--- T-SQL SYNTAX RULES ---");
+            sb.AppendLine("1. **STRICT ALIASING**: Use aliases (e.g., `T1.Column`).");
+            sb.AppendLine("2. **NO CTEs ALLOWED**: You are FORBIDDEN from using Common Table Expressions (`WITH ...`).");
+            sb.AppendLine("   - USE ONLY standard `SELECT`, `JOIN`, and `SUBQUERIES` in the `WHERE` clause.");
+            sb.AppendLine("   - REASON: Performance and security constraints.");
+            sb.AppendLine("3. **DATE LOGIC**: Use `WHERE MONTH(Col) = X`.");
+            sb.AppendLine("4. **SEARCH**: Use `LIKE N'%Val%'`.");
+            sb.AppendLine("5. **LIMITS**: Use `TOP 100`.");
+
+            // Default Ordering
+            sb.AppendLine("\n6. **DEFAULT ORDERING (MANDATORY when no ORDER BY specified by user)**:");
+            sb.AppendLine("   - If the user does NOT explicitly request a specific order/sort, you MUST add ORDER BY clause automatically.");
+            sb.AppendLine("   - **⚠️ IMPORTANT NOTE**: The column names below (DocNo, DocDate, etc.) are EXAMPLES ONLY to help you understand the CONCEPT.");
+            sb.AppendLine("     You MUST determine the ACTUAL column name from the HIERARCHY CONTEXT and DICTIONARY CONTEXT provided.");
+            sb.AppendLine("     Look for columns with ID/key/Auto patterns, date/datetime types in the schema and ListSetups.");
+            sb.AppendLine("   - **ORDER PRIORITY (Descending - Newest/Largest First)**:");
+            sb.AppendLine("     * **Priority 1**: If a Document Number/ID column exists (e.g., DocNo, InvoiceNo, RecordID, ID) → ORDER BY [ActualDocNoColumn] DESC");
+            sb.AppendLine("     * **Priority 2**: If no Doc Number but a Date/DateTime column exists → ORDER BY [ActualDateColumn] DESC");
+            sb.AppendLine("     * **Priority 3**: If neither, use numeric column → ORDER BY [ActualNumericColumn] DESC");
+            sb.AppendLine("     * **Priority 4**: If no numeric column, use alphabetical order on text column → ORDER BY [ActualTextColumn] DESC");
+            sb.AppendLine("   - **RATIONALE**: Users typically want to see the highest document numbers (latest invoices) first.");
+            sb.AppendLine("   - **KEYWORDS indicating user wants specific order (DO NOT apply default)**:");
+            sb.AppendLine("     * Arabic: 'رتب', 'ترتيب', 'من الأصغر', 'من الأكبر', 'تصاعدي', 'تنازلي', 'الأول', 'الأخير'");
+            sb.AppendLine("     * English: 'order by', 'sort', 'ascending', 'descending', 'first', 'last', 'oldest', 'newest'");
+
+            // Dynamic Schema Intelligence
+            sb.AppendLine("\n--- DYNAMIC SCHEMA INTELLIGENCE (METADATA LOGIC) ---");
+            sb.AppendLine("You must interpret the provided Context JSON to understand relationships and column definitions dynamically. Do NOT rely on guessed column names.");
+            sb.AppendLine("\n1. **MASTER-DETAIL RELATIONSHIP LOGIC**:");
+            sb.AppendLine("   To join a Master View (PageAttribute) with its Details (PageDetail), follow these dynamic linking keys:");
+            sb.AppendLine("   - **Master Key**: Look for the `Primary` property in the `PageAttribute` context. This is the PK of the Master View.");
+            sb.AppendLine("   - **Detail Key**: Look for the `ForeignKey` property in the `PageDetail` context. This is the FK in the Detail View.");
+            sb.AppendLine("   - **JOIN Rule**: `ON MasterView.[Primary_Column] = DetailView.[ForeignKey_Column]`.");
+
+            // Column Resolution Algorithm
+            sb.AppendLine("\n--- COLUMN RESOLUTION ALGORITHM (EXECUTE MENTALLY BEFORE WRITING SQL) ---");
+            sb.AppendLine("You are FORBIDDEN from guessing column names. You MUST follow this strict 4-step algorithm for EVERY column requested:");
+            sb.AppendLine("\n**STEP 1: SEARCH (The Lookup)**");
+            sb.AppendLine("- Take the user's Arabic word (e.g., 'الحي').");
+            sb.AppendLine("- SCAN the 'DICTIONARY CONTEXT' (ListSetups) to find an entry where `arColumnLabel` MATCHES 'الحي'.");
+            sb.AppendLine("- IF NOT FOUND -> RETURN `CLARIFICATION_NEEDED: Cannot find column 'الحي'`. DO NOT GUESS.");
+            sb.AppendLine("\n**STEP 2: IDENTIFY METADATA**");
+            sb.AppendLine("- Once found, extract these exact values from the entry:");
+            sb.AppendLine("  * `SearchName`: (The FK column in current view, e.g., 'Gov')");
+            sb.AppendLine("  * `ColumnName`: (The Name Column to show, e.g., 'Gov')");
+            sb.AppendLine("  * `InsertType`: (e.g., 'dropdown' or 'text')");
+            sb.AppendLine("  * `DroModel`: (The Lookup Table, e.g., 'GovView')");
+            sb.AppendLine("  * `DroValue`: (The PK of Lookup Table, e.g., 'GOVID')");
+            sb.AppendLine("  * `DroText`: (The Name Column to show IF `InsertType` == 'dropdown', e.g., 'GovName')");
+            sb.AppendLine("\n**STEP 3: DETERMINE TARGET COLUMN**");
+            sb.AppendLine("- IF `InsertType` == 'dropdown':");
+            sb.AppendLine("    -> Your TARGET SELECT COLUMN is `DroText` (e.g., 'GovName').");
+            sb.AppendLine("    -> Your JOIN KEY is `SearchName` = `DroValue` (e.g., Gov = GOVID).");
+            sb.AppendLine("- ELSE:");
+            sb.AppendLine("    -> Your TARGET SELECT COLUMN is just `ColumnName`.");
+            sb.AppendLine("\n**STEP 4: LOCATION CHECK (Optimization)**");
+            sb.AppendLine("- CHECK: Is the TARGET SELECT COLUMN (e.g., 'GovName') already in the `PageDetail` or `PageAttribute` column list?");
+            sb.AppendLine("  * **YES** -> `SELECT T.[GovName] AS [الحي]` (NO JOIN NEEDED).");
+            sb.AppendLine("  * **NO** -> `LEFT JOIN [DroModel] ON T.[SearchName] = [DroModel].[DroValue]` then `SELECT [DroModel].[DroText] AS [الحي]`.");
+            sb.AppendLine("\n   **IMPORTANT NOTE ON ALIASES**:");
+            sb.AppendLine("   - Always alias the final selected column using the `arColumnLabel` from ListSetups (e.g., `SELECT GovName AS [الحي]`).");
+            sb.AppendLine("\n**STEP 5: VISIBILITY CHECK (For Broad Queries)**");
+            sb.AppendLine("- IF the user asks for 'all columns', 'all data', or 'show me the table':");
+            sb.AppendLine("  * **NEVER** use `SELECT *`.");
+            sb.AppendLine("  * **FILTER** the `ListSetups` entries for the current ListName.");
+            sb.AppendLine("  * **SELECT ONLY** columns where the `Visible` property is `true` (or `1`).");
+            sb.AppendLine("  * **EXCLUDE** any columns where `Visible` is `false` (or `0`).");
+            sb.AppendLine("  * **APPLY** the Aliasing Rule to each selected column (e.g., `SELECT Col1 AS [Label1], Col2 AS [Label2] ...`).");
+
+            var result = sb.ToString();
+            _staticRulesTokenCount = result.Length / 4; // ~4 chars per token
+
+            return result;
         }
     }
 }
