@@ -1,24 +1,144 @@
-<div class="container">
-  <div class="hero-section">
-    <div class="logo-container">
-      <img src="logo.png" alt="DynamicAI Logo" class="logo">
-      <div class="glow"></div>
-    </div>
-    <h1 class="title">Dynamic<span class="gradient-text">AI</span></h1>
-    <p class="subtitle">The Next Big Thing</p>
-  </div>
+<div class="app-container">
+  <div class="glass-layout">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <img src="squareLogo.jpeg" alt="DynamicAi Logo" class="brand-logo">
+        <div class="brand-name">DynamicAI</div>
+      </div>
 
-  <div class="chat-container glass-panel">
-    <div class="messages-area">
-      <div *ngFor="let msg of messages" class="message" [class.user-message]="msg.isUser"
-        [class.ai-message]="!msg.isUser">
-        {{ msg.text }}
+      <div class="new-chat-btn" (click)="resetChat()">
+        <span>+</span> New Chat
+      </div>
+
+      <div class="history-list">
+        <div class="history-label">Today</div>
+        <div class="history-item active">Current Session</div>
+      </div>
+
+      <div class="user-profile">
+        <div class="profile-icon">👤</div>
+        <div class="profile-info">
+          <span class="name">User</span>
+          <span class="status">Pro Plan</span>
+        </div>
       </div>
     </div>
-    <div class="input-area">
-      <input [(ngModel)]="newMessage" (keyup.enter)="sendMessage()" type="text" class="input-field"
-        placeholder="Ask me anything...">
-      <button (click)="sendMessage()" class="btn-primary">Send</button>
+
+    <!-- Main Chat Area -->
+    <div class="main-content">
+      <!-- Header / Status -->
+      <header>
+        <div class="status-badge"
+          [ngClass]="{'connected': status === 'Connected! ✅', 'error': status.includes('Failed')}">
+          <span class="dot"></span> {{ status }}
+        </div>
+        <div *ngIf="status.includes('Failed')" class="quick-actions">
+          <button (click)="checkConnection()">Retry</button>
+        </div>
+      </header>
+
+      <!-- Welcome Screen -->
+      <div *ngIf="messages.length === 0" class="welcome-screen">
+        <div class="hero-text">
+          <h1>How can I help you today?</h1>
+        </div>
+        <div class="suggestions">
+          <div class="suggestion-card" (click)="setQuestion('Show me sales for last month')">
+            <span class="icon">📊</span>
+            <span class="text">Show me sales for last month</span>
+          </div>
+          <div class="suggestion-card" (click)="setQuestion('List all active users')">
+            <span class="icon">👥</span>
+            <span class="text">List all active users</span>
+          </div>
+          <div class="suggestion-card" (click)="setQuestion('Analyze the latest trends')">
+            <span class="icon">📈</span>
+            <span class="text">Analyze the latest trends</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat History -->
+      <div class="chat-scroll-area" #scrollContainer>
+        <div *ngFor="let msg of messages" class="message-row" [ngClass]="{'ai': msg.isAi, 'user': !msg.isAi}">
+          <div class="message-content">
+            <div class="avatar">
+              {{ msg.isAi ? '🤖' : '👤' }}
+            </div>
+            <div class="bubble">
+              <div *ngIf="msg.text" class="text-content">{{ msg.text }}</div>
+              <div *ngIf="msg.data" class="json-content">
+                <div class="json-label">Data Response:</div>
+                <pre>{{ msg.data | json }}</pre>
+              </div>
+
+              <!-- Table Response -->
+              <div *ngIf="msg.tableData" class="table-response">
+                <div class="table-header">
+                  <span class="icon">📊</span> Data Result
+                  <span class="count-badge">{{ msg.tableData.length }} rows</span>
+                </div>
+                <div class="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th *ngFor="let key of getKeys(msg.tableData[0])">{{ key }}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr *ngFor="let row of msg.tableData">
+                        <td *ngFor="let key of getKeys(msg.tableData[0])">{{ row[key] }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <!-- Feedback Actions (only for AI messages) -->
+            <div *ngIf="msg.isAi && !msg.isLogged" class="feedback-actions">
+              <button class="dislike-btn" (click)="dislikeResponse(msg)"
+                [disabled]="loading || (msg.retryCount ?? 0) >= 2"
+                [title]="(msg.retryCount ?? 0) >= 2 ? 'تم تسجيل المشكلة' : 'الإبلاغ عن خطأ'">
+                {{ (msg.retryCount ?? 0) >= 2 ? '✓' : '👎' }}
+              </button>
+            </div>
+            <!-- Retry Action (Smart Dislike) -->
+            <div *ngIf="msg.askRetry" class="retry-actions" style="margin-top: 8px; text-align: right;">
+              <button (click)="setQuestion(msg.originalQuestion || '')"
+                style="background: #2196F3; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9em; display: inline-flex; align-items: center; gap: 5px;">
+                🔄 Try Again
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div *ngIf="loading" class="message-row ai">
+          <div class="message-content">
+            <div class="avatar">🤖</div>
+            <div class="bubble loading">
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input Area -->
+      <div class="input-area">
+        <div class="input-wrapper">
+          <textarea [(ngModel)]="question" (keydown.enter)="onEnter($event)" placeholder="Message DynamicAi..." rows="1"
+            [disabled]="loading"></textarea>
+          <button (click)="sendQuestion()" [disabled]="loading || !question.trim()" class="send-btn">
+            ➤
+          </button>
+        </div>
+        <div class="footer-text">
+          DynamicAI can make mistakes. Consider checking important information.
+        </div>
+      </div>
     </div>
   </div>
 </div>

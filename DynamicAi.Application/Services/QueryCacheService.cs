@@ -1,4 +1,5 @@
 using DynamicAi.Application.Interfaces;
+using DynamicAi.Application.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -154,6 +155,7 @@ public class QueryCacheService : IQueryCacheService
 
                 var cachedResult = new CachedQueryResult
                 {
+                    CacheId = topResult.Id.Uuid,
                     Sql = payload["generated_sql"].StringValue,
                     Score = topResult.Score,
                     OriginalQuestion = payload["original_question"].StringValue,
@@ -233,6 +235,111 @@ public class QueryCacheService : IQueryCacheService
             Console.ForegroundColor = ConsoleColor.Yellow;
             Console.WriteLine($"[QueryCache] ⚠ Failed to cache: {ex.Message}");
             Console.ResetColor();
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> DeleteCacheEntryAsync(string cacheId)
+    {
+        try
+        {
+            await EnsureCollectionExistsAsync();
+
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"\n[QueryCache] Deleting cache entry: {cacheId}");
+            Console.ResetColor();
+
+            await _qdrantClient.DeleteAsync(
+                _collectionName,
+                new PointId { Uuid = cacheId }
+            );
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"[QueryCache] ✓ Cache entry deleted successfully");
+            Console.ResetColor();
+
+            _logger.LogInformation("[QueryCache] Deleted cache entry {CacheId}", cacheId);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[QueryCache] Failed to delete cache entry {CacheId}", cacheId);
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"[QueryCache] ⚠ Delete failed: {ex.Message}");
+            Console.ResetColor();
+            return false;
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> DeleteSimilarCacheAsync(float[] embedding, string tenantId, int companyId)
+    {
+        try
+        {
+            await EnsureCollectionExistsAsync();
+
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"\n[QueryCache] Searching for similar entries to delete...");
+            Console.ResetColor();
+
+            // Build filter for tenant and company
+            var filter = new Filter();
+            filter.Must.Add(new Condition
+            {
+                Field = new FieldCondition
+                {
+                    Key = "tenant_id",
+                    Match = new Match { Keyword = tenantId }
+                }
+            });
+            filter.Must.Add(new Condition
+            {
+                Field = new FieldCondition
+                {
+                    Key = "company_id",
+                    Match = new Match { Integer = companyId }
+                }
+            });
+
+            // Find similar entries (using same threshold)
+            var searchResult = await _qdrantClient.SearchAsync(
+                _collectionName,
+                embedding,
+                filter: filter,
+                limit: 5,
+                scoreThreshold: _similarityThreshold
+            );
+
+            if (!searchResult.Any())
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"[QueryCache] No similar entries found to delete");
+                Console.ResetColor();
+                return false;
+            }
+
+            // Delete all similar entries
+            var pointIds = searchResult.Select(r => new PointId { Uuid = r.Id.Uuid }).ToArray();
+
+            foreach (var pointId in pointIds)
+            {
+                await _qdrantClient.DeleteAsync(_collectionName, pointId);
+            }
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"[QueryCache] ✓ Deleted {pointIds.Length} similar cache entries");
+            Console.ResetColor();
+
+            _logger.LogInformation("[QueryCache] Deleted {Count} similar cache entries", pointIds.Length);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[QueryCache] Failed to delete similar cache entries");
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"[QueryCache] ⚠ Delete similar failed: {ex.Message}");
+            Console.ResetColor();
+            return false;
         }
     }
 }

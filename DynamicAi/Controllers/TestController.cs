@@ -1,6 +1,7 @@
 ﻿using DynamicAi.Domain.Entities;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
+using DynamicAi.Application.Exceptions;
 using DynamicAi.Infrastructure.Persistence;
 using DynamicAi.Infrastructure.TargetDb;
 using Microsoft.AspNetCore.Mvc;
@@ -87,6 +88,28 @@ namespace DynamicAi.Api.Controllers
             //// ============================================================================
             //// New: Handle INTERACTION_REQUIRED (AI needs clarification)
             //// ============================================================================
+            catch (QueryExecutionException qEx)
+            {
+                var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("\n████████████████████████████████████████████████████████████████████████████");
+                Console.WriteLine("█                                                                          █");
+                Console.WriteLine("█              API REQUEST FAILED - QUERY EXECUTION ERROR                 █");
+                Console.WriteLine("█                                                                          █");
+                Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
+                Console.ResetColor();
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[API] Error Type: QueryExecutionException (Layer 5)");
+                Console.WriteLine($"[API] Error Message: {qEx.Message}");
+                Console.WriteLine($"[API] SQL: {qEx.RewrittenSql}");
+                Console.WriteLine($"[API] Failed after {apiDuration:F0}ms");
+                Console.WriteLine($"[API] Response: InternalServerError (500) with Metadata\n\n");
+                Console.ResetColor();
+
+                return StatusCode(500, new { error = qEx.Message, sql = qEx.RewrittenSql });
+            }
             catch (InvalidOperationException ex) when (ex.Message.StartsWith("INTERACTION_REQUIRED:", StringComparison.OrdinalIgnoreCase))
             {
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
@@ -172,6 +195,7 @@ namespace DynamicAi.Api.Controllers
 
                 return StatusCode(500, $"Database Error: {dbEx.Message}");
             }
+
             catch (Exception ex)
             {
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;

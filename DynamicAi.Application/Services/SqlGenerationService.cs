@@ -480,6 +480,7 @@ namespace DynamicAi.Application.Services
         /// </summary>
         private static string BuildStaticSystemRules()
         {
+            Console.WriteLine("🔄 [Cache] Building Static Rules - Version 3.0");
             var sb = new StringBuilder();
 
             // 1. Persona
@@ -621,9 +622,14 @@ namespace DynamicAi.Application.Services
             sb.AppendLine("  * `DroText`: (The Name Column to show IF `InsertType` == 'dropdown', e.g., 'GovName')");
             sb.AppendLine("\n**STEP 3: DETERMINE TARGET COLUMN**");
             sb.AppendLine("- IF `InsertType` == 'dropdown':");
-            sb.AppendLine("    -> Your TARGET SELECT COLUMN is `DroText` (e.g., 'GovName').");
-            sb.AppendLine("    -> Your JOIN KEY is `SearchName` = `DroValue` (e.g., Gov = GOVID).");
-            sb.AppendLine("- ELSE:");
+            sb.AppendLine("    - IF `SearchName` == `ColumnName`:");
+            sb.AppendLine("        -> Your TARGET SELECT COLUMN is `DroText` (e.g., 'GovName').");
+            sb.AppendLine("        -> Your JOIN KEY is `SearchName` = `DroValue` (e.g., Gov = GOVID).");
+            sb.AppendLine("    - ELSE (Where `SearchName` != `ColumnName`):");
+            sb.AppendLine("        -> Your TARGET SELECT COLUMN is `ColumnName` (from the current view, NOT the DroModel).");
+            sb.AppendLine("        - IF the required `ColumnName` exists in the current view -> SELECT IT DIRECTLY. DO NOT JOIN.");
+            sb.AppendLine("        -> DO NOT make unnecessary joins.");
+            sb.AppendLine("- ELSE (InsertType != dropdown):");
             sb.AppendLine("    -> Your TARGET SELECT COLUMN is just `ColumnName`.");
             sb.AppendLine("\n**STEP 4: LOCATION CHECK (Optimization)**");
             sb.AppendLine("- CHECK: Is the TARGET SELECT COLUMN (e.g., 'GovName') already in the `PageDetail` or `PageAttribute` column list?");
@@ -638,6 +644,11 @@ namespace DynamicAi.Application.Services
             sb.AppendLine("  * **SELECT ONLY** columns where the `Visible` property is `true` (or `1`).");
             sb.AppendLine("  * **EXCLUDE** any columns where `Visible` is `false` (or `0`).");
             sb.AppendLine("  * **APPLY** the Aliasing Rule to each selected column (e.g., `SELECT Col1 AS [Label1], Col2 AS [Label2] ...`).");
+            sb.AppendLine("\n**STEP 6: PROVENANCE COMMENTS (MANDATORY)**");
+            sb.AppendLine("- You MUST append a SQL comment to every selected column explaining its source.");
+            sb.AppendLine("- FORMAT: `SELECT [Col] AS [Label] -- Source: [Table/View] (Reason: [Explanation])`");
+            sb.AppendLine("- EXAMPLE: `SELECT [GovName] AS [الحي] -- Source: GovView (Join: SearchName=Gov, Dropdown)`");
+            sb.AppendLine("- EXAMPLE: `SELECT [Gov] AS [الحي] -- Source: CurrentView (Direct Select)`");
 
             var result = sb.ToString();
             _staticRulesTokenCount = result.Length / 4; // ~4 chars per token

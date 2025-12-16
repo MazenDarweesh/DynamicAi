@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
+import { DislikeRequest, DislikeResponse } from '../models';
 
 @Injectable({
     providedIn: 'root'
@@ -11,7 +12,6 @@ export class ApiService {
 
     constructor(private http: HttpClient) { }
 
-    // Simple health check or test endpoint
     testConnection(): Observable<any> {
         return this.http.get(`${this.apiUrl}/Test/ping`);
     }
@@ -22,5 +22,9 @@ export class ApiService {
             tenantId: 'default',
             comID: 1
         });
+    }
+
+    dislike(request: DislikeRequest): Observable<DislikeResponse> {
+        return this.http.post<DislikeResponse>(`${this.apiUrl}/api/Feedback/dislike`, request);
     }
 }

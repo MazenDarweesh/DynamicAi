@@ -1,3 +1,5 @@
+using DynamicAi.Application.Models;
+
 namespace DynamicAi.Application.Interfaces;
 
 /// <summary>
@@ -33,30 +35,20 @@ public interface IQueryCacheService
         int pageId,
         string tenantId,
         int companyId);
-}
-
-/// <summary>
-/// Represents a cached SQL query result.
-/// </summary>
-public class CachedQueryResult
-{
-    /// <summary>
-    /// The cached SQL query.
-    /// </summary>
-    public required string Sql { get; set; }
 
     /// <summary>
-    /// The similarity score (0.0 to 1.0) with the original question.
+    /// Deletes a cached query by its Qdrant point ID.
     /// </summary>
-    public float Score { get; set; }
+    /// <param name="cacheId">The Qdrant point UUID.</param>
+    /// <returns>True if deletion was successful.</returns>
+    Task<bool> DeleteCacheEntryAsync(string cacheId);
 
     /// <summary>
-    /// The original question that generated this SQL.
+    /// Finds and deletes cache entries similar to the given embedding.
     /// </summary>
-    public required string OriginalQuestion { get; set; }
-
-    /// <summary>
-    /// When this result was cached.
-    /// </summary>
-    public DateTime CreatedAt { get; set; }
+    /// <param name="embedding">The question embedding to match.</param>
+    /// <param name="tenantId">The tenant identifier.</param>
+    /// <param name="companyId">The company identifier.</param>
+    /// <returns>True if any entries were deleted.</returns>
+    Task<bool> DeleteSimilarCacheAsync(float[] embedding, string tenantId, int companyId);
 }

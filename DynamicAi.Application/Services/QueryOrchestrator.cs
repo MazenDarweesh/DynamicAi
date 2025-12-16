@@ -1,5 +1,6 @@
 ﻿using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
+using DynamicAi.Application.Exceptions;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using System;
@@ -46,7 +47,10 @@ namespace DynamicAi.Application.Services
         /// <summary>
         /// يعالج سؤال المستخدم بالكامل، مروراً بجميع طبقات الأمان والتوليد.
         /// </summary>
-        public async Task<IEnumerable<dynamic>> HandleQueryAsync(string userQuestion, string tenantId, int? comID = null)
+        /// <summary>
+        /// يعالج سؤال المستخدم بالكامل، مروراً بجميع طبقات الأمان والتوليد.
+        /// </summary>
+        public async Task<QueryExecutionResult> HandleQueryAsync(string userQuestion, string tenantId, int? comID = null)
         {
             // ============================================================================
             // بداية Pipeline - عرض معلومات الطلب
@@ -69,6 +73,8 @@ namespace DynamicAi.Application.Services
             RewrittenSqlResult? rewrittenResult = null;
             float[]? questionEmbedding = null;
             int? pageId = null;
+            string? cacheId = null;
+            bool isCached = false;
             double layer1Duration = 0, layer2Duration = 0; // Initialized for cache HIT path
 
             try
@@ -100,6 +106,8 @@ namespace DynamicAi.Application.Services
                         Console.ResetColor();
 
                         rawSql = cachedResult.Sql;
+                        cacheId = cachedResult.CacheId;
+                        isCached = true;
                         // Skip to Layer 3 (validation)
                         goto SkipToValidation;
                     }
@@ -247,7 +255,13 @@ namespace DynamicAi.Application.Services
                 Console.WriteLine($"  Total Pipeline Duration:      {totalDuration,8:F0} ms");
                 Console.WriteLine($"[Orchestrator] ══════════════════════════════════════\n");
 
-                return data;
+                return new QueryExecutionResult
+                {
+                    Data = data,
+                    RewrittenSql = rewrittenResult?.RewrittenSql ?? rawSql,
+                    IsCached = isCached,
+                    CacheId = cacheId
+                };
             }
             catch (Exception ex)
             {
@@ -274,6 +288,20 @@ namespace DynamicAi.Application.Services
                 }
 
                 Console.WriteLine();
+
+                // If we have generated SQL, wrap the exception to pass it up
+                if (!string.IsNullOrEmpty(rewrittenResult?.RewrittenSql ?? rawSql))
+                {
+                    Console.ForegroundColor = ConsoleColor.Magenta;
+                    Console.WriteLine($"[Orchestrator] Wrapping {ex.GetType().Name} in QueryExecutionException to preserve SQL.");
+                    Console.ResetColor();
+
+                    throw new QueryExecutionException(
+                        ex.Message,
+                        rewrittenResult?.RewrittenSql ?? rawSql,
+                        ex);
+                }
+
                 throw;
             }
         }
