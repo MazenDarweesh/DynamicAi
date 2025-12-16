@@ -150,7 +150,7 @@ namespace DynamicAi.Application.Services
             promptBuilder.AppendLine("\n--- DICTIONARY CONTEXT (User Labels to DB Columns) ---");
 
             // Unit 2: Compact Dictionary Format - Add header explaining the format
-            promptBuilder.AppendLine("Format: [Index] ColumnName | InsertType | arColumnLabel | enColumnLabel | DroModel:DroValue:DroText (if dropdown)");
+            promptBuilder.AppendLine("Format: [Index] SearchName | ColumnName | InsertType | arColumnLabel | enColumnLabel | DroModel:DroValue:DroText (if dropdown)");
             promptBuilder.AppendLine("---");
 
             if (contextBundle.DictionaryEntries != null && contextBundle.DictionaryEntries.Any())
@@ -164,13 +164,14 @@ namespace DynamicAi.Application.Services
                         var node = System.Text.Json.JsonDocument.Parse(entry);
                         var root = node.RootElement;
 
+                        var searchName = root.TryGetProperty("SearchName", out var sn) ? sn.GetString() ?? "" : "";
                         var columnName = root.TryGetProperty("ColumnName", out var cn) ? cn.GetString() ?? "" : "";
                         var insertType = root.TryGetProperty("InsertType", out var it) ? it.GetString() ?? "" : "";
                         var arLabel = root.TryGetProperty("arColumnLabel", out var ar) ? ar.GetString() ?? "" : "";
                         var enLabel = root.TryGetProperty("enColumnLabel", out var en) ? en.GetString() ?? "" : "";
 
                         // Build compact entry
-                        var compactEntry = $"[{dictIndex}] {columnName} | {insertType} | {arLabel} | {enLabel}";
+                        var compactEntry = $"[{dictIndex}] {searchName} | {columnName} | {insertType} | {arLabel} | {enLabel}";
 
                         // Add dropdown info if applicable
                         if (insertType == "dropdown")
@@ -480,7 +481,7 @@ namespace DynamicAi.Application.Services
         /// </summary>
         private static string BuildStaticSystemRules()
         {
-            Console.WriteLine("🔄 [Cache] Building Static Rules - Version 3.0");
+            Console.WriteLine("🔄 [Cache] Building Static Rules - Version 4.0");
             var sb = new StringBuilder();
 
             // 1. Persona
@@ -620,21 +621,21 @@ namespace DynamicAi.Application.Services
             sb.AppendLine("  * `DroModel`: (The Lookup Table, e.g., 'GovView')");
             sb.AppendLine("  * `DroValue`: (The PK of Lookup Table, e.g., 'GOVID')");
             sb.AppendLine("  * `DroText`: (The Name Column to show IF `InsertType` == 'dropdown', e.g., 'GovName')");
-            sb.AppendLine("\n**STEP 3: DETERMINE TARGET COLUMN**");
-            sb.AppendLine("- IF `InsertType` == 'dropdown':");
-            sb.AppendLine("    - IF `SearchName` == `ColumnName`:");
-            sb.AppendLine("        -> Your TARGET SELECT COLUMN is `DroText` (e.g., 'GovName').");
-            sb.AppendLine("        -> Your JOIN KEY is `SearchName` = `DroValue` (e.g., Gov = GOVID).");
-            sb.AppendLine("    - ELSE (Where `SearchName` != `ColumnName`):");
-            sb.AppendLine("        -> Your TARGET SELECT COLUMN is `ColumnName` (from the current view, NOT the DroModel).");
-            sb.AppendLine("        - IF the required `ColumnName` exists in the current view -> SELECT IT DIRECTLY. DO NOT JOIN.");
-            sb.AppendLine("        -> DO NOT make unnecessary joins.");
-            sb.AppendLine("- ELSE (InsertType != dropdown):");
-            sb.AppendLine("    -> Your TARGET SELECT COLUMN is just `ColumnName`.");
-            sb.AppendLine("\n**STEP 4: LOCATION CHECK (Optimization)**");
-            sb.AppendLine("- CHECK: Is the TARGET SELECT COLUMN (e.g., 'GovName') already in the `PageDetail` or `PageAttribute` column list?");
-            sb.AppendLine("  * **YES** -> `SELECT T.[GovName] AS [الحي]` (NO JOIN NEEDED).");
-            sb.AppendLine("  * **NO** -> `LEFT JOIN [DroModel] ON T.[SearchName] = [DroModel].[DroValue]` then `SELECT [DroModel].[DroText] AS [الحي]`.");
+            sb.AppendLine("\n**STEP 3: TARGET & JOIN LOGIC**");
+            sb.AppendLine("You must follow this logic tree precisely to Determine Target Column & Joins:");
+            sb.AppendLine("1. **CHECK**: Is `InsertType` == 'dropdown'?");
+            sb.AppendLine("   - **NO (Not dropdown)**:");
+            sb.AppendLine("       -> Select `ColumnName` directly from current view using its `ColumnName`. **NO JOIN**.");
+            sb.AppendLine("   - **YES (Is Dropdown)**: Check `SearchName` vs `ColumnName`:");
+            sb.AppendLine("       -> **CASE A (`SearchName` != `ColumnName`)**:");
+            sb.AppendLine("           -> Select `ColumnName` directly from current view. **NO JOIN**. (Ignore DroText/DroModel).");
+            sb.AppendLine("       -> **CASE B (`SearchName` == `ColumnName`)**:");
+            sb.AppendLine("           -> Target is `DroText` (e.g., 'GovName').");
+            sb.AppendLine("           -> **MANDATORY OPTIMIZATION CHECK**: Look at the columns in the Current View.");
+            sb.AppendLine("               * **IF** a column with the EXACT name `DroText` exists in the Current View:");
+            sb.AppendLine("                   -> **STOP**. Select `DroText` from the Current View. **ABSOLUTELY NO JOIN**.");
+            sb.AppendLine("               * **ELSE** (Column does NOT exist):");
+            sb.AppendLine("                   -> **JOIN** `DroModel` on `SearchName` = `DroValue`. Select `DroText` from `DroModel`.");
             sb.AppendLine("\n   **IMPORTANT NOTE ON ALIASES**:");
             sb.AppendLine("   - Always alias the final selected column using the `arColumnLabel` from ListSetups (e.g., `SELECT GovName AS [الحي]`).");
             sb.AppendLine("\n**STEP 5: VISIBILITY CHECK (For Broad Queries)**");
@@ -642,13 +643,15 @@ namespace DynamicAi.Application.Services
             sb.AppendLine("  * **NEVER** use `SELECT *`.");
             sb.AppendLine("  * **FILTER** the `ListSetups` entries for the current ListName.");
             sb.AppendLine("  * **SELECT ONLY** columns where the `Visible` property is `true` (or `1`).");
+            sb.AppendLine("  * **RESOLVE** each selected column using the **STEP 3 LOGIC** above (Do not blindly join).");
             sb.AppendLine("  * **EXCLUDE** any columns where `Visible` is `false` (or `0`).");
             sb.AppendLine("  * **APPLY** the Aliasing Rule to each selected column (e.g., `SELECT Col1 AS [Label1], Col2 AS [Label2] ...`).");
             sb.AppendLine("\n**STEP 6: PROVENANCE COMMENTS (MANDATORY)**");
-            sb.AppendLine("- You MUST append a SQL comment to every selected column explaining its source.");
-            sb.AppendLine("- FORMAT: `SELECT [Col] AS [Label] -- Source: [Table/View] (Reason: [Explanation])`");
-            sb.AppendLine("- EXAMPLE: `SELECT [GovName] AS [الحي] -- Source: GovView (Join: SearchName=Gov, Dropdown)`");
-            sb.AppendLine("- EXAMPLE: `SELECT [Gov] AS [الحي] -- Source: CurrentView (Direct Select)`");
+            sb.AppendLine("- You MUST append a SQL comment to every selected column AND every JOIN explaining its origin.");
+            sb.AppendLine("- FORMAT: `... -- SRC: [Src] | LIST: [ListName] | DRO: [DroModel/NA] | RULE: [Rule] | IDX: [Idx] | MSG: [Msg]`");
+            sb.AppendLine("- EXAMPLE: `SELECT [DroText] AS [Gov] -- SRC: GovView.GovName | LIST: PurchaseOrderView | DRO: GovView | RULE: Step 3 Case B | IDX: [12] | MSG: Optimization`");
+            sb.AppendLine("- EXAMPLE: `LEFT JOIN [GovView] ON ... -- LIST: PurchaseOrderView | DRO: GovView | RULE: Step 3 Case B | IDX: [12]`");
+            sb.AppendLine("- EXAMPLE: `SELECT [Gov] AS [الحي] -- SRC: CurrentView.Gov | LIST: PurchaseOrderView | DRO: N/A | RULE: Step 3 Case A | IDX: [12] | MSG: Direct Select`");
 
             var result = sb.ToString();
             _staticRulesTokenCount = result.Length / 4; // ~4 chars per token
