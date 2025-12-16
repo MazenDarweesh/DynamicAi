@@ -75,9 +75,9 @@ export class App implements OnInit, AfterViewChecked {
     }
   }
 
-  setQuestion(q: string) {
+  setQuestion(q: string, retryCount: number = 0) {
     this.question = q;
-    this.sendQuestion();
+    this.sendQuestion(retryCount);
   }
 
   resetChat() {
@@ -88,7 +88,8 @@ export class App implements OnInit, AfterViewChecked {
     return obj ? Object.keys(obj) : [];
   }
 
-  sendQuestion() {
+  sendQuestion(retryCount: number = 0) {
+    console.log('🚀 [SendQuestion] Question:', this.question, 'RetryCount:', retryCount);
     if (!this.question.trim()) return;
 
     const currentQ = this.question;
@@ -131,15 +132,15 @@ export class App implements OnInit, AfterViewChecked {
         let newMessage: ChatMessage;
 
         if (data && data.Message) {
-          newMessage = { isAi: true, text: data.Message, originalQuestion: currentQ, retryCount: 0 };
+          newMessage = { isAi: true, text: data.Message, originalQuestion: currentQ, retryCount: retryCount };
         } else if (Array.isArray(data)) {
           if (data.length > 0) {
-            newMessage = { isAi: true, tableData: data, originalQuestion: currentQ, retryCount: 0 };
+            newMessage = { isAi: true, tableData: data, originalQuestion: currentQ, retryCount: retryCount };
           } else {
-            newMessage = { isAi: true, text: 'No results found.', originalQuestion: currentQ, retryCount: 0 };
+            newMessage = { isAi: true, text: 'No results found.', originalQuestion: currentQ, retryCount: retryCount };
           }
         } else {
-          newMessage = { isAi: true, data: data, originalQuestion: currentQ, retryCount: 0 };
+          newMessage = { isAi: true, data: data, originalQuestion: currentQ, retryCount: retryCount };
         }
 
         // Attach metadata
@@ -167,7 +168,7 @@ export class App implements OnInit, AfterViewChecked {
           isAi: true,
           text: 'Error: ' + errorMsg,
           originalQuestion: currentQ,
-          retryCount: 0,
+          retryCount: retryCount,
           sql: sql // Capture SQL for dislike functionality
         });
         this.cdr.detectChanges();
@@ -211,16 +212,27 @@ export class App implements OnInit, AfterViewChecked {
 
         // Check for askForRetry (Smart Dislike Logic)
         if (res.askForRetry) {
-          console.log('✅ [Dislike] Cache deleted, asking user for retry');
-          msg.isLogged = true; // Still mark as logged/processed to disable dislike button
-          msg.askRetry = true; // Show retry button in UI
-          this.messages.push({
-            isAi: true,
-            text: res.message, // property in JSON response (was Message)
-            isLogged: true,
-            askRetry: true, // Also allow retrying from the response message
-            originalQuestion: msg.originalQuestion
-          });
+          console.log('✅ [Dislike] askForRetry=true. current msg.retryCount:', msg.retryCount, 'calculated next retryCount:', retryCount);
+          msg.isLogged = true;
+
+          if (retryCount > 2) {
+            console.log('🛑 [Dislike] Retry limit reached. showing stop message.');
+            this.messages.push({
+              isAi: true,
+              text: 'تم تسجيل المشكلة وسنعمل على حلها. يرجى محاولة طرح السؤال بطريقة أخرى.',
+              isLogged: true,
+              originalQuestion: msg.originalQuestion
+            });
+          } else {
+            this.messages.push({
+              isAi: true,
+              text: res.message, // property in JSON response (was Message)
+              isLogged: true,
+              askRetry: true, // Also allow retrying from the response message
+              originalQuestion: msg.originalQuestion,
+              retryCount: retryCount // Pass the incremented retry count
+            });
+          }
         }
         else if (res.shouldStopRetrying) {
           console.log('✅ [Dislike] Stopping retries, logging issue');

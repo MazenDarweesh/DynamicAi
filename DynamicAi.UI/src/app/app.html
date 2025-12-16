@@ -94,18 +94,35 @@
                   </table>
                 </div>
               </div>
+              <!-- Feedback Actions (Moved Inside Bubble) -->
+              <div *ngIf="msg.isAi && !msg.isLogged" class="feedback-actions">
+                <button class="dislike-btn" (click)="dislikeResponse(msg)"
+                  [disabled]="loading || (msg.retryCount ?? 0) >= 2"
+                  [title]="(msg.retryCount ?? 0) >= 2 ? 'Reported' : 'Dislike and Report'">
+                  <ng-container *ngIf="(msg.retryCount ?? 0) >= 2; else dislikeIcon">
+                    <!-- Check Icon -->
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                      stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  </ng-container>
+                  <ng-template #dislikeIcon>
+                    <!-- Thumbs Down Icon -->
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                      stroke-linecap="round" stroke-linejoin="round">
+                      <path
+                        d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17">
+                      </path>
+                    </svg>
+                  </ng-template>
+                </button>
+              </div>
             </div>
             <!-- Feedback Actions (only for AI messages) -->
-            <div *ngIf="msg.isAi && !msg.isLogged" class="feedback-actions">
-              <button class="dislike-btn" (click)="dislikeResponse(msg)"
-                [disabled]="loading || (msg.retryCount ?? 0) >= 2"
-                [title]="(msg.retryCount ?? 0) >= 2 ? 'تم تسجيل المشكلة' : 'الإبلاغ عن خطأ'">
-                {{ (msg.retryCount ?? 0) >= 2 ? '✓' : '👎' }}
-              </button>
-            </div>
+
             <!-- Retry Action (Smart Dislike) -->
             <div *ngIf="msg.askRetry" class="retry-actions" style="margin-top: 8px; text-align: right;">
-              <button (click)="setQuestion(msg.originalQuestion || '')"
+              <button (click)="setQuestion(msg.originalQuestion || '', msg.retryCount)"
                 style="background: #2196F3; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9em; display: inline-flex; align-items: center; gap: 5px;">
                 🔄 Try Again
               </button>

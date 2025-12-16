@@ -508,32 +508,34 @@ tr:hover td {
 
 /* Feedback Actions */
 .feedback-actions {
-    margin-top: 10px;
+    margin-top: 4px;
     display: flex;
-    gap: 8px;
+    justify-content: flex-end; /* Align right */
+    padding-top: 4px;
 }
 
 .dislike-btn {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: transparent;
+    border: none;
     color: var(--text-muted);
-    padding: 4px 10px;
-    border-radius: 6px;
+    padding: 4px;
+    border-radius: 4px;
     cursor: pointer;
-    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     transition: all 0.2s;
+    opacity: 0.5; /* Subtle by default */
 }
 
 .dislike-btn:hover:not(:disabled) {
-    background: rgba(248, 113, 113, 0.2);
-    border-color: #f87171;
-    color: #f87171;
+    background: rgba(255, 255, 255, 0.05); /* Very subtle hover bg */
+    color: var(--text-main);
+    opacity: 1;
 }
 
 .dislike-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    background: rgba(74, 222, 128, 0.2);
-    border-color: #4ade80;
-    color: #4ade80;
+    opacity: 1;
+    cursor: default;
+    color: #4ade80; /* Green check for reported */
 }
