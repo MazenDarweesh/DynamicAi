@@ -22,12 +22,17 @@ export class App implements OnInit, AfterViewChecked {
   question = '';
   messages: ChatMessage[] = [];
   loading = false;
+  isSidebarOpen = true; // Sidebar state
 
   constructor(private apiService: ApiService, private cdr: ChangeDetectorRef) { }
 
   ngOnInit() {
     // Initial check disabled to save tokens
     // this.checkConnection();
+  }
+
+  toggleSidebar() {
+    this.isSidebarOpen = !this.isSidebarOpen;
   }
 
   ngAfterViewChecked() {

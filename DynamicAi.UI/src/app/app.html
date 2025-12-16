@@ -1,7 +1,7 @@
 <div class="app-container">
   <div class="glass-layout">
     <!-- Sidebar -->
-    <div class="sidebar">
+    <div class="sidebar" [class.closed]="!isSidebarOpen">
       <div class="sidebar-header">
         <img src="squareLogo.jpeg" alt="DynamicAi Logo" class="brand-logo">
         <div class="brand-name">DynamicAI</div>
@@ -29,6 +29,11 @@
     <div class="main-content">
       <!-- Header / Status -->
       <header>
+        <!-- Menu Toggle Button -->
+        <button class="menu-toggle" (click)="toggleSidebar()" title="Toggle Sidebar">
+          ☰
+        </button>
+
         <div class="status-badge"
           [ngClass]="{'connected': status === 'Connected! ✅', 'error': status.includes('Failed')}">
           <span class="dot"></span> {{ status }}

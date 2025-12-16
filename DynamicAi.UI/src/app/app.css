@@ -35,6 +35,17 @@
     display: flex;
     flex-direction: column;
     padding: 20px;
+    transition: width 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
+    overflow: hidden;
+    white-space: nowrap;
+    /* Prevent text wrapping during transition */
+}
+
+.sidebar.closed {
+    width: 0;
+    padding: 0;
+    border-right: none;
+    opacity: 0;
 }
 
 .sidebar-header {
@@ -160,6 +171,28 @@ header {
     left: 0;
     right: 0;
     z-index: 10;
+}
+
+.menu-toggle {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 1.5rem;
+    padding: 5px;
+    border-radius: 6px;
+    transition: color 0.2s, background 0.2s;
+    margin-right: 15px;
+    /* Spacing from status badge */
+    display: flex;
+    /* Align icon */
+    align-items: center;
+    justify-content: center;
+}
+
+.menu-toggle:hover {
+    color: white;
+    background: rgba(255, 255, 255, 0.1);
 }
 
 .status-badge {
@@ -510,7 +543,8 @@ tr:hover td {
 .feedback-actions {
     margin-top: 4px;
     display: flex;
-    justify-content: flex-end; /* Align right */
+    justify-content: flex-end;
+    /* Align right */
     padding-top: 4px;
 }
 
@@ -525,11 +559,13 @@ tr:hover td {
     align-items: center;
     justify-content: center;
     transition: all 0.2s;
-    opacity: 0.5; /* Subtle by default */
+    opacity: 0.5;
+    /* Subtle by default */
 }
 
 .dislike-btn:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.05); /* Very subtle hover bg */
+    background: rgba(255, 255, 255, 0.05);
+    /* Very subtle hover bg */
     color: var(--text-main);
     opacity: 1;
 }
@@ -537,5 +573,6 @@ tr:hover td {
 .dislike-btn:disabled {
     opacity: 1;
     cursor: default;
-    color: #4ade80; /* Green check for reported */
+    color: #4ade80;
+    /* Green check for reported */
 }
