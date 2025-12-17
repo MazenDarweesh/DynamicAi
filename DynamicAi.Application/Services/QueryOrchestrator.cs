@@ -190,14 +190,6 @@ namespace DynamicAi.Application.Services
                     throw new InvalidOperationException($"INTERACTION_REQUIRED: {clarificationMessage}");
                 }
 
-                // Store in cache after successful generation
-                if (_queryCacheEnabled && questionEmbedding != null)
-                {
-                    await _queryCacheService.StoreCachedSqlAsync(
-                        userQuestion, questionEmbedding, rawSql,
-                        pageId ?? 0, tenantId, comID ?? 0);
-                }
-
             SkipToValidation:
                 // ============================================================================
                 // Layer 3: SQL Validation - التحقق من الأمان
@@ -207,8 +199,17 @@ namespace DynamicAi.Application.Services
                 var layer3Duration = (DateTime.UtcNow - layer3Start).TotalMilliseconds;
 
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[Orchestrator] ✓ Layer 3 completed in {layer3Duration:F0}ms\n");
+                Console.WriteLine($"[Orchestrator] ✓ Layer 3 completed in {layer3Duration:F0}ms");
                 Console.ResetColor();
+
+                // Store in cache AFTER validation passes (never cache invalid SQL!)
+                if (_queryCacheEnabled && questionEmbedding != null && !isCached)
+                {
+                    await _queryCacheService.StoreCachedSqlAsync(
+                        userQuestion, questionEmbedding, rawSql,
+                        pageId ?? 0, tenantId, comID ?? 0);
+                }
+
 
                 // ============================================================================
                 // Layer 4: SQL Rewriting - (مُفعّلة الآن)

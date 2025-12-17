@@ -237,11 +237,42 @@ namespace DynamicAi.Application.Services
                 Console.ResetColor();
 
                 // Instruction to AI (Crucial for Option 3)
-                promptBuilder.AppendLine("\n**INSTRUCTION FOR HISTORY:**");
-                promptBuilder.AppendLine("- The user is asking a Follow-Up question based on the history above.");
-                promptBuilder.AppendLine("- You MUST start with the 'Last Generated SQL' (if valid) and apply the new constraints.");
-                promptBuilder.AppendLine("- If the user says 'filter by X', ADD a WHERE clause to the previous SQL.");
-                promptBuilder.AppendLine("- If the user says 'sort by X', UPDATE the ORDER BY clause.");
+                promptBuilder.AppendLine("\n**INSTRUCTION FOR HISTORY (CRITICAL):**");
+                promptBuilder.AppendLine("The user is asking a FOLLOW-UP question. You MUST preserve the SAME result set from the previous query.");
+                promptBuilder.AppendLine("");
+                promptBuilder.AppendLine("**FOLLOW-UP DETECTION KEYWORDS:**");
+                promptBuilder.AppendLine("- Arabic: 'رتبهم', 'صفيهم', 'اعرضهم', 'عرفني', 'وريني', 'دول', 'دي', 'اللي فاتت', 'النتيجة دي'");
+                promptBuilder.AppendLine("- English: 'them', 'these', 'those', 'sort them', 'filter them', 'show them'");
+                promptBuilder.AppendLine("");
+                promptBuilder.AppendLine("**RULES:**");
+                promptBuilder.AppendLine("1. **RE-SORT (رتبهم/sort them):** Wrap the ENTIRE previous SQL as a subquery, then apply ORDER BY:");
+                promptBuilder.AppendLine("   ```sql");
+                promptBuilder.AppendLine("   SELECT * FROM (");
+                promptBuilder.AppendLine("       [PREVIOUS_SQL_WITHOUT_SEMICOLON]");
+                promptBuilder.AppendLine("   ) AS PreviousResult");
+                promptBuilder.AppendLine("   ORDER BY [NewColumn] DESC;");
+                promptBuilder.AppendLine("   ```");
+                promptBuilder.AppendLine("");
+                promptBuilder.AppendLine("2. **FILTER MORE (صفيهم/filter them):** Wrap the previous SQL as a subquery, then add WHERE:");
+                promptBuilder.AppendLine("   ```sql");
+                promptBuilder.AppendLine("   SELECT * FROM (");
+                promptBuilder.AppendLine("       [PREVIOUS_SQL_WITHOUT_SEMICOLON]");
+                promptBuilder.AppendLine("   ) AS PreviousResult");
+                promptBuilder.AppendLine("   WHERE [NewCondition];");
+                promptBuilder.AppendLine("   ```");
+                promptBuilder.AppendLine("");
+                promptBuilder.AppendLine("3. **NEW SCOPE (show me X):** If the user asks for DIFFERENT data or a new topic, generate a fresh query.");
+                promptBuilder.AppendLine("");
+                promptBuilder.AppendLine("**EXAMPLE:**");
+                promptBuilder.AppendLine("- Previous: 'هتلي آخر 3 فواتير مشتريات' → `SELECT TOP 3 ... ORDER BY POID DESC`");
+                promptBuilder.AppendLine("- Follow-up: 'رتبهم حسب صافي الفاتورة'");
+                promptBuilder.AppendLine("- Expected Output:");
+                promptBuilder.AppendLine("   ```sql");
+                promptBuilder.AppendLine("   SELECT * FROM (");
+                promptBuilder.AppendLine("       SELECT TOP 3 T1.PONumber, ... FROM PurchaseOrderView AS T1 ... ORDER BY T1.POID DESC");
+                promptBuilder.AppendLine("   ) AS PreviousResult");
+                promptBuilder.AppendLine("   ORDER BY [صافي الفاتورة] DESC;");
+                promptBuilder.AppendLine("   ```");
             }
 
             promptBuilder.AppendLine("\n--- TASK ---");
@@ -666,10 +697,13 @@ namespace DynamicAi.Application.Services
             sb.AppendLine("  * **APPLY** the Aliasing Rule to each selected column (e.g., `SELECT Col1 AS [Label1], Col2 AS [Label2] ...`).");
             sb.AppendLine("\n**STEP 6: PROVENANCE COMMENTS (MANDATORY)**");
             sb.AppendLine("- You MUST append a SQL comment to every selected column AND every JOIN explaining its origin.");
-            sb.AppendLine("- FORMAT: `... -- SRC: [Src] | LIST: [ListName] | DRO: [DroModel/NA] | RULE: [Rule] | IDX: [Idx] | MSG: [Msg]`");
-            sb.AppendLine("- EXAMPLE: `SELECT [DroText] AS [Gov] -- SRC: GovView.GovName | LIST: PurchaseOrderView | DRO: GovView | RULE: Step 3 Case B | IDX: [12] | MSG: Optimization`");
+            sb.AppendLine("- FORMAT: `[Column],  -- SRC: [Src] | LIST: [ListName] | DRO: [DroModel/NA] | RULE: [Rule] | IDX: [Idx] | MSG: [Msg]`");
+            sb.AppendLine("- ⚠️ **CRITICAL COMMA RULE**: The comma (,) MUST come BEFORE the comment `--`, NEVER inside or after the comment!");
+            sb.AppendLine("  * ❌ WRONG: `T1.Col AS [Label] -- comment,` (comma inside comment = SYNTAX ERROR!)");
+            sb.AppendLine("  * ✅ CORRECT: `T1.Col AS [Label],  -- comment` (comma before comment = VALID SQL)");
+            sb.AppendLine("- EXAMPLE: `SELECT [DroText] AS [Gov],  -- SRC: GovView.GovName | LIST: PurchaseOrderView | DRO: GovView | RULE: Step 3 Case B | IDX: [12] | MSG: Optimization`");
             sb.AppendLine("- EXAMPLE: `LEFT JOIN [GovView] ON ... -- LIST: PurchaseOrderView | DRO: GovView | RULE: Step 3 Case B | IDX: [12]`");
-            sb.AppendLine("- EXAMPLE: `SELECT [Gov] AS [الحي] -- SRC: CurrentView.Gov | LIST: PurchaseOrderView | DRO: N/A | RULE: Step 3 Case A | IDX: [12] | MSG: Direct Select`");
+            sb.AppendLine("- EXAMPLE: `SELECT [Gov] AS [الحي],  -- SRC: CurrentView.Gov | LIST: PurchaseOrderView | DRO: N/A | RULE: Step 3 Case A | IDX: [12] | MSG: Direct Select`");
 
             var result = sb.ToString();
             _staticRulesTokenCount = result.Length / 4; // ~4 chars per token
