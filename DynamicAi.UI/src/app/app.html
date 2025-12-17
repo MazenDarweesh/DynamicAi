@@ -33,14 +33,6 @@
         <button class="menu-toggle" (click)="toggleSidebar()" title="Toggle Sidebar">
           ☰
         </button>
-
-        <div class="status-badge"
-          [ngClass]="{'connected': status === 'Connected! ✅', 'error': status.includes('Failed')}">
-          <span class="dot"></span> {{ status }}
-        </div>
-        <div *ngIf="status.includes('Failed')" class="quick-actions">
-          <button (click)="checkConnection()">Retry</button>
-        </div>
       </header>
 
       <!-- Welcome Screen -->

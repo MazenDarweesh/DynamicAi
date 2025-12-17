@@ -23,12 +23,23 @@ export class App implements OnInit, AfterViewChecked {
   messages: ChatMessage[] = [];
   loading = false;
   isSidebarOpen = true; // Sidebar state
+  sessionId: string = ''; // Module 5: Session Memory
 
   constructor(private apiService: ApiService, private cdr: ChangeDetectorRef) { }
 
   ngOnInit() {
+    this.sessionId = this.generateSessionId();
+    console.log('Session ID initialized:', this.sessionId);
     // Initial check disabled to save tokens
     // this.checkConnection();
+  }
+
+  generateSessionId(): string {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0,
+        v = c == 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
   }
 
   toggleSidebar() {
@@ -103,7 +114,9 @@ export class App implements OnInit, AfterViewChecked {
     this.loading = true;
     this.cdr.detectChanges();
 
-    this.apiService.ask(currentQ).subscribe({
+    this.cdr.detectChanges();
+
+    this.apiService.ask(currentQ, this.sessionId).subscribe({
       next: (res) => {
         this.loading = false;
         console.log('API Response:', res);

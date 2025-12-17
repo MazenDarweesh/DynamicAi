@@ -18,6 +18,6 @@ namespace DynamicAi.Application.Interfaces
         /// <param name="tenantId">معرف "الشركة" (لعزل البيانات)</param>
         /// <param name="comID">معرف إضافي اختياري (اختياري)</param>
         /// <returns>نتيجة الاستعلام (البيانات + Metadata).</returns>
-        Task<QueryExecutionResult> HandleQueryAsync(string userQuestion, string tenantId, int? comID = null);
+        Task<QueryExecutionResult> HandleQueryAsync(string userQuestion, string tenantId, int? comID = null, string? sessionId = null);
     }
 }

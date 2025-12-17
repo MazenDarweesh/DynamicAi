@@ -13,6 +13,8 @@ namespace DynamicAi.Application.Models
         /// </summary>
         public string UnifiedPageContext { get; set; }
 
+        public int PageId { get; set; } // For sticky session tracking
+
         /// <summary>
         /// "القاموس" - صفوف البيانات من ListSetups (كنصوص JSON)
         /// </summary>
@@ -22,5 +24,10 @@ namespace DynamicAi.Application.Models
         /// "قواعد العمل" الإجبارية (مثل TailCondition)
         /// </summary>
         public List<string> BusinessRules { get; set; } = new List<string>();
+
+        /// <summary>
+        /// (Module 5) سياق المحادثة السابقة (السؤال + SQL)
+        /// </summary>
+        public string? ConversationHistoryContext { get; set; }
     }
 }

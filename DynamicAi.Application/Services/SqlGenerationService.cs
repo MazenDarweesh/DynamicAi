@@ -226,6 +226,24 @@ namespace DynamicAi.Application.Services
                 promptBuilder.AppendLine("(No business rules available)");
             }
 
+
+            if (!string.IsNullOrEmpty(contextBundle.ConversationHistoryContext))
+            {
+                promptBuilder.AppendLine("\n--- CONVERSATION HISTORY (PREVIOUS USER/AI TURN) ---");
+                promptBuilder.AppendLine(contextBundle.ConversationHistoryContext);
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[SqlGeneration] ✓ Added Conversation History to prompt");
+                Console.ResetColor();
+
+                // Instruction to AI (Crucial for Option 3)
+                promptBuilder.AppendLine("\n**INSTRUCTION FOR HISTORY:**");
+                promptBuilder.AppendLine("- The user is asking a Follow-Up question based on the history above.");
+                promptBuilder.AppendLine("- You MUST start with the 'Last Generated SQL' (if valid) and apply the new constraints.");
+                promptBuilder.AppendLine("- If the user says 'filter by X', ADD a WHERE clause to the previous SQL.");
+                promptBuilder.AppendLine("- If the user says 'sort by X', UPDATE the ORDER BY clause.");
+            }
+
             promptBuilder.AppendLine("\n--- TASK ---");
             promptBuilder.AppendLine($"Q: {userQuestion}");
             promptBuilder.AppendLine("A: ");
@@ -253,7 +271,7 @@ namespace DynamicAi.Application.Services
             int totalChars = fullPrompt.Length;
             int estimatedTokens = totalChars / 4; // ~4 chars per token (approximate)
             double estimatedInputCost = (estimatedTokens / 1_000_000.0) * 0.075; // Gemini Flash input: $0.075/1M tokens
-            double estimatedOutputCost = 0.001; // Approximate output cost (depends on response)
+
 
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.WriteLine($"\n[TokenMetrics] ═══════════════ PROMPT BREAKDOWN ═══════════════");

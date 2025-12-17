@@ -17,7 +17,8 @@ namespace DynamicAi.Application.Interfaces
         /// <returns>"سلة سياق" (Context Bundle) غنية جاهزة للـ AI.</returns>
         Task<RetrievalContextBundle> RetrieveContextAsync(
             string userQuestion,
-            string tenantId
+            string tenantId,
+            int? previousPageId = null
         );
     }
 }

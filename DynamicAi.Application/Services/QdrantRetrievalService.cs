@@ -53,7 +53,8 @@ namespace DynamicAi.Application.Services
         /// </summary>
         public async Task<RetrievalContextBundle> RetrieveContextAsync(
             string userQuestion,
-            string tenantId)
+            string tenantId,
+            int? previousPageId = null)
         {
             // ============================================================================
             // [LOGGING] بداية عملية RAG Retrieval (Multi-Step)
@@ -67,6 +68,8 @@ namespace DynamicAi.Application.Services
             Console.WriteLine($"[RagRetrieval] Collection: {_collectionName}");
             Console.WriteLine($"[RagRetrieval] TenantId: {tenantId}");
             Console.WriteLine($"[RagRetrieval] User Question: \"{userQuestion}\"");
+            if (previousPageId.HasValue)
+                Console.WriteLine($"[RagRetrieval] Previous Page Context: {previousPageId.Value} (Sticky Context Active)");
 
             var contextBundle = new RetrievalContextBundle();
             var totalStart = DateTime.UtcNow;
@@ -151,7 +154,8 @@ namespace DynamicAi.Application.Services
                 Console.WriteLine($"[RagRetrieval] Using SEMANTIC search for Page.");
             }
 
-            var pageResults = await SearchQdrantAsync(embedding, pageFilter, 1, "Pages");
+            // MODIFICATION: Fetch top 3 pages instead of 1 to allow for sticky context re-ranking
+            var pageResults = await SearchQdrantAsync(embedding, pageFilter, 3, "Pages");
 
             if (!pageResults.Any())
             {
@@ -161,9 +165,30 @@ namespace DynamicAi.Application.Services
                 return contextBundle;
             }
 
-            var matchedPageJson = pageResults.First();
+            string matchedPageJson = pageResults.First();
+
+            // Sticky Context Logic
+            if (previousPageId.HasValue)
+            {
+                foreach (var res in pageResults)
+                {
+                    var node = JsonNode.Parse(res)!.AsObject();
+                    if (node[DbColumns.PageID_Upper]!.GetValue<int>() == previousPageId.Value)
+                    {
+                        matchedPageJson = res;
+                        Console.ForegroundColor = ConsoleColor.Cyan;
+                        Console.WriteLine($"[RagRetrieval] ♻ Sticky Context: Promoting Previous PageID {previousPageId.Value} to top.");
+                        Console.ResetColor();
+                        break;
+                    }
+                }
+            }
+
             var pageNode = JsonNode.Parse(matchedPageJson)!.AsObject();
             int pageId = pageNode[DbColumns.PageID_Upper]!.GetValue<int>();
+
+            // FIX: Persist PageId in contextBundle for sticky session context
+            contextBundle.PageId = pageId;
 
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine($"[RagRetrieval] ✓ Using Page with PageID: {pageId}");
@@ -429,7 +454,7 @@ namespace DynamicAi.Application.Services
                 var cachedContext = new CachedPageContext
                 {
                     PageId = pageId,
-                    UnifiedPageContext = contextBundle.UnifiedPageContext,
+                    UnifiedPageContext = contextBundle.UnifiedPageContext ?? string.Empty,
                     DictionaryEntries = contextBundle.DictionaryEntries,
                     BusinessRules = contextBundle.BusinessRules,
                     CachedAt = DateTime.UtcNow

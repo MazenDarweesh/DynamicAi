@@ -22,6 +22,7 @@ namespace DynamicAi.Application.Services
         private readonly ISandboxedSqlExecutor _executorService;         // (Layer 5)
         private readonly IQueryCacheService _queryCacheService;          // (Cache Layer)
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
+        private readonly ISessionStore _sessionStore;                    // (Module 5: Memory)
         private readonly bool _queryCacheEnabled;
 
         public QueryOrchestrator(
@@ -32,6 +33,7 @@ namespace DynamicAi.Application.Services
             ISandboxedSqlExecutor executorService,
             IQueryCacheService queryCacheService,
             IEmbeddingGenerator<string, Embedding<float>> embeddingService,
+            ISessionStore sessionStore,
             IConfiguration configuration)
         {
             _retrievalService = retrievalService;
@@ -41,6 +43,7 @@ namespace DynamicAi.Application.Services
             _executorService = executorService;
             _queryCacheService = queryCacheService;
             _embeddingService = embeddingService;
+            _sessionStore = sessionStore;
             _queryCacheEnabled = bool.Parse(configuration["Caching:QueryCache:Enabled"] ?? "true");
         }
 
@@ -50,7 +53,7 @@ namespace DynamicAi.Application.Services
         /// <summary>
         /// يعالج سؤال المستخدم بالكامل، مروراً بجميع طبقات الأمان والتوليد.
         /// </summary>
-        public async Task<QueryExecutionResult> HandleQueryAsync(string userQuestion, string tenantId, int? comID = null)
+        public async Task<QueryExecutionResult> HandleQueryAsync(string userQuestion, string tenantId, int? comID = null, string? sessionId = null)
         {
             // ============================================================================
             // بداية Pipeline - عرض معلومات الطلب
@@ -65,6 +68,8 @@ namespace DynamicAi.Application.Services
             Console.WriteLine($"[Orchestrator] User Question: \"{userQuestion}\"");
             Console.WriteLine($"[Orchestrator] Tenant ID: {tenantId}");
             Console.WriteLine($"[Orchestrator] Company ID: {(comID.HasValue ? comID.Value.ToString() : "null")}");
+            Console.WriteLine($"[Orchestrator] Company ID: {(comID.HasValue ? comID.Value.ToString() : "null")}");
+            Console.WriteLine($"[Orchestrator] Session ID: {sessionId ?? "N/A"}");
             Console.WriteLine($"[Orchestrator] Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
             Console.WriteLine($"[Orchestrator] Pipeline has 5 layers to execute...\n");
 
@@ -76,6 +81,14 @@ namespace DynamicAi.Application.Services
             string? cacheId = null;
             bool isCached = false;
             double layer1Duration = 0, layer2Duration = 0; // Initialized for cache HIT path
+            RetrievalContextBundle? contextSnippets = null;
+
+            // Module 5: Fetch Session Context EARLY (for Sticky Context)
+            SessionContext? sessionContext = null;
+            if (!string.IsNullOrEmpty(sessionId))
+            {
+                sessionContext = await _sessionStore.GetSessionAsync(sessionId);
+            }
 
             try
             {
@@ -125,7 +138,7 @@ namespace DynamicAi.Application.Services
                 Console.ResetColor();
 
                 var layer1Start = DateTime.UtcNow;
-                var contextSnippets = await _retrievalService.RetrieveContextAsync(userQuestion, tenantId);
+                contextSnippets = await _retrievalService.RetrieveContextAsync(userQuestion, tenantId, sessionContext?.LastPageId);
                 layer1Duration = (DateTime.UtcNow - layer1Start).TotalMilliseconds;
 
                 Console.ForegroundColor = ConsoleColor.Green;
@@ -135,6 +148,15 @@ namespace DynamicAi.Application.Services
 
                 // Extract PageId for cache storage
                 pageId = ExtractPageIdFromContext(contextSnippets?.UnifiedPageContext);
+
+                // Module 5: Inject Conversation History if Session exists & Context is retrieved
+                if (sessionContext != null && contextSnippets != null)
+                {
+                    contextSnippets.ConversationHistoryContext = $"User Last Q: {sessionContext.LastUserQuestion}\nAI Last SQL: {sessionContext.LastGeneratedSql}";
+                    Console.ForegroundColor = ConsoleColor.Magenta;
+                    Console.WriteLine($"[Orchestrator] 🧠 Session Memory Injected (Logic: Option 3 Hybrid)");
+                    Console.ResetColor();
+                }
 
                 // ============================================================================
                 // Layer 2: SQL Generation - توليد SQL من LLM
@@ -233,6 +255,12 @@ namespace DynamicAi.Application.Services
                 Console.WriteLine($"[Orchestrator] ✓ Layer 5 completed in {layer5Duration:F0}ms");
                 Console.WriteLine($"[Orchestrator] Query executed successfully. Rows returned.\n");
                 Console.ResetColor();
+
+                // Module 5: Update Session Memory
+                if (!string.IsNullOrEmpty(sessionId))
+                {
+                    await _sessionStore.UpdateSessionAsync(sessionId, userQuestion, rewrittenResult?.RewrittenSql ?? rawSql, contextSnippets?.PageId);
+                }
 
                 // ============================================================================
                 // Pipeline مكتمل - عرض الإحصائيات النهائية

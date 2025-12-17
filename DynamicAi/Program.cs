@@ -54,6 +54,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddMemoryCache(); // For RAG and Session caching
     services.AddSingleton<IQueryCacheService, QueryCacheService>();
     services.AddSingleton<IFailedQueryLogger, FailedQueryLogger>();
+    services.AddSingleton<ISessionStore, InMemorySessionStore>();
 
     // --- تسجيل عميل Qdrant ---
     var qdrantHost = configuration["Qdrant:Host"]!;
