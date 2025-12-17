@@ -652,6 +652,12 @@ namespace DynamicAi.Application.Services
             sb.AppendLine("- EXAMPLE: `SELECT [DroText] AS [Gov] -- SRC: GovView.GovName | LIST: PurchaseOrderView | DRO: GovView | RULE: Step 3 Case B | IDX: [12] | MSG: Optimization`");
             sb.AppendLine("- EXAMPLE: `LEFT JOIN [GovView] ON ... -- LIST: PurchaseOrderView | DRO: GovView | RULE: Step 3 Case B | IDX: [12]`");
             sb.AppendLine("- EXAMPLE: `SELECT [Gov] AS [الحي] -- SRC: CurrentView.Gov | LIST: PurchaseOrderView | DRO: N/A | RULE: Step 3 Case A | IDX: [12] | MSG: Direct Select`");
+            sb.AppendLine("- ⚠️ **CRITICAL COMMA RULE**: The comma (,) MUST come BEFORE the comment `--`, NEVER inside or after the comment!");
+            sb.AppendLine("  * ❌ WRONG: `T1.Col AS [Label] -- comment,` (comma inside comment = SYNTAX ERROR!)");
+            sb.AppendLine("  * ✅ CORRECT: `T1.Col AS [Label],  -- comment` (comma before comment = VALID SQL)");
+            sb.AppendLine("- EXAMPLE: `SELECT [DroText] AS [Gov],  -- SRC: GovView.GovName | LIST: PurchaseOrderView | DRO: GovView | RULE: Step 3 Case B | IDX: [12] | MSG: Optimization`");
+            sb.AppendLine("- EXAMPLE: `LEFT JOIN [GovView] ON ... -- LIST: PurchaseOrderView | DRO: GovView | RULE: Step 3 Case B | IDX: [12]`");
+            sb.AppendLine("- EXAMPLE: `SELECT [Gov] AS [الحي],  -- SRC: CurrentView.Gov | LIST: PurchaseOrderView | DRO: N/A | RULE: Step 3 Case A | IDX: [12] | MSG: Direct Select`");
 
             var result = sb.ToString();
             _staticRulesTokenCount = result.Length / 4; // ~4 chars per token
