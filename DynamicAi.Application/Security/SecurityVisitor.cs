@@ -7,95 +7,97 @@ namespace DynamicAi.Application.Security
     /// <summary>
     /// (القلب الأمني للنظام - Layer 3)
     /// هذا "الزائر" (Visitor) يتجول في شجرة بناء الجملة (AST) للـ SQL
-    /// ويفرض قواعد الأمان الصارمة التي اتفقنا عليها.
+    /// ويفرض قواعد الأمان الصارمة.
+    /// 
+    /// النهج المتبع: Blacklist-Only
+    /// - لا نستخدم Whitelist للجداول (الـ AI مقيد بالـ Prompt)
+    /// - نحظر أوامر DDL/DML الخطرة فقط
+    /// - الـ CTEs معطلة في الـ Prompt (NO CTEs ALLOWED rule)
     /// </summary>
     public class SecurityVisitor : TSqlFragmentVisitor
     {
         /// <summary>
-        /// (جديد) قائمة مؤقتة لتخزين أسماء الـ CTEs المعرفة داخل الكويري الحالي.
+        /// (لـ MVP) قائمة سوداء (Blacklist) للدوال والأوامر الخطرة.
+        /// يمكن إضافة أسماء جداول محظورة هنا لاحقاً إذا لزم الأمر.
         /// </summary>
-        private readonly HashSet<string> _definedCtes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        /// <summary>
-        /// القائمة البيضاء (Whitelist) للجداول والـ Views المسموح بالاستعلام منها.
-        /// (سيتم ملؤها من خدمة التحقق).
-        /// </summary>
-        private readonly HashSet<string> _allowedViews;
+        private readonly HashSet<string> _blacklistedTables = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            // (فارغة حالياً - يمكن إضافة جداول نظام محظورة لاحقاً)
+            // مثال: "sys.objects", "INFORMATION_SCHEMA.TABLES"
+        };
 
         /// <summary>
-        /// (لـ MVP) قائمة سوداء (Blacklist) بسيطة للدوال الخطرة.
+        /// قائمة سوداء للدوال الخطرة.
         /// </summary>
         private readonly HashSet<string> _blacklistedFunctions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "EXEC", "EXECUTE", "SP_EXECUTESQL", "XP_CMDSHELL", "UNION"
-            // (سنضيف المزيد هنا)
+            "EXEC", "EXECUTE", "SP_EXECUTESQL", "XP_CMDSHELL", "OPENROWSET", "OPENDATASOURCE"
         };
 
-        public SecurityVisitor(IEnumerable<string> allowedViews)
+        public SecurityVisitor()
         {
-            // (نحولها إلى HashSet لسرعة البحث)
-            _allowedViews = new HashSet<string>(allowedViews, StringComparer.OrdinalIgnoreCase);
+            // Constructor بسيط - لا نحتاج Whitelist
         }
 
-        // --- 1. تسجيل الـ CTE عند تعريفه ---
-        public override void Visit(CommonTableExpression node)
-        {
-            if (node.ExpressionName?.Value != null)
-            {
-                var cteName = node.ExpressionName.Value;
-                _definedCtes.Add(cteName);
+        // ============================================================================
+        // CTE Handling - COMMENTED OUT (CTEs are forbidden in prompt)
+        // ============================================================================
+        // private readonly HashSet<string> _definedCtes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // 
+        // public override void Visit(CommonTableExpression node)
+        // {
+        //     if (node.ExpressionName?.Value != null)
+        //     {
+        //         var cteName = node.ExpressionName.Value;
+        //         _definedCtes.Add(cteName);
+        //     }
+        //     base.Visit(node);
+        // }
 
-                // (Optional Debugging)
-                // Console.WriteLine($"[SecurityVisitor] CTE Defined: {cteName}");
-            }
-            base.Visit(node);
-        }
-        // --- 2. التحقق عند استخدام أي جدول ---
+        // ============================================================================
+        // Blacklist Table Validation (Optional - for future use)
+        // ============================================================================
         public override void Visit(NamedTableReference node)
         {
             if (node.SchemaObject?.BaseIdentifier?.Value != null)
             {
                 var tableName = node.SchemaObject.BaseIdentifier.Value;
 
-                // التحقق الثلاثي:
-                // 1. هل هو جدول مسموح (Whitelist)؟
-                bool isAllowedTable = _allowedViews.Contains(tableName);
-
-                // 2. هل هو CTE تم تعريفه محلياً؟
-                bool isDefinedCte = _definedCtes.Contains(tableName);
-
-                // 3. (شبكة الأمان) هل يبدأ بالبادئة المخصصة للـ CTEs؟
-                bool isGeneratedCte = tableName.StartsWith("CTE_Gen_", StringComparison.OrdinalIgnoreCase);
-
-                if (!isAllowedTable && !isDefinedCte && !isGeneratedCte)
+                // التحقق من القائمة السوداء فقط
+                if (_blacklistedTables.Contains(tableName))
                 {
-                    // طباعة خطأ تفصيلي للمساعدة في الـ Debugging
                     Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"[SecurityVisitor] ⛔ Blocked Table: '{tableName}'");
-                    Console.WriteLine($"  - In Whitelist? {isAllowedTable}");
-                    Console.WriteLine($"  - In Local CTEs? {isDefinedCte}");
-                    Console.WriteLine($"  - Has CTE Prefix? {isGeneratedCte}");
+                    Console.WriteLine($"[SecurityVisitor] ⛔ Blocked Table: '{tableName}' (Blacklisted)");
                     Console.ResetColor();
 
-                    throw new SecurityException($"Security Validation Failed: Access to table/object '{tableName}' is not permitted. It is neither in the whitelist nor a valid local CTE.");
+                    throw new SecurityException($"Security Validation Failed: Access to table '{tableName}' is explicitly forbidden.");
                 }
             }
             base.Visit(node);
         }
 
-        // --- 3. فرض القائمة السوداء (Blacklist) على الدوال ---
+        // ============================================================================
+        // Blacklist Function Validation
+        // ============================================================================
         public override void Visit(FunctionCall node)
         {
             if (node.FunctionName?.Value != null)
             {
                 if (_blacklistedFunctions.Contains(node.FunctionName.Value))
                 {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"[SecurityVisitor] ⛔ Blocked Function: '{node.FunctionName.Value}'");
+                    Console.ResetColor();
+
                     throw new SecurityException($"Security Validation Failed: Use of function '{node.FunctionName.Value}' is not allowed.");
                 }
             }
             base.Visit(node);
         }
 
-        // --- 1. منع أوامر الكتابة (DELETE, UPDATE, INSERT) ---
+        // ============================================================================
+        // DDL/DML Blocking - The Core Security Layer
+        // ============================================================================
 
         public override void Visit(DeleteStatement node)
         {
@@ -112,7 +114,6 @@ namespace DynamicAi.Application.Security
             throw new SecurityException("Security Validation Failed: INSERT statements are not allowed.");
         }
 
-        // (أضف المزيد للأوامر الخطرة مثل: Drop, Alter, Truncate, Create...)
         public override void Visit(DropTableStatement node)
         {
             throw new SecurityException("Security Validation Failed: DROP TABLE statements are not allowed.");
@@ -163,7 +164,43 @@ namespace DynamicAi.Application.Security
             throw new SecurityException("Security Validation Failed: CREATE PROCEDURE statements are not allowed.");
         }
 
-       
+        // ============================================================================
+        // Additional DDL Blocking
+        // ============================================================================
 
+        public override void Visit(DropFunctionStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: DROP FUNCTION statements are not allowed.");
+        }
+
+        public override void Visit(CreateFunctionStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: CREATE FUNCTION statements are not allowed.");
+        }
+
+        public override void Visit(DropTriggerStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: DROP TRIGGER statements are not allowed.");
+        }
+
+        public override void Visit(CreateTriggerStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: CREATE TRIGGER statements are not allowed.");
+        }
+
+        public override void Visit(GrantStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: GRANT statements are not allowed.");
+        }
+
+        public override void Visit(DenyStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: DENY statements are not allowed.");
+        }
+
+        public override void Visit(RevokeStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: REVOKE statements are not allowed.");
+        }
     }
 }

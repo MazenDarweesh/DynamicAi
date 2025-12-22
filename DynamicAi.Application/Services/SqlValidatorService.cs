@@ -8,63 +8,16 @@ namespace DynamicAi.Application.Services
     /// (تنفيذ Layer 3)
     /// يستخدم TSqlFragmentVisitor (ScriptDom) لتحليل الـ SQL "الخام"
     /// وتطبيق "الزائر الأمني" (SecurityVisitor) عليه.
+    /// 
+    /// النهج: Blacklist-Only (لا Whitelist)
+    /// - الـ AI مقيد بالـ Prompt لاستخدام Tables من الـ Context فقط
+    /// - نحظر DDL/DML الخطرة عبر SecurityVisitor
     /// </summary>
     public class SqlValidatorService : ISqlValidatorService
     {
-        // (لـ MVP: قائمة بيضاء ثابتة Hard-coded)
-        // (للمستقبل: هذه القائمة ستأتي من "TableWhitelistManager" بناءً على tenantId)
-        private readonly List<string> _tempAllowedViews = new List<string>
-        {
-            // Views
-            "ContractViewWithPaid", 
-            "salessystemcontract", 
-            "SupplyOrderDetailView",
-            "SystemsContractStoreView", 
-            "ContarctReportwithoutresale", 
-            "SalesMonth",
-            "SalesManTotalWithContract",
-            "SalesProductTotal",
-            "SalestView",
-            "SystemsContractView",
-            "StoreView", 
-            "ContarctReport",
-            
-            // Tables
-            "Contract", 
-            "SystemsContract", 
-            "ProductView", 
-            "Store", 
-            "Sizes", 
-            "Color",
-            "Units", 
-            "ConType", 
-            "Currancy", 
-            "PaymentRecive", 
-            "day", 
-            "contractDay",
-            "Gov", 
-            "Area", 
-            "CustomerAccount", 
-            "Employee",
-            
-            // Metadata Tables (from SchemaOrchestrator)
-            "Pages", 
-            "PageAttribute", 
-            "PageDetail", 
-            "Modul", 
-            "MenuMaster", 
-            "ListSetups",
-            
-            // Application Tables
-            "QueryLogs",
-            
-            // Test View (from TargetDb)
-            "v_ai_Contract"
-        };
-
         public SqlValidatorService()
         {
-            // (Constructor فارغ حالياً)
+            // Constructor فارغ - لا نحتاج Whitelist
         }
 
         /// <summary>
@@ -94,9 +47,9 @@ namespace DynamicAi.Application.Services
             Console.ForegroundColor = ConsoleColor.Magenta;
             Console.WriteLine("\n[SqlValidator] STEP 1: Initializing TSql160Parser (SQL Server 2022)...");
             Console.ResetColor();
-            
+
             TSqlParser parser = new TSql160Parser(false);
-            
+
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine("[SqlValidator] ✓ Parser initialized successfully.");
             Console.ResetColor();
@@ -146,46 +99,42 @@ namespace DynamicAi.Application.Services
             Console.ResetColor();
 
             // ============================================================================
-            // STEP 3: التحقق الأمني (Security Validation)
+            // STEP 3: التحقق الأمني (Security Validation) - ENABLED!
             // ============================================================================
-            //Console.ForegroundColor = ConsoleColor.Magenta;
-            //Console.WriteLine("\n[SqlValidator] STEP 3: Performing security validation...");
-            //Console.ResetColor();
+            Console.ForegroundColor = ConsoleColor.Magenta;
+            Console.WriteLine("\n[SqlValidator] STEP 3: Performing security validation (Blacklist-Only)...");
+            Console.ResetColor();
 
-            //Console.WriteLine($"[SqlValidator] Whitelist contains {_tempAllowedViews.Count} allowed tables/views:");
-            //Console.ForegroundColor = ConsoleColor.Gray;
-            //Console.WriteLine($"  {string.Join(", ", _tempAllowedViews.Take(10))}...");
-            //Console.ResetColor();
+            // إنشاء الزائر الأمني (بدون Whitelist)
+            var securityVisitor = new SecurityVisitor();
 
-            //// إنشاء الزائر الأمني
-            //var securityVisitor = new SecurityVisitor(_tempAllowedViews);
+            Console.WriteLine($"[SqlValidator] Initiating SecurityVisitor to traverse SQL AST...");
+            Console.WriteLine($"[SqlValidator] Checking for: DELETE, UPDATE, INSERT, DROP, ALTER, CREATE, EXEC, etc.");
 
-            //Console.WriteLine($"[SqlValidator] Initiating SecurityVisitor to traverse SQL AST...");
+            try
+            {
+                // التجول في شجرة بناء الجملة (AST)
+                fragment.Accept(securityVisitor);
 
-            //try
-            //{
-            //    // التجول في شجرة بناء الجملة (AST)
-            //    fragment.Accept(securityVisitor);
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("[SqlValidator] ✓ Security validation passed. No forbidden statements detected.");
+                Console.ResetColor();
+            }
+            catch (Exception secEx)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[SqlValidator] ✗ SECURITY VALIDATION FAILED!");
+                Console.WriteLine($"[SqlValidator] Security violation detected: {secEx.Message}");
+                Console.ResetColor();
 
-            //    Console.ForegroundColor = ConsoleColor.Green;
-            //    Console.WriteLine("[SqlValidator] ✓ Security validation passed. No unauthorized tables detected.");
-            //    Console.ResetColor();
-            //}
-            //catch (Exception secEx)
-            //{
-            //    Console.ForegroundColor = ConsoleColor.Red;
-            //    Console.WriteLine($"[SqlValidator] ✗ SECURITY VALIDATION FAILED!");
-            //    Console.WriteLine($"[SqlValidator] Security violation detected: {secEx.Message}");
-            //    Console.ResetColor();
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("\n╔════════════════════════════════════════════════════════════════════════╗");
+                Console.WriteLine("║              [Layer 3: SQL VALIDATOR] - SECURITY VIOLATION            ║");
+                Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝\n");
+                Console.ResetColor();
 
-            //    Console.ForegroundColor = ConsoleColor.Red;
-            //    Console.WriteLine("\n╔════════════════════════════════════════════════════════════════════════╗");
-            //    Console.WriteLine("║              [Layer 3: SQL VALIDATOR] - SECURITY VIOLATION            ║");
-            //    Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝\n");
-            //    Console.ResetColor();
-
-            //    throw;
-            //}
+                throw;
+            }
 
             // ============================================================================
             // STEP 4: النجاح - الخروج
