@@ -9,33 +9,77 @@ using Microsoft.SemanticKernel.Embeddings;
 using Qdrant.Client;
 using Polly;
 using System.Net;
+using Serilog;
 
 // 1. بناء الـ Builder (لقراءة الإعدادات و DI)
 // ensure console output uses UTF-8 so Arabic characters render correctly
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-var builder = WebApplication.CreateBuilder(args);
+// Build configuration first to set up Serilog
+var configuration = new ConfigurationBuilder()
+    .SetBasePath(Directory.GetCurrentDirectory())
+    .AddJsonFile("appsettings.json")
+    .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json", true)
+    .Build();
 
-// 2. إعداد الخدمات (DI)
-ConfigureServices(builder.Services, builder.Configuration);
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(configuration)
+    .Enrich.FromLogContext()
+    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
+    .WriteTo.File("logs/log-.txt", rollingInterval: RollingInterval.Day)
+    .CreateLogger();
 
-var app = builder.Build();
-
-// ============================================================================
-// 3. إعداد Pipeline الطلبات
-// ============================================================================
-if (app.Environment.IsDevelopment())
+try
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    Log.Information("Starting web application");
+
+    var builder = WebApplication.CreateBuilder(args);
+
+    // Use existing configuration
+    // Note: We don't need to rebuild configuration if we attach what we already built, 
+    // but WebApplication.CreateBuilder(args) does its own loading. 
+    // To ensure consistency, we let UseSerilog read from the host's config context as well.
+
+    // Add Serilog configuration
+    builder.Host.UseSerilog((context, services, configuration) => configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext()
+        .WriteTo.Console()
+        .WriteTo.File("logs/log-.txt", rollingInterval: RollingInterval.Day));
+
+    // 2. إعداد الخدمات (DI)
+    ConfigureServices(builder.Services, builder.Configuration);
+
+    var app = builder.Build();
+
+    // ============================================================================
+    // 3. إعداد Pipeline الطلبات
+    // ============================================================================
+    // Enable Serilog request logging
+    app.UseSerilogRequestLogging();
+
+    if (app.Environment.IsDevelopment())
+    {
+        app.UseSwagger();
+        app.UseSwaggerUI();
+    }
+
+    app.UseHttpsRedirection();
+    app.UseCors("AllowAngularDev");
+    app.UseAuthorization();
+    app.MapControllers();
+
+    app.Run();
 }
-
-app.UseHttpsRedirection();
-app.UseCors("AllowAngularDev");
-app.UseAuthorization();
-app.MapControllers();
-
-app.Run();
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Application terminated unexpectedly");
+}
+finally
+{
+    Log.CloseAndFlush();
+}
 
 // ============================================================================
 // طريقة إعداد الخدمات (منفصلة للوضوح)
@@ -81,13 +125,13 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
         var clientFactory = sp.GetRequiredService<IHttpClientFactory>();
         var httpClient = clientFactory.CreateClient("GeminiEmbeddingClient");
 
-        var embeddingService = new GoogleAITextEmbeddingGenerationService(
+        var embeddingService = new GoogleAIEmbeddingGenerator(
             modelId: embeddingModel,
             apiKey: googleApiKey,
             httpClient: httpClient
         );
 
-        return embeddingService.AsEmbeddingGenerator();
+        return (IEmbeddingGenerator<string, Embedding<float>>)embeddingService;
     });
 
     // سياسة إعادة المحاولة (Retry Policy)
@@ -101,9 +145,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
             sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt) * 5),
             onRetry: (outcome, timespan, retryCount, ctx) =>
             {
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"[Polly] Rate limit detected. Retry #{retryCount} after {timespan.TotalSeconds:F1}s...");
-                Console.ResetColor();
+                Log.Warning("[Polly] Rate limit detected. Retry #{RetryCount} after {RetryWait}s...", retryCount, timespan.TotalSeconds);
             });
 
     // HTTP Clients

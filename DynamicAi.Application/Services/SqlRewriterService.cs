@@ -4,6 +4,7 @@ using Microsoft.SqlServer.TransactSql.ScriptDom;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace DynamicAi.Application.Services
 {
@@ -14,6 +15,12 @@ namespace DynamicAi.Application.Services
     public class SqlRewriterService : ISqlRewriterService
     {
         private const int MAX_ROWS_LIMIT = 1000; // (الحد الأقصى الافتراضي للصفوف)
+        private readonly ILogger<SqlRewriterService> _logger;
+
+        public SqlRewriterService(ILogger<SqlRewriterService> logger)
+        {
+            _logger = logger;
+        }
 
         public Task<RewrittenSqlResult> RewriteAsync(string safeSql, string tenantId, int? comID = 1)
         {
@@ -28,16 +35,14 @@ namespace DynamicAi.Application.Services
 
             // 2. إعداد الـ Visitor والباراميترات
             var parameters = new Dictionary<string, object>();
-            
+
             // إضافة ComID إلى الباراميترات إذا كان موجوداً في SQL
             if (comID.HasValue && safeSql.Contains("@CurrentCompanyId", StringComparison.OrdinalIgnoreCase))
             {
                 parameters["@CurrentCompanyId"] = comID.Value;
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"[SqlRewriter] Added @CurrentCompanyId parameter with value: {comID.Value}");
-                Console.ResetColor();
+                _logger.LogInformation("[SqlRewriter] Added @CurrentCompanyId parameter with value: {CompanyId}", comID.Value);
             }
-            
+
             var visitor = new SqlHardeningVisitor(parameters, tenantId, MAX_ROWS_LIMIT);
 
             // 3. تطبيق التحصينات (الزيارة)

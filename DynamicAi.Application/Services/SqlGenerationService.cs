@@ -4,6 +4,7 @@ using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 
 namespace DynamicAi.Application.Services
 {
@@ -15,6 +16,7 @@ namespace DynamicAi.Application.Services
     public class SqlGenerationService : ISqlGenerationService
     {
         private readonly IChatCompletionService _chatService;
+        private readonly ILogger<SqlGenerationService> _logger;
 
         // ============================================================================
         // GEMINI IMPLICIT CACHE OPTIMIZATION
@@ -24,9 +26,10 @@ namespace DynamicAi.Application.Services
         private static readonly Lazy<string> _cachedStaticRules = new Lazy<string>(() => BuildStaticSystemRules());
         private static int _staticRulesTokenCount = 0;
 
-        public SqlGenerationService(IChatCompletionService chatService)
+        public SqlGenerationService(IChatCompletionService chatService, ILogger<SqlGenerationService> logger)
         {
             _chatService = chatService;
+            _logger = logger;
         }
 
         /// <summary>
@@ -44,73 +47,52 @@ namespace DynamicAi.Application.Services
         /// </summary>
         public async Task<string> GenerateSqlAsync(string userQuestion, RetrievalContextBundle contextBundle)
         {
-            // ============================================================================
-            // [LOGGING] بداية عملية SQL Generation
-            // ============================================================================
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("\n╔════════════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║              [Layer 2: SQL GENERATION] - STARTING                      ║");
-            Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
-            Console.ResetColor();
+            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+            _logger.LogInformation("║              [Layer 2: SQL GENERATION] - STARTING                      ║");
+            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
-            Console.WriteLine($"[SqlGeneration] User Question: \"{userQuestion}\"");
-            Console.WriteLine($"[SqlGeneration] Context Bundle Received:");
-            Console.WriteLine($"  - Unified Context: {(!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))}");
-            Console.WriteLine($"  - Dictionary Entries: {contextBundle.DictionaryEntries?.Count ?? 0}");
-            Console.WriteLine($"  - Business Rules: {contextBundle.BusinessRules?.Count ?? 0}");
+            _logger.LogInformation("[SqlGeneration] User Question: \"{UserQuestion}\"", userQuestion);
+            _logger.LogDebug("[SqlGeneration] Context Bundle Received: UnifiedContext={UnifiedContext}, DictEntries={DictCount}, BusinessRules={RulesCount}",
+                !string.IsNullOrEmpty(contextBundle.UnifiedPageContext),
+                contextBundle.DictionaryEntries?.Count ?? 0,
+                contextBundle.BusinessRules?.Count ?? 0);
 
             // ============================================================================ 
             // STEP 1: تحليل محتويات Context Bundle
             // ============================================================================ 
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("\n[SqlGeneration] STEP 1: Analyzing Context Bundle...");
-            Console.ResetColor();
+            _logger.LogInformation("[SqlGeneration] STEP 1: Analyzing Context Bundle...");
 
             if (!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))
             {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[SqlGeneration] ✓ Unified Page Context available.");
-                Console.ResetColor();
+                _logger.LogInformation("[SqlGeneration] ✓ Unified Page Context available.");
             }
             else
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("[SqlGeneration] ⚠ No Unified Page Context provided");
-                Console.ResetColor();
+                _logger.LogWarning("[SqlGeneration] ⚠ No Unified Page Context provided");
             }
 
             if (contextBundle.DictionaryEntries != null && contextBundle.DictionaryEntries.Any())
             {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[SqlGeneration] ✓ Dictionary Entries available: {contextBundle.DictionaryEntries.Count}");
-                Console.ResetColor();
+                _logger.LogInformation("[SqlGeneration] ✓ Dictionary Entries available: {Count}", contextBundle.DictionaryEntries.Count);
             }
             else
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("[SqlGeneration] ⚠ No Dictionary Entries provided");
-                Console.ResetColor();
+                _logger.LogWarning("[SqlGeneration] ⚠ No Dictionary Entries provided");
             }
 
             if (contextBundle.BusinessRules != null && contextBundle.BusinessRules.Any())
             {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[SqlGeneration] ✓ Business Rules available: {contextBundle.BusinessRules.Count}");
-                Console.ResetColor();
+                _logger.LogInformation("[SqlGeneration] ✓ Business Rules available: {Count}", contextBundle.BusinessRules.Count);
             }
             else
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("[SqlGeneration] ⚠ No Business Rules provided");
-                Console.ResetColor();
+                _logger.LogWarning("[SqlGeneration] ⚠ No Business Rules provided");
             }
 
             // ============================================================================ 
             // STEP 2: بناء الـ Prompt الاحترافي
             // ============================================================================ 
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("\n[SqlGeneration] STEP 2: Building AI prompt with rich context...");
-            Console.ResetColor();
+            _logger.LogInformation("[SqlGeneration] STEP 2: Building AI prompt with rich context...");
 
             var promptStart = DateTime.UtcNow;
             var promptBuilder = new StringBuilder();
@@ -122,31 +104,23 @@ namespace DynamicAi.Application.Services
             // ============================================================================
             promptBuilder.Append(CachedStaticRules);
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[SqlGeneration] ✓ Static rules loaded from cache ({StaticRulesTokenCount} tokens, ~{CachedStaticRules.Length} chars)");
-            Console.WriteLine($"[SqlGeneration] ✓ Gemini Implicit Cache: Same prefix for all requests guarantees cache HIT");
-            Console.ResetColor();
+            _logger.LogInformation("[SqlGeneration] ✓ Static rules loaded from cache ({TokenCount} tokens, ~{CharCount} chars)", StaticRulesTokenCount, CachedStaticRules.Length);
+            _logger.LogDebug("[SqlGeneration] ✓ Gemini Implicit Cache: Same prefix for all requests guarantees cache HIT");
 
-            Console.ForegroundColor = ConsoleColor.Gray;
-            Console.WriteLine("[SqlGeneration] Building prompt section: HIERARCHY & SCHEMA CONTEXT...");
-            Console.ResetColor();
+            _logger.LogDebug("[SqlGeneration] Building prompt section: HIERARCHY & SCHEMA CONTEXT...");
             promptBuilder.AppendLine("\n--- HIERARCHY & SCHEMA CONTEXT (The available Page structure and its Views) ---");
             if (!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))
             {
                 promptBuilder.AppendLine("This JSON object represents the complete page structure. The `SchemaScript` property contains the T-SQL CREATE VIEW statement.");
                 promptBuilder.AppendLine(contextBundle.UnifiedPageContext);
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[SqlGeneration] ✓ Added Unified Page Context.");
-                Console.ResetColor();
+                _logger.LogInformation("[SqlGeneration] ✓ Added Unified Page Context.");
             }
             else
             {
                 promptBuilder.AppendLine("(No schema context available)");
             }
 
-            Console.ForegroundColor = ConsoleColor.Gray;
-            Console.WriteLine("[SqlGeneration] Building prompt section: DICTIONARY CONTEXT...");
-            Console.ResetColor();
+            _logger.LogDebug("[SqlGeneration] Building prompt section: DICTIONARY CONTEXT...");
             promptBuilder.AppendLine("\n--- DICTIONARY CONTEXT (User Labels to DB Columns) ---");
 
             // Unit 2: Compact Dictionary Format - Add header explaining the format
@@ -195,18 +169,14 @@ namespace DynamicAi.Application.Services
                     }
                     dictIndex++;
                 }
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[SqlGeneration] ✓ Added {contextBundle.DictionaryEntries.Count} dictionary entry/entries (COMPACT FORMAT)");
-                Console.ResetColor();
+                _logger.LogInformation("[SqlGeneration] ✓ Added {Count} dictionary entry/entries (COMPACT FORMAT)", contextBundle.DictionaryEntries.Count);
             }
             else
             {
                 promptBuilder.AppendLine("(No dictionary context available)");
             }
 
-            Console.ForegroundColor = ConsoleColor.Gray;
-            Console.WriteLine("[SqlGeneration] Building prompt section: BUSINESS RULES...");
-            Console.ResetColor();
+            _logger.LogDebug("[SqlGeneration] Building prompt section: BUSINESS RULES...");
             promptBuilder.AppendLine("\n--- BUSINESS RULES (Must be included) ---");
             if (contextBundle.BusinessRules != null && contextBundle.BusinessRules.Any())
             {
@@ -217,9 +187,7 @@ namespace DynamicAi.Application.Services
                     promptBuilder.AppendLine(rule);
                     ruleIndex++;
                 }
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[SqlGeneration] ✓ Added {contextBundle.BusinessRules.Count} business rule(s)");
-                Console.ResetColor();
+                _logger.LogInformation("[SqlGeneration] ✓ Added {Count} business rule(s)", contextBundle.BusinessRules.Count);
             }
             else
             {
@@ -253,54 +221,30 @@ namespace DynamicAi.Application.Services
             int totalChars = fullPrompt.Length;
             int estimatedTokens = totalChars / 4; // ~4 chars per token (approximate)
             double estimatedInputCost = (estimatedTokens / 1_000_000.0) * 0.075; // Gemini Flash input: $0.075/1M tokens
-            double estimatedOutputCost = 0.001; // Approximate output cost (depends on response)
 
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"\n[TokenMetrics] ═══════════════ PROMPT BREAKDOWN ═══════════════");
-            Console.WriteLine($"[TokenMetrics]   Static Rules (System):      {staticRulesSize,8:N0} chars (~{staticRulesSize / 4,6:N0} tokens)");
-            Console.WriteLine($"[TokenMetrics]   Unified Context (Schema):   {unifiedContextSize,8:N0} chars (~{unifiedContextSize / 4,6:N0} tokens)");
-            Console.WriteLine($"[TokenMetrics]   Dictionary (Compact):       {dictionarySize,8:N0} chars (~{dictionarySize / 4,6:N0} tokens)");
-            Console.WriteLine($"[TokenMetrics]   Business Rules:             {businessRulesSize,8:N0} chars (~{businessRulesSize / 4,6:N0} tokens)");
-            Console.WriteLine($"[TokenMetrics]   User Question:              {userQuestionSize,8:N0} chars (~{userQuestionSize / 4,6:N0} tokens)");
-            Console.WriteLine($"[TokenMetrics]   ─────────────────────────────────────────────────────");
-            Console.WriteLine($"[TokenMetrics]   TOTAL PROMPT:               {totalChars,8:N0} chars (~{estimatedTokens,6:N0} tokens)");
-            Console.WriteLine($"[TokenMetrics]   Est. Input Cost:            ${estimatedInputCost:F6}");
-            Console.WriteLine($"[TokenMetrics] ════════════════════════════════════════════════════════");
-            Console.ResetColor();
+            _logger.LogInformation("\n[TokenMetrics] ═══════════════ PROMPT BREAKDOWN ═══════════════");
+            _logger.LogInformation("[TokenMetrics]   Static Rules (System):      {Size,8:N0} chars (~{Tokens,6:N0} tokens)", staticRulesSize, staticRulesSize / 4);
+            _logger.LogInformation("[TokenMetrics]   Unified Context (Schema):   {Size,8:N0} chars (~{Tokens,6:N0} tokens)", unifiedContextSize, unifiedContextSize / 4);
+            _logger.LogInformation("[TokenMetrics]   Dictionary (Compact):       {Size,8:N0} chars (~{Tokens,6:N0} tokens)", dictionarySize, dictionarySize / 4);
+            _logger.LogInformation("[TokenMetrics]   Business Rules:             {Size,8:N0} chars (~{Tokens,6:N0} tokens)", businessRulesSize, businessRulesSize / 4);
+            _logger.LogInformation("[TokenMetrics]   User Question:              {Size,8:N0} chars (~{Tokens,6:N0} tokens)", userQuestionSize, userQuestionSize / 4);
+            _logger.LogInformation("[TokenMetrics]   ─────────────────────────────────────────────────────");
+            _logger.LogInformation("[TokenMetrics]   TOTAL PROMPT:               {Size,8:N0} chars (~{Tokens,6:N0} tokens)", totalChars, estimatedTokens);
+            _logger.LogInformation("[TokenMetrics]   Est. Input Cost:            ${Cost:F6}", estimatedInputCost);
+            _logger.LogInformation("[TokenMetrics] ════════════════════════════════════════════════════════");
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[SqlGeneration] ✓ Prompt built successfully in {promptDuration:F0}ms");
-            Console.WriteLine($"[SqlGeneration] Prompt size: {fullPrompt.Length} characters (~{estimatedTokens} tokens)");
-            Console.WriteLine($"[SqlGeneration] Prompt structure:");
-            Console.WriteLine($"  - System Cycle Rules: 4");
-            Console.WriteLine($"  - Interactivity & Safety Rules: 3");
-            Console.WriteLine($"  - T-SQL Syntax Rules: 5");
-            Console.WriteLine($"  - Unified Context: {(!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))}");
-            Console.WriteLine($"  - Dictionary entries: {contextBundle.DictionaryEntries?.Count ?? 0}");
-            Console.WriteLine($"  - Business rules: {contextBundle.BusinessRules?.Count ?? 0}");
-            Console.ResetColor();
-
-            // عرض الـ Prompt الكامل (اختياري - يمكن تعطيله في Production)
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine("\n[SqlGeneration] ═══ FULL PROMPT TO AI ═══");
-            Console.WriteLine(fullPrompt);
-            Console.WriteLine("[SqlGeneration] ═══ END OF PROMPT ═══\n");
-            Console.ResetColor();
+            _logger.LogInformation("[SqlGeneration] ✓ Prompt built successfully in {Duration:F0}ms", promptDuration);
+            _logger.LogDebug("[SqlGeneration] Prompt size: {Size} characters (~{Tokens} tokens)", fullPrompt.Length, estimatedTokens);
 
             // ============================================================================ 
             // STEP 3: استدعاء AI Model (Gemini)
             // ============================================================================ 
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("[SqlGeneration] STEP 3: Sending request to Gemini AI...");
-            Console.ResetColor();
+            _logger.LogInformation("[SqlGeneration] STEP 3: Sending request to Gemini AI...");
 
             var chatHistory = new ChatHistory();
             chatHistory.AddUserMessage(fullPrompt);
 
-            Console.ForegroundColor = ConsoleColor.Gray;
-            Console.WriteLine($"[SqlGeneration] Chat history created with 1 user message");
-            Console.WriteLine($"[SqlGeneration] Awaiting AI response...");
-            Console.ResetColor();
+            _logger.LogDebug("[SqlGeneration] Chat history created with 1 user message. Awaiting AI response...");
 
             var aiStart = DateTime.UtcNow;
 
@@ -317,9 +261,7 @@ namespace DynamicAi.Application.Services
             var response = await _chatService.GetChatMessageContentAsync(chatHistory, executionSettings);
             var aiDuration = (DateTime.UtcNow - aiStart).TotalMilliseconds;
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[SqlGeneration] ✓ AI response received in {aiDuration:F0}ms");
-            Console.ResetColor();
+            _logger.LogInformation("[SqlGeneration] ✓ AI response received in {Duration:F0}ms", aiDuration);
 
             // ============================================================================
             // GEMINI IMPLICIT CACHE DETECTION - Check for cached tokens in response
@@ -331,11 +273,10 @@ namespace DynamicAi.Application.Services
             // Try to extract cache info from response metadata
             if (response.Metadata != null)
             {
-                Console.ForegroundColor = ConsoleColor.DarkCyan;
-                Console.WriteLine($"\n[GeminiCache] ═══ RESPONSE METADATA ═══");
+                _logger.LogDebug("\n[GeminiCache] ═══ RESPONSE METADATA ═══");
                 foreach (var kvp in response.Metadata)
                 {
-                    Console.WriteLine($"[GeminiCache]   {kvp.Key}: {kvp.Value}");
+                    _logger.LogDebug("[GeminiCache]   {Key}: {Value}", kvp.Key, kvp.Value);
 
                     // Look for cached token count in various possible keys
                     if (kvp.Key.ToLower().Contains("cached") || kvp.Key.ToLower().Contains("cache"))
@@ -345,13 +286,7 @@ namespace DynamicAi.Application.Services
                             cachedTokens = cached;
                         }
                     }
-                    // Also check for usage metadata
-                    if (kvp.Key.ToLower().Contains("usage") || kvp.Key.ToLower().Contains("token"))
-                    {
-                        Console.WriteLine($"[GeminiCache]   → Token-related: {kvp.Key} = {kvp.Value}");
-                    }
                 }
-                Console.ResetColor();
             }
 
             // Calculate costs with cache consideration
@@ -366,76 +301,47 @@ namespace DynamicAi.Application.Services
             double totalCost = inputCost + cachedCost + outputCost;
 
             // Display cache status and costs
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"\n[GeminiCache] ═══════════════ CACHE & COST ANALYSIS ═══════════════");
+            _logger.LogInformation("\n[GeminiCache] ═══════════════ CACHE & COST ANALYSIS ═══════════════");
             if (cachedTokens > 0)
             {
                 double savings = ((cachedTokens / 1_000_000.0) * inputCostPerMillion) - cachedCost;
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[GeminiCache] ✓ CACHE HIT! {cachedTokens:N0} tokens served from cache");
-                Console.WriteLine($"[GeminiCache]   Cached Tokens:     {cachedTokens,8:N0} (75% discount)");
-                Console.WriteLine($"[GeminiCache]   Uncached Tokens:   {uncachedTokens,8:N0} (full price)");
-                Console.WriteLine($"[GeminiCache]   Savings:           ${savings:F6}");
+                _logger.LogInformation("[GeminiCache] ✓ CACHE HIT! {CachedTokens:N0} tokens served from cache", cachedTokens);
+                _logger.LogInformation("[GeminiCache]   Savings:           ${Savings:F6}", savings);
             }
             else
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[GeminiCache] ○ No cache hit detected (first request or prefix changed)");
-                Console.WriteLine($"[GeminiCache]   Note: Implicit caching will cache this prefix for future requests");
+                _logger.LogWarning("[GeminiCache] ○ No cache hit detected (first request or prefix changed)");
             }
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"[GeminiCache]   ─────────────────────────────────────────────────────");
-            Console.WriteLine($"[GeminiCache]   Input Cost:        ${inputCost:F6} ({uncachedTokens:N0} tokens)");
-            Console.WriteLine($"[GeminiCache]   Cached Cost:       ${cachedCost:F6} ({cachedTokens:N0} tokens)");
-            Console.WriteLine($"[GeminiCache]   Output Cost:       ${outputCost:F6} ({completionTokens:N0} tokens)");
-            Console.WriteLine($"[GeminiCache]   ─────────────────────────────────────────────────────");
-            Console.WriteLine($"[GeminiCache]   TOTAL COST:        ${totalCost:F6}");
-            Console.WriteLine($"[GeminiCache] ════════════════════════════════════════════════════════");
-            Console.ResetColor();
+            _logger.LogInformation("[GeminiCache]   TOTAL COST:        ${TotalCost:F6}", totalCost);
+            _logger.LogInformation("[GeminiCache] ════════════════════════════════════════════════════════");
 
-            Console.WriteLine($"[SqlGeneration] Raw AI response length: {response.Content?.Length ?? 0} characters");
-            Console.WriteLine($"[SqlGeneration] Raw AI response:");
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"{response.Content}");
-            Console.ResetColor();
             // ============================================================================ 
             // STEP 4: استخراج وتنظيف SQL
             // ============================================================================ 
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("\n[SqlGeneration] STEP 4: Extracting and cleaning SQL...");
-            Console.ResetColor();
+            _logger.LogInformation("[SqlGeneration] STEP 4: Extracting and cleaning SQL...");
 
             var extractStart = DateTime.UtcNow;
             var extractedSql = ExtractSql(response.Content);
             var extractDuration = (DateTime.UtcNow - extractStart).TotalMilliseconds;
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[SqlGeneration] ✓ SQL extracted and cleaned in {extractDuration:F0}ms");
-            Console.WriteLine($"[SqlGeneration] Final SQL length: {extractedSql.Length} characters");
-            Console.WriteLine($"[SqlGeneration] Final SQL:");
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine(extractedSql);
-            Console.ResetColor();
+            _logger.LogInformation("[SqlGeneration] ✓ SQL extracted and cleaned in {Duration:F0}ms", extractDuration);
+            _logger.LogInformation("[SqlGeneration] Final SQL length: {Length} characters", extractedSql.Length);
+            _logger.LogDebug("[SqlGeneration] Final SQL: {Sql}", extractedSql);
 
             // ============================================================================ 
             // [LOGGING] نهاية عملية SQL Generation
             // ============================================================================ 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("\n╔════════════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║            [Layer 2: SQL GENERATION] - COMPLETED ✓                     ║");
-            Console.WriteLine($"║            Total Time: {(DateTime.UtcNow - (aiStart - TimeSpan.FromMilliseconds(aiDuration + promptDuration))).TotalMilliseconds:F0}ms                                               ║");
-            Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝\n");
-            Console.ResetColor();
+            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+            _logger.LogInformation("║            [Layer 2: SQL GENERATION] - COMPLETED ✓                     ║");
+            _logger.LogInformation("║            Total Time: {TotalTime:F0}ms                                               ║", (DateTime.UtcNow - (aiStart - TimeSpan.FromMilliseconds(aiDuration + promptDuration))).TotalMilliseconds);
+            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
             return extractedSql;
         }
 
         private string ExtractSql(string? content)
         {
-            Console.ForegroundColor = ConsoleColor.Gray;
-            Console.WriteLine($"[SqlGeneration] Cleaning: Starting SQL extraction...");
-            Console.WriteLine($"[SqlGeneration] Cleaning: Input length: {content?.Length ?? 0} characters");
-            Console.ResetColor();
+            _logger.LogDebug("[SqlGeneration] Cleaning: Starting SQL extraction... Input length: {InputLength}", content?.Length ?? 0);
 
             if (string.IsNullOrWhiteSpace(content)) return string.Empty;
 
@@ -446,31 +352,24 @@ namespace DynamicAi.Application.Services
             var match = System.Text.RegularExpressions.Regex.Match(content, @"^```\w*\s+");
             if (match.Success)
             {
-                Console.WriteLine($"[SqlGeneration] Cleaning: Removing markdown start fence '{match.Value.Trim()}'");
-                Console.ResetColor();
+                _logger.LogDebug("[SqlGeneration] Cleaning: Removing markdown start fence '{Fence}'", match.Value.Trim());
                 content = content.Substring(match.Length);
             }
             else if (content.StartsWith("```"))
             {
-                Console.ForegroundColor = ConsoleColor.Gray;
-                Console.WriteLine($"[SqlGeneration] Cleaning: Removing '```' prefix");
-                Console.ResetColor();
+                _logger.LogDebug("[SqlGeneration] Cleaning: Removing '```' prefix");
                 content = content.Substring(3);
             }
 
             if (content.EndsWith("```"))
             {
-                Console.ForegroundColor = ConsoleColor.Gray;
-                Console.WriteLine($"[SqlGeneration] Cleaning: Removing '```' suffix");
-                Console.ResetColor();
+                _logger.LogDebug("[SqlGeneration] Cleaning: Removing '```' suffix");
                 content = content.Substring(0, content.Length - 3);
             }
 
             var cleaned = content.Trim();
 
-            Console.ForegroundColor = ConsoleColor.Gray;
-            Console.WriteLine($"[SqlGeneration] Cleaning: Output length: {cleaned.Length} characters");
-            Console.ResetColor();
+            _logger.LogDebug("[SqlGeneration] Cleaning: Output length: {OutputLength}", cleaned.Length);
 
             return cleaned;
         }
@@ -481,7 +380,11 @@ namespace DynamicAi.Application.Services
         /// </summary>
         private static string BuildStaticSystemRules()
         {
-            Console.WriteLine("🔄 [Cache] Building Static Rules - Version 4.0");
+            // Note: Since this is static and used in Lazy initialization, we can't easily use the instance logger here
+            // unless we change how it's initialized. For now, we'll keep it silent or use a static logger if needed.
+            // Leaving Console.WriteLine here might interrupt the flow, but it only runs once per app lifetime.
+            // Converting to basic trace or removing.
+            System.Diagnostics.Debug.WriteLine("🔄 [Cache] Building Static Rules - Version 4.0");
             var sb = new StringBuilder();
 
             // 1. Persona
