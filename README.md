@@ -71,50 +71,68 @@ A modern, responsive web interface built with **Angular (Latest)**.
 
 ### Installation & Setup
 
-#### 1. Start Qdrant
-Run Qdrant using Docker:
-```bash
-docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
+#### 1. Environment Setup (Windows)
+If you encounter `npm` or `ng` errors, ensure your environment is configured correctly.
+
+**Fix PowerShell Execution Policy:**
+If `npm` fails to run, execute this in PowerShell as Administrator:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
-#### 2. Configure Backend
-Navigate to `DynamicAi.Api` and update `appsettings.json` or use User Secrets:
-```json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=...;Database=...;"
-  },
-  "Gemini": {
-    "ApiKey": "YOUR_GEMINI_API_KEY"
-  },
-  "Qdrant": {
-    "Host": "localhost",
-    "Port": 6334
-  }
-}
+**Install Angular CLI Globally (Optional but Recommended):**
+```powershell
+npm install -g @angular/cli
+```
+
+#### 2. Configure Secrets (Qdrant Cloud & Database)
+Instead of editing `appsettings.json` directly, use **User Secrets** for security.
+
+**Configure Qdrant Cloud:**
+```powershell
+dotnet user-secrets set "Qdrant:Host" "YOUR_QDRANT_CLOUD_URL" --project "DynamicAi/DynamicAi.Api.csproj"
+dotnet user-secrets set "Qdrant:ApiKey" "YOUR_QDRANT_API_KEY" --project "DynamicAi/DynamicAi.Api.csproj"
+```
+*Note: The project is configured to use port `6334` (URI-based) for Qdrant Cloud to avoid HTTP/2 protocol errors.*
+
+**Configure Database Connection:**
+```powershell
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=YOUR_SERVER;Database=QualityControl;..." --project "DynamicAi/DynamicAi.Api.csproj"
 ```
 
 #### 3. Run Schema Bootstrapper (First Time Only)
 Initialize the vector knowledge base:
-```bash
+```powershell
 cd SchemaBootstrapper
 dotnet run
 ```
 
 #### 4. Start the Backend API
-```bash
-cd DynamicAi.Api
-dotnet run
+**Critical:** You must trust the development SSL certificate to avoid connection errors in the browser.
+```powershell
+dotnet dev-certs https --trust
 ```
-The API will be available at `https://localhost:7193` (or similar).
+*Click "Yes" on the prompt.*
+
+Run the API:
+```powershell
+dotnet run --project "DynamicAi/DynamicAi.Api.csproj" --launch-profile https
+```
+The API will be available at `https://localhost:7257`.
 
 #### 5. Start the Frontend UI
-```bash
+Use `npm start` to run the project using the local Angular CLI version if you haven't installed it globally.
+```powershell
 cd DynamicAi.UI
-npm install
-npm start
+npm install  # Install dependencies
+npm start    # Runs 'ng serve'
 ```
 Navigate to `http://localhost:4200` to use the application.
+
+### 🔧 Troubleshooting
+*   **"Unknown Error" in Chat:** This usually means the browser blocked the backend SSL certificate. Run `dotnet dev-certs https --trust` and restart your browser/use Incognito.
+*   **Qdrant HTTP/2 Protocol Error:** Ensure your `Program.cs` is using the URI-based `QdrantClient` constructor with port `6334` for Cloud instances.
+*   **`ng` not recognized:** Use `npm start` instead of `ng serve`.
 
 ---
 
