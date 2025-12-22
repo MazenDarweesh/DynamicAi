@@ -128,7 +128,7 @@ namespace DynamicAi.Application.Services
 3.  **Layer 1 (RAG):** يذهب لـ Qdrant. يجد أن جدول `Products` وجدول `Prices` هم الأهم. يعيد تعريفاتهم.
 4.  **Layer 2 (Gen):** يرسل السؤال + جدول `Products` لـ Gemini.
     *   Gemini يرد: `SELECT TOP 5 Name, Price FROM Products ORDER BY Price DESC`
-5.  **Layer 3 (Val):** يتأكد أن الكود لا يحتوي على `DROP` أو `DELETE`.
+5.  **Layer 3 (Val):** يتأكد أن الكود لا يحتوي على `DROP` أو `DELETE` أو تغيير صلاحيات. (تم إثبات كفاءته بـ 15 Unit Test).
 6.  **Layer 5 (Exec):** ينفذ الكود ويعيد قائمة المنتجات.
 
 **النتيجة:** المستخدم يرى جدولاً، ولا يعلم أن هناك 5 عمليات معقدة حدثت في الخلفية في أقل من ثانيتين.

@@ -167,12 +167,13 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
     *   [x] SQL Generation
     *   [x] Basic Semantic Caching
     *   [x] Clean Architecture
+    *   [x] SQL Validation Layer (SecurityVisitor & Rewriter) - Verified by 62 Unit Tests ✅
 
 #### 2️⃣ Phase 2: Hardening (Months 2-3) 🔴 [High Priority]
 *   **Goal:** Reliability & Safety (Fixing "Silent Failures" & "Hallucinations")
 *   **Key Features:**
     *   **Reranking Layer:** Implement `IRerankingService` to re-score top-K documents (Reduces hallucinations by ~30%).
-    *   **SQL Validation Layer:** Pre-execution validation to detect dangerous or invalid queries ("Silent Failures").
+    *   **(Completed) SQL Validation Layer:** Moved to Phase 1.
     *   **User Quotas:** Implement rate limiting and cost controls per tenant ("Cost Explosion").
     *   **Streaming Responses:** Improve UX latency perception ("Latency Blindspot").
 
