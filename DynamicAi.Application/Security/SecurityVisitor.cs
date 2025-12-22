@@ -202,5 +202,79 @@ namespace DynamicAi.Application.Security
         {
             throw new SecurityException("Security Validation Failed: REVOKE statements are not allowed.");
         }
+
+        // ============================================================================
+        // Privilege Escalation Prevention (Security Gaps Fixed)
+        // ============================================================================
+
+        public override void Visit(CreateLoginStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: CREATE LOGIN statements are not allowed.");
+        }
+
+        public override void Visit(AlterLoginStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: ALTER LOGIN statements are not allowed.");
+        }
+
+        public override void Visit(DropLoginStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: DROP LOGIN statements are not allowed.");
+        }
+
+        public override void Visit(CreateUserStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: CREATE USER statements are not allowed.");
+        }
+
+        public override void Visit(AlterUserStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: ALTER USER statements are not allowed.");
+        }
+
+        public override void Visit(DropUserStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: DROP USER statements are not allowed.");
+        }
+
+        public override void Visit(AlterRoleStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: ALTER ROLE statements are not allowed.");
+        }
+
+        public override void Visit(CreateRoleStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: CREATE ROLE statements are not allowed.");
+        }
+
+        public override void Visit(DropRoleStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: DROP ROLE statements are not allowed.");
+        }
+
+        public override void Visit(ExecuteAsStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: EXECUTE AS statements are not allowed.");
+        }
+
+        public override void Visit(UseStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: USE DATABASE statements are not allowed.");
+        }
+
+        public override void Visit(MergeStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: MERGE statements are not allowed.");
+        }
+
+        public override void Visit(BackupStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: BACKUP statements are not allowed.");
+        }
+
+        public override void Visit(RestoreStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: RESTORE statements are not allowed.");
+        }
     }
 }
