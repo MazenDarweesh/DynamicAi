@@ -52,6 +52,7 @@ The brain of the operation, containing the business logic.
 *   **`QueryOrchestrator`:** Manages the flow of a user request.
 *   **`SqlGenerationService`:** Constructs precise SQL queries based on user prompts and retrieved schema context.
 *   **`QueryCacheService`:** *[MVP Feature]* Checks Qdrant for semantically similar past questions to return cached SQL instantly, bypassing the LLM for faster responses.
+*   **`GeminiCostTracker`:** *[New]* Centralized service that tracks token usage and calculates costs for Chat and Embedding models in real-time.
 
 ### 3. Dynamic AI UI (`DynamicAi.UI`)
 A modern, responsive web interface built with **Angular (Latest)**.
@@ -138,7 +139,7 @@ Navigate to `http://localhost:4200` to use the application.
 
 ## 🌟 Current Phase: MVP Caching
 
-We are currently in the **MVP Caching** phase (Branch: `Dy_AI_MVP_Caching`).
+We are currently in the **MVP Caching** phase (Branch: `Dy_AI_MVP_Caching`) with **Observability Layer** integrated.
 
 ### ✅ Implemented Features
 *   **Semantic Caching:** Queries are hashed and compared using vector similarity. If a user asks "Show me listing of pages" and someone else previously asked "List all pages", the system recognizes the semantic match and reuses the generated SQL.
@@ -184,11 +185,12 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
     *   **Smart Chunking:** Implement document-aware splitting in `SchemaReaderService`.
     *   **Confidence Scoring:** Expose AI confidence levels to the user.
 
-#### 4️⃣ Phase 4: Observability (Months 4-5) 🟡
+#### 4️⃣ Phase 4: Observability (Months 4-5) 🟡 [In Progress]
 *   **Goal:** Production Monitoring
 *   **Key Features:**
     *   **Tracing:** OpenTelemetry integration for full request visibility.
-    *   **Cost Dashboard:** real-time monitoring of token consumption.
+    *   [x] **Cost Dashboard:** real-time monitoring of token consumption (GeminiCostTracker).
+    *   [x] **Structured Logging:** Serilog integration for unified logs.
     *   **Quality Metrics:** Automated evaluation of faithfulness and context recall.
 
 #### 5️⃣ Phase 5: Scale (Months 5-6) ⚪
@@ -212,7 +214,24 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 | **Chunking** | ⚠️ | 5/10 | Needs "Smart Chunking" for better context. |
 | **Latency** | ⚠️ | 5/10 | Needs Streaming & more client-side handling. |
 | **Silent Failures** | ⚠️ | 4/10 | **Critical:** Needs SQL Validation Layer. |
-| **Observability** | ⚠️ | 3/10 | Basic logging exists; needs Tracing & Metrics. |
+| **Observability** | ✅ | 8/10 | Cost tracking & Structured logging implemented. |
 | **Hybrid Search** | ❌ | 2/10 | **Missing:** Pure vector search misses exact keywords. |
-| **Reranking** | ❌ | 0/10 | **Critical:** Major cause of hallucinations. |---
+| **Reranking** | ❌ | 0/10 | **Critical:** Major cause of hallucinations. |
+
+---
+
+## 📊 Observability & Cost Tracking (New)
+
+We have implemented a robust observability layer to monitor system health and costs.
+
+### 1. Cost Tracker (`GeminiCostTracker`)
+*   **Real-time Cost Calculation:** Tracks input/output tokens for every request.
+*   **Supported Models:**
+    *   **Chat:** Gemini 2.5 Flash (`$0.15` / `$0.60` per 1M tokens).
+    *   **Embedding:** Text Embedding 004 (`$0.15` per 1M tokens).
+*   **Logs:** Outputs precise `CostUSD` metrics for billing estimation.
+
+### 2. Structured Logging (`Serilog`)
+*   **Unified Logging:** Replaced console output with structured JSON-ready logs across `SchemaGenerator` and `DynamicAi.Api`.
+*   **Request Metrics:** Tracks API latency (`TotalDuration`) and Status Codes for performance monitoring.---
 

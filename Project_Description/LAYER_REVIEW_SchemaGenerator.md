@@ -36,11 +36,11 @@ The `SchemaGenerator` is a standalone **Knowledge Ingestion Pipeline** responsib
 
 | Aspect | Score | Evidence | Next Steps |
 |:---|:---:|:---|:---|
-| **Observability** | **3/10** ⚠️ | Detailed `Console.WriteLine` logging with colors. No structured logs, no tracing spans. | 🟡 Add OpenTelemetry with `ActivitySource` for each phase |
+| **Observability** | **8/10** ✅✅ | `Serilog` integrated for structured logging. | ⚪ Add OpenTelemetry spans (Future) |
 | **Error Handling** | **6/10** ✅ | Rate limit detection (`IsRateLimitException`), 403 Forbidden handling, user prompt on parse failure. | ⚪ Add dead-letter queue for failed documents |
 | **Resiliency** | **8/10** ✅✅ | `JsonStateService` provides checkpointing. `completedDocumentIds` saved after each batch. If crashed, resumes from last successful batch. | ⚪ Move from file to Redis for distributed resiliency |
 | **Memory Management** | **7/10** ✅ | Uses file-based state (`generic_state.json`, `process_state.json`). No in-memory bloat. | ⚪ Add TTL-based cleanup for old state files |
-| **Token Cost** | **7/10** ✅ | Tier 1 RPM tracking (`_requestsThisMinute`), batch optimization (`_currentBatchSize` adaptive), estimated processing time. | 🟡 Add cost logging per run ($ spent) |
+| **Token Cost** | **9/10** ✅✅✅ | `GeminiCostTracker` tracks embedding costs per run. Tier 1 RPM tracking. | ⚪ Cost Alerts |
 | **Simplicity** | **9/10** ✅✅✅ | Clean separation of concerns. Single orchestrator pattern. Direct API calls, no framework bloat. | ⚪ Keep it simple |
 
 ### 3. Code Quality Aspects
@@ -67,8 +67,8 @@ The `SchemaGenerator` is a standalone **Knowledge Ingestion Pipeline** responsib
 
 | # | Action | Impact | Effort |
 |:---:|:---|:---|:---:|
-| 3 | **Add OpenTelemetry Tracing** | Production visibility | 🟡 Medium |
-| 4 | **Add Cost Logging** ($ per run) | Budget awareness | 🟢 Low |
+| 3 | **Add Structured Logging** | Production visibility | ✅ Done |
+| 4 | **Add Cost Logging** ($ per run) | Budget awareness | ✅ Done |
 
 ### ⚪ Nice-to-Have (Future)
 

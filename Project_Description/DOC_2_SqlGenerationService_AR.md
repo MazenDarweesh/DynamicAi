@@ -19,6 +19,8 @@ namespace DynamicAi.Application.Services
     public class SqlGenerationService : ISqlGenerationService
     {
         private readonly IChatCompletionService _chatService;
+        private readonly ILogger<SqlGenerationService> _logger;
+        private readonly IGeminiCostTracker _costTracker; // 💰 تتبع التكلفة
         
         // ⚡ Gemini Implicit Cache Optimization
         // نقوم بتخزين "القواعد الثابتة" في متغير Static.
@@ -26,9 +28,14 @@ namespace DynamicAi.Application.Services
         // النتيجة: خصم 75% على التكلفة + سرعة استجابة أعلى.
         private static readonly Lazy<string> _cachedStaticRules = new Lazy<string>(() => BuildStaticSystemRules());
 
-        public SqlGenerationService(IChatCompletionService chatService)
+        public SqlGenerationService(
+            IChatCompletionService chatService, 
+            ILogger<SqlGenerationService> logger,
+            IGeminiCostTracker costTracker)
         {
             _chatService = chatService;
+            _logger = logger;
+            _costTracker = costTracker;
         }
 
         public async Task<string> GenerateSqlAsync(string userQuestion, RetrievalContextBundle contextBundle)
@@ -56,7 +63,10 @@ namespace DynamicAi.Application.Services
             // 4. إرسال الطلب لـ Gemini Flash
             var response = await _chatService.GetChatMessageContentAsync(promptBuilder.ToString());
             
-            // 5. استخراج الـ SQL وتنظيفه
+            // 5. حساب التكلفة وتسجيلها
+            _costTracker.TrackUsage("SqlGen", estimatedTokens, responseTokens, cachedTokens);
+
+            // 6. استخراج الـ SQL وتنظيفه
             return ExtractSql(response.Content);
         }
 

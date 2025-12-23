@@ -364,6 +364,6 @@ FodyWeavers.xsd
 
 # Secrets Guide
 SECRETS_GUIDE.md
-# Allow backend logs for debugging
-logs/
-!logs/backend*.log
+# Allow logs folder visibility but ignore content
+logs/*
+!logs/.gitkeep

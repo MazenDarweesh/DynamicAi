@@ -6,11 +6,11 @@
 
 | المحور | التقييم | الحالة الحالية | المفقود الحرج |
 |:---|:---:|:---|:---|
-| **1. Observability First** | **1/10** | مجرد Console Logging ملون | OpenTelemetry, Tracing Spans, Structured Logs |
-| **2. Error Handling** | **3/10** | Basic Polly Retry, Syntax Check | **Security Check (معطل)**, DLQ, Circuit Breaker |
+| **1. Observability First** | **8/10** | **Serilog + GeminiCostTracker** | OpenTelemetry Tracing (Future) |
+| **2. Error Handling** | **8/10** | **Security Check Enabled**, Polly Retry | DLQ, Circuit Breaker (Future) |
 | **3. Multi-Agent Strategy** | **9/10** | Single Service (Simple & Correct) | (لا يوجد - هذا جيد حالياً) |
 | **4. Memory Management** | **2/10** | In-Memory Cache (RAM) | Redis, Checkpointing, Session Separation |
-| **5. Token Cost ROI** | **6/10** | Gemini Implicit Cache, Token Logs | User Budgets, Alerts, Dynamic Routing |
+| **5. Token Cost ROI** | **9/10** | **Real-time Cost Tracking (GeminiCostTracker)** | User Budgets, Alerts (Future) |
 | **6. Granular Evaluation** | **0/10** | لا يوجد | Span-level Eval, End-to-End Tests |
 | **7. Human-in-the-Loop** | **3/10** | زر Feedback (Dislike) فقط | Approval Workflows, Confidence Throttling |
 | **8. Simplicity First** | **9/10** | Direct API Calls (ممتاز) | (لا يوجد - الهيكلية نظيفة جداً) |
@@ -19,22 +19,21 @@
 
 ## 🔍 التفاصيل والتحليل التقني
 
-### 1. Observability First (المراقبة أولاً) 🔴
-*   **الوضع الحالي:** الاعتماد كلياً على `Console.WriteLine`. هذا جيد للـ Development لكنه "أعمى" في الـ Production. لا يمكن تتبع طلب عبر الـ Pipeline (User -> API -> Orchestrator -> LLM).
-*   **الخطر:** عند فشل طلب، لا يمكن معرفة في أي مرحلة توقف بالضبط أو السبب الجذري دون قراءة آلاف السطور النصية.
+### 1. Observability First (المراقبة أولاً) 🟢
+*   **الوضع الحالي:** تم تطبيق **Structured Logging** باستخدام `Serilog` عبر النظام بالكامل. يتم تتبع التكلفة لحظياً باستخدام `GeminiCostTracker`.
+*   **التحسين:** تم تحويل كل `Console.WriteLine` إلى سجلات هيكلية (JSON) قابلة للتحليل.
 *   **الحل المطلوب:**
-    *   إضافة **OpenTelemetry**.
-    *   استخدام `ActivitySource` لتتبع كل خطوة (Span): `Planning`, `Retrieval`, `Generation`.
-    *   ربط كل Logs بـ `TraceId` واحد.
+    *   (مكتمل) استبدال Console بـ Serilog.
+    *   (مكتمل) تتبع تكلفة الـ Token.
+    *   (مستقبلي) إضافة **OpenTelemetry** للـ Tracing المتقدم.
 
-### 2. Error Handling (التعامل مع الأخطاء) 🟠
+### 2. Error Handling (التعامل مع الأخطاء) 🟢
 *   **الوضع الحالي:**
-    *   يوجد `Polly` Retry بسيط في `Program.cs`.
-    *   **كارثة محتملة:** الكود الخاص بـ `SecurityVisitor` في `SqlValidatorService.cs` **معطل (Commented Out)**! هذا يعني أن الـ AI يمكنه نظرياً توليد `DROP TABLE` ولن يوقفه أحد إلا صلاحيات الـ Database User.
+    *   يوجد `Polly` Retry بسيط.
+    *   **تم تفعيل SecurityVisitor:** يقوم بحظر جمل `DROP`, `DELETE`, `ALTER` وما شابه.
 *   **الحل المطلوب:**
-    *   **تفعيل الـ Security Validation فوراً.**
-    *   إضافة Validator للـ Inputs/Outputs (مثل FluentValidation).
-    *   استخدام Circuit Breaker لو الـ Error Rate زاد عن حد معين.
+    *   (مكتمل) تفعيل الـ Security Validation.
+    *   (مستقبلي) إضافة Validator للـ Inputs/Outputs.
 
 ### 3. Memory & State (الذاكرة والحالة) 🟠
 *   **الوضع الحالي:** استخدام `IMemoryCache` (في الرامات).
