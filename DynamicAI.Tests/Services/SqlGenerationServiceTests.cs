@@ -24,7 +24,8 @@ public class SqlGenerationServiceTests
     {
         _chatService = A.Fake<IChatCompletionService>();
         var logger = A.Fake<ILogger<SqlGenerationService>>();
-        _sut = new SqlGenerationService(_chatService, logger);
+        var costTracker = A.Fake<IGeminiCostTracker>();
+        _sut = new SqlGenerationService(_chatService, logger, costTracker);
     }
 
     [Fact]

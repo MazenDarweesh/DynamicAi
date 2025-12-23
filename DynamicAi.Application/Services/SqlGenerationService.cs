@@ -17,6 +17,7 @@ namespace DynamicAi.Application.Services
     {
         private readonly IChatCompletionService _chatService;
         private readonly ILogger<SqlGenerationService> _logger;
+        private readonly IGeminiCostTracker _costTracker;
 
         // ============================================================================
         // GEMINI IMPLICIT CACHE OPTIMIZATION
@@ -26,10 +27,14 @@ namespace DynamicAi.Application.Services
         private static readonly Lazy<string> _cachedStaticRules = new Lazy<string>(() => BuildStaticSystemRules());
         private static int _staticRulesTokenCount = 0;
 
-        public SqlGenerationService(IChatCompletionService chatService, ILogger<SqlGenerationService> logger)
+        public SqlGenerationService(
+            IChatCompletionService chatService,
+            ILogger<SqlGenerationService> logger,
+            IGeminiCostTracker costTracker)
         {
             _chatService = chatService;
             _logger = logger;
+            _costTracker = costTracker;
         }
 
         /// <summary>
@@ -289,22 +294,16 @@ namespace DynamicAi.Application.Services
                 }
             }
 
-            // Calculate costs with cache consideration
-            double inputCostPerMillion = 0.075;  // Gemini Flash: $0.075/1M input tokens
-            double cachedCostPerMillion = 0.01875; // Cached tokens: 75% discount = $0.01875/1M
-            double outputCostPerMillion = 0.30;   // Gemini Flash: $0.30/1M output tokens
+            // Calculate costs with cache consideration using centralized tracker
+            var (totalCost, savings) = _costTracker.CalculateCost(estimatedTokens, completionTokens, cachedTokens);
 
-            int uncachedTokens = promptTokens - cachedTokens;
-            double inputCost = (uncachedTokens / 1_000_000.0) * inputCostPerMillion;
-            double cachedCost = (cachedTokens / 1_000_000.0) * cachedCostPerMillion;
-            double outputCost = (completionTokens / 1_000_000.0) * outputCostPerMillion;
-            double totalCost = inputCost + cachedCost + outputCost;
+            // Log centralized tracking event
+            _costTracker.TrackUsage("SqlGen", estimatedTokens, completionTokens, cachedTokens);
 
             // Display cache status and costs
             _logger.LogInformation("\n[GeminiCache] ═══════════════ CACHE & COST ANALYSIS ═══════════════");
             if (cachedTokens > 0)
             {
-                double savings = ((cachedTokens / 1_000_000.0) * inputCostPerMillion) - cachedCost;
                 _logger.LogInformation("[GeminiCache] ✓ CACHE HIT! {CachedTokens:N0} tokens served from cache", cachedTokens);
                 _logger.LogInformation("[GeminiCache]   Savings:           ${Savings:F6}", savings);
             }

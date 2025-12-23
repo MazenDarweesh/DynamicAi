@@ -56,6 +56,9 @@ try
     // ============================================================================
     // 3. إعداد Pipeline الطلبات
     // ============================================================================
+    // Enable Request Metrics Middleware (Phase 1: Observability)
+    app.UseMiddleware<DynamicAi.Api.Middleware.RequestMetricsMiddleware>();
+
     // Enable Serilog request logging
     app.UseSerilogRequestLogging();
 
@@ -98,6 +101,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddMemoryCache(); // For RAG and Session caching
     services.AddSingleton<IQueryCacheService, QueryCacheService>();
     services.AddSingleton<IFailedQueryLogger, FailedQueryLogger>();
+    services.AddSingleton<IGeminiCostTracker, GeminiCostTracker>(); // Phase 1: Observability
 
     // --- تسجيل عميل Qdrant ---
     var qdrantHost = configuration["Qdrant:Host"]!;
