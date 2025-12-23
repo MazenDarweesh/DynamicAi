@@ -235,3 +235,9 @@ We have implemented a robust observability layer to monitor system health and co
 *   **Unified Logging:** Replaced console output with structured JSON-ready logs across `SchemaGenerator` and `DynamicAi.Api`.
 *   **Request Metrics:** Tracks API latency (`TotalDuration`) and Status Codes for performance monitoring.---
 
+
+### 3. Testing Strategy (`DynamicAI.Tests`)
+We enforce a strict testing protocol to ensure reliability.
+*   **Unit Tests:** xUnit tests covering `SqlValidatorService`, `SqlRewriterService`, and `SqlGenerationService`.
+*   **Integration Tests:** Verifies the full pipeline from `QueryOrchestrator` to `Gemini`.
+*   **Mocking:** Uses `Moq` to simulate dependencies effectively.
