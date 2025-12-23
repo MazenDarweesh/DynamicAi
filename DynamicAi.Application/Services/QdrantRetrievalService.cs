@@ -58,15 +58,13 @@ namespace DynamicAi.Application.Services
             // ============================================================================
             // [LOGGING] بداية عملية RAG Retrieval (Multi-Step)
             // ============================================================================
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("\n╔════════════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║          [Layer 1: MULTI-STEP RAG RETRIEVAL] - STARTING               ║");
-            Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
-            Console.ResetColor();
+            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+            _logger.LogInformation("║          [Layer 1: MULTI-STEP RAG RETRIEVAL] - STARTING               ║");
+            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
-            Console.WriteLine($"[RagRetrieval] Collection: {_collectionName}");
-            Console.WriteLine($"[RagRetrieval] TenantId: {tenantId}");
-            Console.WriteLine($"[RagRetrieval] User Question: \"{userQuestion}\"");
+            _logger.LogInformation("[RagRetrieval] Collection: {Collection}", _collectionName);
+            _logger.LogInformation("[RagRetrieval] TenantId: {TenantId}", tenantId);
+            _logger.LogInformation("[RagRetrieval] User Question: \"{UserQuestion}\"", userQuestion);
 
             var contextBundle = new RetrievalContextBundle();
             var totalStart = DateTime.UtcNow;
@@ -74,9 +72,7 @@ namespace DynamicAi.Application.Services
             // ============================================================================
             // STEP 0: Extract explicit IDs from question (if provided)
             // ============================================================================
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("\n[RagRetrieval] STEP 0: Analyzing question for explicit identifiers...");
-            Console.ResetColor();
+            _logger.LogInformation("[RagRetrieval] STEP 0: Analyzing question for explicit identifiers...");
 
             int? explicitPageId = ExtractPageId(userQuestion);
             int? explicitAttributeId = ExtractAttributeId(userQuestion);
@@ -86,78 +82,59 @@ namespace DynamicAi.Application.Services
 
             if (explicitPageId.HasValue)
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[RagRetrieval] ℹ Explicit PageID detected: {explicitPageId.Value}");
-                Console.ResetColor();
+                _logger.LogInformation("[RagRetrieval] ℹ Explicit PageID detected: {ExplicitPageId}", explicitPageId.Value);
             }
             if (explicitAttributeId.HasValue)
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[RagRetrieval] ℹ Explicit AttributeID detected: {explicitAttributeId.Value}");
-                Console.ResetColor();
+                _logger.LogInformation("[RagRetrieval] ℹ Explicit AttributeID detected: {ExplicitAttributeId}", explicitAttributeId.Value);
             }
             if (explicitDetailId.HasValue) // (جديد)
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[RagRetrieval] ℹ Explicit DetailID detected: {explicitDetailId.Value}");
-                Console.ResetColor();
+                _logger.LogInformation("[RagRetrieval] ℹ Explicit DetailID detected: {ExplicitDetailId}", explicitDetailId.Value);
             }
             if (!string.IsNullOrEmpty(explicitListName))
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[RagRetrieval] ℹ Explicit ListName detected: {explicitListName}");
-                Console.ResetColor();
+                _logger.LogInformation("[RagRetrieval] ℹ Explicit ListName detected: {ExplicitListName}", explicitListName);
             }
             if (!string.IsNullOrEmpty(explicitTableName))
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[RagRetrieval] ℹ Explicit TableName detected: {explicitTableName}");
-                Console.ResetColor();
+                _logger.LogInformation("[RagRetrieval] ℹ Explicit TableName detected: {ExplicitTableName}", explicitTableName);
             }
 
             // ============================================================================
             // STEP 1: تحويل السؤال إلى Embedding Vector
             // ============================================================================
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("\n[RagRetrieval] STEP 1: Converting question to embedding vector...");
-            Console.ResetColor();
+            _logger.LogInformation("[RagRetrieval] STEP 1: Converting question to embedding vector...");
 
             var embeddingStart = DateTime.UtcNow;
             var embedding = await _embeddingService.GenerateAsync(userQuestion);
             var embeddingDuration = (DateTime.UtcNow - embeddingStart).TotalMilliseconds;
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[RagRetrieval] ✓ Embedding generated in {embeddingDuration:F0}ms");
-            Console.WriteLine($"[RagRetrieval] Vector dimensions: {embedding.Vector.Length}");
-            Console.WriteLine($"[RagRetrieval] Vector preview (first 5 values): [{string.Join(", ", embedding.Vector.ToArray().Take(5).Select(v => v.ToString("F4")))}...]");
-            Console.ResetColor();
+            _logger.LogInformation("[RagRetrieval] ✓ Embedding generated in {EmbeddingDuration:F0}ms", embeddingDuration);
+            _logger.LogDebug("[RagRetrieval] Vector dimensions: {VectorLength}", embedding.Vector.Length);
 
             // ============================================================================
             // STEP 2: إيجاد الشاشة (Page Discovery) - [OPTIMIZED]
             // ============================================================================
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("\n[RagRetrieval] STEP 2: Searching for relevant Page...");
-            Console.ResetColor();
+            _logger.LogInformation("[RagRetrieval] STEP 2: Searching for relevant Page...");
 
             Filter pageFilter;
             if (explicitPageId.HasValue)
             {
                 pageFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.Pages, (QdrantConstants.PageId, explicitPageId.Value));
-                Console.WriteLine($"[RagRetrieval] Using EXACT filter for PageID: {explicitPageId.Value}");
+                _logger.LogInformation("[RagRetrieval] Using EXACT filter for PageID: {ExplicitPageId}", explicitPageId.Value);
             }
             else
             {
                 pageFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.Pages);
-                Console.WriteLine($"[RagRetrieval] Using SEMANTIC search for Page.");
+                _logger.LogInformation("[RagRetrieval] Using SEMANTIC search for Page.");
             }
 
             var pageResults = await SearchQdrantAsync(embedding, pageFilter, 1, "Pages");
 
             if (!pageResults.Any())
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("[RagRetrieval] ⚠ No Page found - returning empty context bundle");
-                Console.ResetColor();
+                _logger.LogWarning("[RagRetrieval] ⚠ No Page found - returning empty context bundle");
                 return contextBundle;
             }
 
@@ -165,9 +142,7 @@ namespace DynamicAi.Application.Services
             var pageNode = JsonNode.Parse(matchedPageJson)!.AsObject();
             int pageId = pageNode[DbColumns.PageID_Upper]!.GetValue<int>();
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[RagRetrieval] ✓ Using Page with PageID: {pageId}");
-            Console.ResetColor();
+            _logger.LogInformation("[RagRetrieval] ✓ Using Page with PageID: {PageId}", pageId);
 
             // ============================================================================
             // RAG CONTEXT CACHE CHECK (L2) - Check if we have cached context for this page
@@ -177,42 +152,34 @@ namespace DynamicAi.Application.Services
                 string cacheKey = $"RagContext:{tenantId}:{pageId}";
                 if (_memoryCache.TryGetValue(cacheKey, out CachedPageContext? cachedContext) && cachedContext != null)
                 {
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"\n[RagRetrieval] ✓ RAG CACHE HIT! Using cached context for PageID {pageId}");
-                    Console.WriteLine($"[RagRetrieval] Cached at: {cachedContext.CachedAt:HH:mm:ss}");
-                    Console.WriteLine($"[RagRetrieval] Skipping Steps 2.5-6 (saved ~3s!)");
-                    Console.ResetColor();
+                    _logger.LogInformation("[RagRetrieval] ✓ RAG CACHE HIT! Using cached context for PageID {PageId}", pageId);
+                    _logger.LogInformation("[RagRetrieval] Cached at: {CachedAt:HH:mm:ss}", cachedContext.CachedAt);
+                    _logger.LogInformation("[RagRetrieval] Skipping Steps 2.5-6 (saved ~3s!)");
 
                     _logger.LogInformation("[RagCache] HIT for PageID {PageId}", pageId);
 
                     var cacheDuration = (DateTime.UtcNow - totalStart).TotalMilliseconds;
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"\n[RagRetrieval] ═══════════════ CONTEXT BUNDLE (FROM CACHE) ═══════════════");
-                    Console.WriteLine($"[RagRetrieval] Unified Context Size: {cachedContext.UnifiedPageContext?.Length ?? 0} chars");
-                    Console.WriteLine($"[RagRetrieval] Dictionary Entries:  {cachedContext.DictionaryEntries.Count}");
-                    Console.WriteLine($"[RagRetrieval] Business Rules:      {cachedContext.BusinessRules.Count}");
-                    Console.WriteLine($"[RagRetrieval] Total Execution:     {cacheDuration:F0}ms (CACHE HIT!)");
-                    Console.WriteLine("\n╔════════════════════════════════════════════════════════════════════════╗");
-                    Console.WriteLine("║        [Layer 1: RAG RETRIEVAL] - COMPLETED (FROM CACHE) ✓            ║");
-                    Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝\n");
-                    Console.ResetColor();
+                    _logger.LogInformation("═══════════════ CONTEXT BUNDLE (FROM CACHE) ═══════════════");
+                    _logger.LogInformation("[RagRetrieval] Unified Context Size: {ContextSize} chars", cachedContext.UnifiedPageContext?.Length ?? 0);
+                    _logger.LogInformation("[RagRetrieval] Dictionary Entries:  {DictCount}", cachedContext.DictionaryEntries.Count);
+                    _logger.LogInformation("[RagRetrieval] Business Rules:      {RulesCount}", cachedContext.BusinessRules.Count);
+                    _logger.LogInformation("[RagRetrieval] Total Execution:     {Duration:F0}ms (CACHE HIT!)", cacheDuration);
+                    _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+                    _logger.LogInformation("║        [Layer 1: RAG RETRIEVAL] - COMPLETED (FROM CACHE) ✓            ║");
+                    _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
                     return cachedContext.ToBundle();
                 }
                 else
                 {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"\n[RagRetrieval] ✗ RAG CACHE MISS for PageID {pageId} - Continuing full retrieval");
-                    Console.ResetColor();
+                    _logger.LogInformation("[RagRetrieval] ✗ RAG CACHE MISS for PageID {PageId} - Continuing full retrieval", pageId);
                 }
             }
 
             // ============================================================================
             // STEP 2.5: جلب سياق الموديول والقائمة الرئيسية (Module & MenuMaster Context)
             // ============================================================================
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine($"\n[RagRetrieval] STEP 2.5: Fetching Module & Menu context for PageID: {pageId}...");
-            Console.ResetColor();
+            _logger.LogInformation("[RagRetrieval] STEP 2.5: Fetching Module & Menu context for PageID: {PageId}...", pageId);
 
             var moduleFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.Modul, (QdrantConstants.PageId, pageId));
             var moduleResults = await SearchQdrantAsync(embedding, moduleFilter, 1, DbTables.Modul);
@@ -228,36 +195,30 @@ namespace DynamicAi.Application.Services
                 pageNode["MenuMasterContext"] = JsonNode.Parse(menuMasterResults.First());
             }
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[RagRetrieval] ✓ Found {moduleResults.Count} Module(s) and {menuMasterResults.Count} MenuMaster(s).");
-            Console.ResetColor();
+            _logger.LogInformation("[RagRetrieval] ✓ Found {ModuleCount} Module(s) and {MenuCount} MenuMaster(s).", moduleResults.Count, menuMasterResults.Count);
 
             // ============================================================================
             // STEP 3: إيجاد الهيكل (PageAttribute Discovery) - [OPTIMIZED]
             // ============================================================================
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("\n[RagRetrieval] STEP 3: Searching for PageAttributes...");
-            Console.ResetColor();
+            _logger.LogInformation("[RagRetrieval] STEP 3: Searching for PageAttributes...");
 
             Filter attrFilter;
             if (explicitAttributeId.HasValue)
             {
                 attrFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.PageAttribute, (QdrantConstants.AttributeId, explicitAttributeId.Value));
-                Console.WriteLine($"[RagRetrieval] Using EXACT filter for AttributeID: {explicitAttributeId.Value}");
+                _logger.LogInformation("[RagRetrieval] Using EXACT filter for AttributeID: {ExplicitAttributeId}", explicitAttributeId.Value);
             }
             else
             {
                 attrFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.PageAttribute, (QdrantConstants.PageId, pageId));
-                Console.WriteLine($"[RagRetrieval] Using SEMANTIC search for PageAttributes related to PageID: {pageId}");
+                _logger.LogInformation("[RagRetrieval] Using SEMANTIC search for PageAttributes related to PageID: {PageId}", pageId);
             }
 
             var attrResults = await SearchQdrantAsync(embedding, attrFilter, 20, "PageAttribute");
 
             if (!attrResults.Any())
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("[RagRetrieval] ⚠ No PageAttribute found - returning partial context");
-                Console.ResetColor();
+                _logger.LogWarning("[RagRetrieval] ⚠ No PageAttribute found - returning partial context");
                 contextBundle.UnifiedPageContext = pageNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
                 return contextBundle;
             }
@@ -309,9 +270,7 @@ namespace DynamicAi.Application.Services
             var allAttributeIds = attributeMap.Keys.ToList();
             if (allAttributeIds.Any())
             {
-                Console.ForegroundColor = ConsoleColor.Magenta;
-                Console.WriteLine($"\n[RagRetrieval] STEP 3.5: Fetching PageDetails for {allAttributeIds.Count} Attribute(s)...");
-                Console.ResetColor();
+                _logger.LogInformation("[RagRetrieval] STEP 3.5: Fetching PageDetails for {Count} Attribute(s)...", allAttributeIds.Count);
 
                 int totalDetailsLinked = 0;
 
@@ -354,9 +313,7 @@ namespace DynamicAi.Application.Services
                     }
                 }
 
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[RagRetrieval] ✓ Linked {totalDetailsLinked} PageDetail(s) across {allAttributeIds.Count} attribute(s).");
-                Console.ResetColor();
+                _logger.LogInformation("[RagRetrieval] ✓ Linked {DetailsCount} PageDetail(s) across {AttrCount} attribute(s).", totalDetailsLinked, allAttributeIds.Count);
             }
 
             // ============================================================================
@@ -397,9 +354,10 @@ namespace DynamicAi.Application.Services
                     .ToList();
 
                 int filteredCount = contextBundle.DictionaryEntries.Count;
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"[RagRetrieval] ✓ Dictionary Filtering: {originalCount} → {filteredCount} entries ({(originalCount - filteredCount) * 100 / Math.Max(originalCount, 1)}% reduction)");
-                Console.ResetColor();
+                _logger.LogInformation("[RagRetrieval] ✓ Dictionary Filtering: {Original} → {Filtered} entries ({Reduction}% reduction)",
+                    originalCount,
+                    filteredCount,
+                    (originalCount - filteredCount) * 100 / Math.Max(originalCount, 1));
             }
 
             contextBundle.UnifiedPageContext = pageNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
@@ -409,16 +367,14 @@ namespace DynamicAi.Application.Services
             // ============================================================================
             var totalDuration = (DateTime.UtcNow - totalStart).TotalMilliseconds;
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"\n[RagRetrieval] ═══════════════ CONTEXT BUNDLE SUMMARY ═══════════════");
-            Console.WriteLine($"[RagRetrieval] Unified Context Size: {contextBundle.UnifiedPageContext?.Length ?? 0} chars");
-            Console.WriteLine($"[RagRetrieval] Dictionary Entries:  {contextBundle.DictionaryEntries.Count}");
-            Console.WriteLine($"[RagRetrieval] Business Rules:      {contextBundle.BusinessRules.Count}");
-            Console.WriteLine($"[RagRetrieval] Total Execution:     {totalDuration:F0}ms");
-            Console.WriteLine("\n╔════════════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║        [Layer 1: MULTI-STEP RAG RETRIEVAL] - COMPLETED ✓              ║");
-            Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝\n");
-            Console.ResetColor();
+            _logger.LogInformation("═══════════════ CONTEXT BUNDLE SUMMARY ═══════════════");
+            _logger.LogInformation("[RagRetrieval] Unified Context Size: {ContextSize} chars", contextBundle.UnifiedPageContext?.Length ?? 0);
+            _logger.LogInformation("[RagRetrieval] Dictionary Entries:  {DictCount}", contextBundle.DictionaryEntries.Count);
+            _logger.LogInformation("[RagRetrieval] Business Rules:      {RulesCount}", contextBundle.BusinessRules.Count);
+            _logger.LogInformation("[RagRetrieval] Total Execution:     {Duration:F0}ms", totalDuration);
+            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+            _logger.LogInformation("║        [Layer 1: MULTI-STEP RAG RETRIEVAL] - COMPLETED ✓              ║");
+            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
             // ============================================================================
             // RAG CONTEXT CACHE STORE (L2) - Cache the context for future requests
@@ -441,9 +397,7 @@ namespace DynamicAi.Application.Services
 
                 _memoryCache.Set(cacheKey, cachedContext, cacheOptions);
 
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[RagRetrieval] ✓ Cached context for PageID {pageId} (TTL: {_ragCacheTTLMinutes} minutes)");
-                Console.ResetColor();
+                _logger.LogInformation("[RagRetrieval] ✓ Cached context for PageID {PageId} (TTL: {TTL} minutes)", pageId, _ragCacheTTLMinutes);
 
                 _logger.LogInformation("[RagCache] Stored context for PageID {PageId}", pageId);
             }
@@ -632,8 +586,7 @@ namespace DynamicAi.Application.Services
         {
             var searchStart = DateTime.UtcNow;
 
-            Console.ForegroundColor = ConsoleColor.DarkYellow;
-            Console.WriteLine($"[RagRetrieval]   → Filter conditions for {stepName}:");
+            _logger.LogDebug("[RagRetrieval]   → Filter conditions for {StepName}:", stepName);
             foreach (var condition in filter.Must)
             {
                 if (condition.Field is not null)
@@ -642,14 +595,13 @@ namespace DynamicAi.Application.Services
                     var match = condition.Field.Match;
 
                     if (match.Keyword != null && !string.IsNullOrEmpty(match.Keyword))
-                        Console.WriteLine($"[RagRetrieval]      • {key} = \"{match.Keyword}\" (string)");
+                        _logger.LogDebug("[RagRetrieval]      • {Key} = \"{Value}\" (string)", key, match.Keyword);
                     else if (match.HasInteger)
-                        Console.WriteLine($"[RagRetrieval]      • {key} = {match.Integer} (integer)");
+                        _logger.LogDebug("[RagRetrieval]      • {Key} = {Value} (integer)", key, match.Integer);
                     else if (match.Keywords != null && match.Keywords.Strings.Any())
-                        Console.WriteLine($"[RagRetrieval]      • {key} IN [{string.Join(", ", match.Keywords.Strings.Select(s => $"\"{s}\""))}] (array)");
+                        _logger.LogDebug("[RagRetrieval]      • {Key} IN [{Values}] (array)", key, string.Join(", ", match.Keywords.Strings.Select(s => $"\"{s}\"")));
                 }
             }
-            Console.ResetColor();
 
             var searchResult = await _qdrantClient.SearchAsync(
                 _collectionName,
@@ -676,18 +628,16 @@ namespace DynamicAi.Application.Services
                 .Where(text => !string.IsNullOrEmpty(text))
                 .ToList();
 
-            Console.WriteLine($"[RagRetrieval]   → {stepName} search completed in {searchDuration:F0}ms");
-            Console.WriteLine($"[RagRetrieval]   → Found {searchResult.Count} raw results, {results.Count} valid entries");
+            _logger.LogDebug("[RagRetrieval]   → {StepName} search completed in {Duration:F0}ms", stepName, searchDuration);
+            _logger.LogDebug("[RagRetrieval]   → Found {RawCount} raw results, {ValidCount} valid entries", searchResult.Count, results.Count);
 
             // ============================================================================
             // [DIAGNOSTIC] If no results found, log payload keys from a sample point
             // ============================================================================
             if (searchResult.Count == 0 && stepName == DbTables.Pages)
             {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"[RagRetrieval]   → WARNING: No results found for {stepName}");
-                Console.WriteLine($"[RagRetrieval]   → Attempting to retrieve ANY page to diagnose field names...");
-                Console.ResetColor();
+                _logger.LogWarning("[RagRetrieval]   → WARNING: No results found for {StepName}", stepName);
+                _logger.LogWarning("[RagRetrieval]   → Attempting to retrieve ANY page to diagnose field names...");
 
                 try
                 {
@@ -715,40 +665,32 @@ namespace DynamicAi.Application.Services
 
                     if (diagnosticResult.Count > 0)
                     {
-                        Console.ForegroundColor = ConsoleColor.Cyan;
-                        Console.WriteLine($"[RagRetrieval]   → Found {diagnosticResult.Count} Pages without PageID filter");
-                        Console.WriteLine($"[RagRetrieval]   → Sample payload keys available:");
+                        _logger.LogInformation("[RagRetrieval]   → Found {Count} Pages without PageID filter", diagnosticResult.Count);
+                        _logger.LogInformation("[RagRetrieval]   → Sample payload keys available:");
 
                         var firstPoint = diagnosticResult[0];
                         foreach (var key in firstPoint.Payload.Keys)
                         {
                             var value = firstPoint.Payload[key];
-                            Console.WriteLine($"[RagRetrieval]      • {key}: {value}");
+                            _logger.LogInformation("[RagRetrieval]      • {Key}: {Value}", key, value);
                         }
-                        Console.ResetColor();
 
                         // Try to parse original_text to see the actual PageID
                         if (firstPoint.Payload.ContainsKey(QdrantConstants.OriginalText))
                         {
                             var sampleText = firstPoint.Payload[QdrantConstants.OriginalText].StringValue;
-                            Console.ForegroundColor = ConsoleColor.Cyan;
-                            Console.WriteLine($"[RagRetrieval]   → Sample original_text: {(sampleText?.Length > 200 ? sampleText.Substring(0, 200) + "..." : sampleText)}");
-                            Console.ResetColor();
+                            _logger.LogInformation("[RagRetrieval]   → Sample original_text: {SampleText}", (sampleText?.Length > 200 ? sampleText.Substring(0, 200) + "..." : sampleText));
                         }
                     }
                     else
                     {
-                        Console.ForegroundColor = ConsoleColor.Red;
-                        Console.WriteLine($"[RagRetrieval]   → ERROR: No Pages found at all in Qdrant!");
-                        Console.WriteLine($"[RagRetrieval]   → Check if data is loaded into collection: {_collectionName}");
-                        Console.ResetColor();
+                        _logger.LogError("[RagRetrieval]   → ERROR: No Pages found at all in Qdrant!");
+                        _logger.LogError("[RagRetrieval]   → Check if data is loaded into collection: {Collection}", _collectionName);
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"[RagRetrieval]   → Diagnostic search failed: {ex.Message}");
-                    Console.ResetColor();
+                    _logger.LogError(ex, "[RagRetrieval]   → Diagnostic search failed");
                 }
             }
 
@@ -756,14 +698,12 @@ namespace DynamicAi.Application.Services
             if (searchResult.Count > 0)
             {
                 var firstPoint = searchResult[0];
-                Console.ForegroundColor = ConsoleColor.Gray;
-                Console.WriteLine($"[RagRetrieval]   → Top result score: {firstPoint.Score:F4}");
+                _logger.LogDebug("[RagRetrieval]   → Top result score: {Score:F4}", firstPoint.Score);
                 if (results.Count > 0)
                 {
                     var preview = results[0].Length > 100 ? results[0].Substring(0, 100) + "..." : results[0];
-                    Console.WriteLine($"[RagRetrieval]   → Content preview: {preview}");
+                    _logger.LogDebug("[RagRetrieval]   → Content preview: {Preview}", preview);
                 }
-                Console.ResetColor();
             }
 
             return results;

@@ -1,5 +1,7 @@
 using DynamicAi.Application.Services;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
+using FakeItEasy;
 
 namespace DynamicAI.Tests.Services;
 
@@ -13,7 +15,8 @@ public class SqlRewriterServiceTests
 
     public SqlRewriterServiceTests()
     {
-        _sut = new SqlRewriterService();
+        var logger = A.Fake<ILogger<SqlRewriterService>>();
+        _sut = new SqlRewriterService(logger);
     }
 
     [Fact]

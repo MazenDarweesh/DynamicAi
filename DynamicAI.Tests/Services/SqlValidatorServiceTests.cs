@@ -1,6 +1,8 @@
 using System.Security;
 using DynamicAi.Application.Services;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
+using FakeItEasy;
 
 namespace DynamicAI.Tests.Services;
 
@@ -14,7 +16,8 @@ public class SqlValidatorServiceTests
 
     public SqlValidatorServiceTests()
     {
-        _service = new SqlValidatorService();
+        var logger = A.Fake<ILogger<SqlValidatorService>>();
+        _service = new SqlValidatorService(logger);
     }
 
     #region Syntax Validation Tests

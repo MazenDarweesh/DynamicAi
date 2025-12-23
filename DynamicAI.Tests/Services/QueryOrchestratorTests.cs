@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace DynamicAI.Tests.Services;
@@ -51,6 +52,8 @@ public class QueryOrchestratorTests
             A<CancellationToken>._))
             .Returns(Task.FromResult(fakeEmbedding));
 
+        var logger = A.Fake<ILogger<QueryOrchestrator>>();
+
         _sut = new QueryOrchestrator(
             _retrievalService,
             _generationService,
@@ -59,6 +62,7 @@ public class QueryOrchestratorTests
             _executorService,
             _queryCacheService,
             _embeddingService,
+            logger,
             _configuration
         );
     }

@@ -3,6 +3,8 @@ using DynamicAi.Application.Security;
 using DynamicAi.Application.Services;
 using FluentAssertions;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
+using Microsoft.Extensions.Logging;
+using FakeItEasy;
 
 namespace DynamicAI.Tests.Integration;
 
@@ -19,7 +21,8 @@ public class SecurityPipelineTests
 
     public SecurityPipelineTests()
     {
-        _validatorService = new SqlValidatorService();
+        var logger = A.Fake<ILogger<SqlValidatorService>>();
+        _validatorService = new SqlValidatorService(logger);
     }
 
     #region SQL Injection Prevention Tests

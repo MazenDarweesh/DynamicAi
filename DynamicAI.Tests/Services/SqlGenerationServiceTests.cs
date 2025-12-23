@@ -7,6 +7,7 @@ using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace DynamicAI.Tests.Services;
 
@@ -22,7 +23,8 @@ public class SqlGenerationServiceTests
     public SqlGenerationServiceTests()
     {
         _chatService = A.Fake<IChatCompletionService>();
-        _sut = new SqlGenerationService(_chatService);
+        var logger = A.Fake<ILogger<SqlGenerationService>>();
+        _sut = new SqlGenerationService(_chatService, logger);
     }
 
     [Fact]
@@ -108,7 +110,7 @@ public class SqlGenerationServiceTests
 
         // Assert
         A.CallTo(() => _chatService.GetChatMessageContentsAsync(
-            A<ChatHistory>.That.Matches(h => h.Count > 0 && h.Last().Content.Contains(schema)),
+            A<ChatHistory>.That.Matches(h => h.Count > 0 && h.Last().Content != null && h.Last().Content!.Contains(schema)),
             A<PromptExecutionSettings>._,
             A<Kernel>._,
             default)).MustHaveHappened();

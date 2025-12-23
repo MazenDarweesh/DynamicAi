@@ -117,9 +117,7 @@ public class QueryCacheService : IQueryCacheService
         {
             await EnsureCollectionExistsAsync();
 
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("\n[QueryCache] Searching for similar cached queries...");
-            Console.ResetColor();
+            _logger.LogInformation("[QueryCache] Searching for similar cached queries...");
 
             // Build filter for tenant and company
             var filter = new Filter();
@@ -162,26 +160,21 @@ public class QueryCacheService : IQueryCacheService
                     CreatedAt = DateTime.Parse(payload["created_at"].StringValue)
                 };
 
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[QueryCache] ✓ Cache HIT! Score: {topResult.Score:F4}");
-                Console.WriteLine($"[QueryCache] Original: \"{cachedResult.OriginalQuestion}\"");
-                Console.ResetColor();
+                _logger.LogInformation("[QueryCache] ✓ Cache HIT! Score: {Score:F4}, Original: \"{OriginalQuestion}\"",
+                    topResult.Score,
+                    cachedResult.OriginalQuestion);
 
                 return cachedResult;
             }
 
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"[QueryCache] ✗ Cache MISS (no result above {_similarityThreshold} threshold)");
-            Console.ResetColor();
+            _logger.LogInformation("[QueryCache] ✗ Cache MISS (no result above {SimilarityThreshold} threshold)", _similarityThreshold);
 
             return null;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[QueryCache] Error searching cache, continuing without cache");
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"[QueryCache] ⚠ Cache search failed: {ex.Message}");
-            Console.ResetColor();
+            _logger.LogWarning(ex, "[QueryCache] ⚠ Cache search failed: {ErrorMessage}", ex.Message);
             return null;
         }
     }
@@ -222,19 +215,16 @@ public class QueryCacheService : IQueryCacheService
 
             await _qdrantClient.UpsertAsync(_collectionName, new[] { point });
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[QueryCache] ✓ Stored new cache entry (ID: {pointId})");
-            Console.WriteLine($"[QueryCache] Question: \"{question.Substring(0, Math.Min(50, question.Length))}...\"");
-            Console.ResetColor();
+            _logger.LogInformation("[QueryCache] ✓ Stored new cache entry (ID: {PointId}). Question: \"{QuestionFragment}...\"",
+                pointId,
+                question.Substring(0, Math.Min(50, question.Length)));
 
             _logger.LogInformation("[QueryCache] Cached query for PageID {PageId}", pageId);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[QueryCache] Failed to store cache entry");
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"[QueryCache] ⚠ Failed to cache: {ex.Message}");
-            Console.ResetColor();
+            _logger.LogWarning(ex, "[QueryCache] ⚠ Failed to cache: {ErrorMessage}", ex.Message);
         }
     }
 
@@ -245,18 +235,14 @@ public class QueryCacheService : IQueryCacheService
         {
             await EnsureCollectionExistsAsync();
 
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"\n[QueryCache] Deleting cache entry: {cacheId}");
-            Console.ResetColor();
+            _logger.LogInformation("[QueryCache] Deleting cache entry: {CacheId}", cacheId);
 
             await _qdrantClient.DeleteAsync(
                 _collectionName,
                 new PointId { Uuid = cacheId }
             );
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[QueryCache] ✓ Cache entry deleted successfully");
-            Console.ResetColor();
+            _logger.LogInformation("[QueryCache] ✓ Cache entry deleted successfully");
 
             _logger.LogInformation("[QueryCache] Deleted cache entry {CacheId}", cacheId);
             return true;
@@ -264,9 +250,7 @@ public class QueryCacheService : IQueryCacheService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[QueryCache] Failed to delete cache entry {CacheId}", cacheId);
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"[QueryCache] ⚠ Delete failed: {ex.Message}");
-            Console.ResetColor();
+            _logger.LogError(ex, "[QueryCache] ⚠ Delete failed: {ErrorMessage}", ex.Message);
             return false;
         }
     }
@@ -278,9 +262,7 @@ public class QueryCacheService : IQueryCacheService
         {
             await EnsureCollectionExistsAsync();
 
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"\n[QueryCache] Searching for similar entries to delete...");
-            Console.ResetColor();
+            _logger.LogInformation("[QueryCache] Searching for similar entries to delete...");
 
             // Build filter for tenant and company
             var filter = new Filter();
@@ -312,9 +294,7 @@ public class QueryCacheService : IQueryCacheService
 
             if (!searchResult.Any())
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[QueryCache] No similar entries found to delete");
-                Console.ResetColor();
+                _logger.LogInformation("[QueryCache] No similar entries found to delete");
                 return false;
             }
 
@@ -326,9 +306,7 @@ public class QueryCacheService : IQueryCacheService
                 await _qdrantClient.DeleteAsync(_collectionName, pointId);
             }
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[QueryCache] ✓ Deleted {pointIds.Length} similar cache entries");
-            Console.ResetColor();
+            _logger.LogInformation("[QueryCache] ✓ Deleted {Count} similar cache entries", pointIds.Length);
 
             _logger.LogInformation("[QueryCache] Deleted {Count} similar cache entries", pointIds.Length);
             return true;
@@ -336,9 +314,7 @@ public class QueryCacheService : IQueryCacheService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[QueryCache] Failed to delete similar cache entries");
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"[QueryCache] ⚠ Delete similar failed: {ex.Message}");
-            Console.ResetColor();
+            _logger.LogError(ex, "[QueryCache] ⚠ Delete similar failed: {ErrorMessage}", ex.Message);
             return false;
         }
     }

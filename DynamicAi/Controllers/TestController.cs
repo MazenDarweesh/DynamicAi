@@ -15,10 +15,12 @@ namespace DynamicAi.Api.Controllers
     public class TestController : ControllerBase
     {
         private readonly IQueryOrchestrator _queryOrchestrator;
+        private readonly ILogger<TestController> _logger;
 
-        public TestController(IQueryOrchestrator queryOrchestrator)
+        public TestController(IQueryOrchestrator queryOrchestrator, ILogger<TestController> logger)
         {
             _queryOrchestrator = queryOrchestrator;
+            _logger = logger;
         }
 
         [HttpGet("ping")]
@@ -33,31 +35,21 @@ namespace DynamicAi.Api.Controllers
         [HttpPost("ask")]
         public async Task<IActionResult> AskQuery([FromBody] AskRequest request)
         {
-            // ============================================================================
-            // API Layer - تسجيل بداية الطلب
-            // ============================================================================
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine("\n\n");
-            Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
-            Console.WriteLine("█                                                                          █");
-            Console.WriteLine("█                    API REQUEST RECEIVED - /Test/ask                     █");
-            Console.WriteLine("█                                                                          █");
-            Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
-            Console.ResetColor();
+            using var scope = _logger.BeginScope(new Dictionary<string, object>
+            {
+                ["TenantId"] = request.TenantId ?? "null",
+                ["CompanyId"] = request.ComID ?? (object)"null"
+            });
 
-            Console.WriteLine($"[API] Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
-            Console.WriteLine($"[API] HTTP Method: POST");
-            Console.WriteLine($"[API] Endpoint: /Test/ask");
+            _logger.LogInformation("API REQUEST RECEIVED - /Test/ask. Question: \"{Question}\"", request.Question);
 
             if (string.IsNullOrWhiteSpace(request.Question))
             {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("[API] ✗ Validation failed: Question cannot be empty.");
-                Console.ResetColor();
+                _logger.LogWarning("Validation failed: Question cannot be empty.");
                 return BadRequest("Question cannot be empty.");
             }
 
-            Console.WriteLine($"[API] Question: \"{request.Question}\"");
+            _logger.LogDebug("Starting orchestrator pipeline...");
             Console.WriteLine($"[API] Tenant ID: {request.TenantId ?? "null"}");
             Console.WriteLine($"[API] Company ID (ComID): {(request.ComID.HasValue ? request.ComID.Value.ToString() : "null")}");
             Console.WriteLine("[API] Starting orchestrator pipeline...\n");
@@ -72,16 +64,7 @@ namespace DynamicAi.Api.Controllers
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
 
                 // نجاح العملية
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine("\n████████████████████████████████████████████████████████████████████████████");
-                Console.WriteLine("█                                                                          █");
-                Console.WriteLine("█                    API REQUEST SUCCESSFUL - 200 OK                      █");
-                Console.WriteLine("█                                                                          █");
-                Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
-                Console.ResetColor();
-
-                Console.WriteLine($"[API] Total API request duration: {apiDuration:F0}ms");
-                Console.WriteLine($"[API] Response: OK (200)\n\n");
+                _logger.LogInformation("API REQUEST SUCCESSFUL - 200 OK. Duration: {Duration:F0}ms", apiDuration);
 
                 return Ok(result);
             }
@@ -92,21 +75,7 @@ namespace DynamicAi.Api.Controllers
             {
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
 
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("\n████████████████████████████████████████████████████████████████████████████");
-                Console.WriteLine("█                                                                          █");
-                Console.WriteLine("█              API REQUEST FAILED - QUERY EXECUTION ERROR                 █");
-                Console.WriteLine("█                                                                          █");
-                Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
-                Console.ResetColor();
-
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"[API] Error Type: QueryExecutionException (Layer 5)");
-                Console.WriteLine($"[API] Error Message: {qEx.Message}");
-                Console.WriteLine($"[API] SQL: {qEx.RewrittenSql}");
-                Console.WriteLine($"[API] Failed after {apiDuration:F0}ms");
-                Console.WriteLine($"[API] Response: InternalServerError (500) with Metadata\n\n");
-                Console.ResetColor();
+                _logger.LogError(qEx, "API REQUEST FAILED - QueryExecutionException. SQL: {Sql}. Duration: {Duration:F0}ms", qEx.RewrittenSql, apiDuration);
 
                 return StatusCode(500, new { error = qEx.Message, sql = qEx.RewrittenSql });
             }
@@ -114,21 +83,8 @@ namespace DynamicAi.Api.Controllers
             {
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
 
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("\n████████████████████████████████████████████████████████████████████████████");
-                Console.WriteLine("█                                                                          █");
-                Console.WriteLine("█                 API REQUEST - CLARIFICATION REQUIRED                    █");
-                Console.WriteLine("█                                                                          █");
-                Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
-                Console.ResetColor();
-
                 var aiQuestion = ex.Message.Replace("INTERACTION_REQUIRED:", "").Trim();
-
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[API] AI Question: \"{aiQuestion}\"");
-                Console.WriteLine($"[API] Total API request duration: {apiDuration:F0}ms");
-                Console.WriteLine($"[API] Response: OK (200) - Requires User Interaction\n\n");
-                Console.ResetColor();
+                _logger.LogWarning("API REQUEST - CLARIFICATION REQUIRED. AI Question: \"{AiQuestion}\". Duration: {Duration:F0}ms", aiQuestion, apiDuration);
 
                 return Ok(new { Type = "Question", Message = aiQuestion });
             }
@@ -136,20 +92,7 @@ namespace DynamicAi.Api.Controllers
             {
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
 
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("\n████████████████████████████████████████████████████████████████████████████");
-                Console.WriteLine("█                                                                          █");
-                Console.WriteLine("█                 API REQUEST FAILED - SECURITY VIOLATION                 █");
-                Console.WriteLine("█                                                                          █");
-                Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
-                Console.ResetColor();
-
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"[API] Error Type: SecurityException (Layer 3)");
-                Console.WriteLine($"[API] Error Message: {secEx.Message}");
-                Console.WriteLine($"[API] Failed after {apiDuration:F0}ms");
-                Console.WriteLine($"[API] Response: BadRequest (400)\n\n");
-                Console.ResetColor();
+                _logger.LogError(secEx, "API REQUEST FAILED - SECURITY VIOLATION. Duration: {Duration:F0}ms", apiDuration);
 
                 return BadRequest($"Security Violation: {secEx.Message}");
             }
@@ -157,20 +100,7 @@ namespace DynamicAi.Api.Controllers
             {
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
 
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("\n████████████████████████████████████████████████████████████████████████████");
-                Console.WriteLine("█                                                                          █");
-                Console.WriteLine("█                  API REQUEST FAILED - SQL SYNTAX ERROR                  █");
-                Console.WriteLine("█                                                                          █");
-                Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
-                Console.ResetColor();
-
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"[API] Error Type: InvalidDataException (Layer 3)");
-                Console.WriteLine($"[API] Error Message: {sqlEx.Message}");
-                Console.WriteLine($"[API] Failed after {apiDuration:F0}ms");
-                Console.WriteLine($"[API] Response: BadRequest (400)\n\n");
-                Console.ResetColor();
+                _logger.LogError(sqlEx, "API REQUEST FAILED - SQL SYNTAX ERROR. Duration: {Duration:F0}ms", apiDuration);
 
                 return BadRequest($"SQL Syntax Error: {sqlEx.Message}");
             }
@@ -178,20 +108,7 @@ namespace DynamicAi.Api.Controllers
             {
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
 
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("\n████████████████████████████████████████████████████████████████████████████");
-                Console.WriteLine("█                                                                          █");
-                Console.WriteLine("█                  API REQUEST FAILED - DATABASE ERROR                    █");
-                Console.WriteLine("█                                                                          █");
-                Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
-                Console.ResetColor();
-
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"[API] Error Type: SqlException (Layer 5)");
-                Console.WriteLine($"[API] Error Message: {dbEx.Message}");
-                Console.WriteLine($"[API] Failed after {apiDuration:F0}ms");
-                Console.WriteLine($"[API] Response: InternalServerError (500)\n\n");
-                Console.ResetColor();
+                _logger.LogCritical(dbEx, "API REQUEST FAILED - DATABASE ERROR. Duration: {Duration:F0}ms", apiDuration);
 
                 return StatusCode(500, $"Database Error: {dbEx.Message}");
             }
@@ -200,27 +117,7 @@ namespace DynamicAi.Api.Controllers
             {
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
 
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("\n████████████████████████████████████████████████████████████████████████████");
-                Console.WriteLine("█                                                                          █");
-                Console.WriteLine("█                 API REQUEST FAILED - UNEXPECTED ERROR                   █");
-                Console.WriteLine("█                                                                          █");
-                Console.WriteLine("████████████████████████████████████████████████████████████████████████████");
-                Console.ResetColor();
-
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"[API] Error Type: {ex.GetType().Name}");
-                Console.WriteLine($"[API] Error Message: {ex.Message}");
-                Console.WriteLine($"[API] Failed after {apiDuration:F0}ms");
-                Console.WriteLine($"[API] Response: InternalServerError (500)");
-
-                if (ex.StackTrace != null)
-                {
-                    Console.WriteLine($"[API] Stack Trace:");
-                    Console.WriteLine(ex.StackTrace);
-                }
-                Console.WriteLine("\n");
-                Console.ResetColor();
+                _logger.LogError(ex, "API REQUEST FAILED - UNEXPECTED ERROR. Type: {ErrorType}. Duration: {Duration:F0}ms", ex.GetType().Name, apiDuration);
 
                 return StatusCode(500, $"An unexpected error occurred: {ex.Message}");
             }
