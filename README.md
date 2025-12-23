@@ -240,4 +240,4 @@ We have implemented a robust observability layer to monitor system health and co
 We enforce a strict testing protocol to ensure reliability.
 *   **Unit Tests:** xUnit tests covering `SqlValidatorService`, `SqlRewriterService`, and `SqlGenerationService`.
 *   **Integration Tests:** Verifies the full pipeline from `QueryOrchestrator` to `Gemini`.
-*   **Mocking:** Uses `Moq` to simulate dependencies effectively.
+*   **Mocking:** Uses `FakeItEasy` to simulate dependencies effectively.
