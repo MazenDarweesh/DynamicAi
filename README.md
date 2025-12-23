@@ -142,9 +142,25 @@ Navigate to `http://localhost:4200` to use the application.
 We are currently in the **MVP Caching** phase (Branch: `Dy_AI_MVP_Caching`) with **Observability Layer** integrated.
 
 ### ✅ Implemented Features
-*   **Semantic Caching:** Queries are hashed and compared using vector similarity. If a user asks "Show me listing of pages" and someone else previously asked "List all pages", the system recognizes the semantic match and reuses the generated SQL.
-*   **Context-Aware SQL Generation:** The system retrieves only relevant tables/views based on the user's question, reducing token usage and hallucination.
-*   **Basic Chat UI:** Functional interface for sending messages and viewing tabular results.
+
+#### 1. Core Logic & Caching
+*   **Semantic Caching:** Queries are hashed and compared using vector similarity (Qdrant).
+*   **Context-Aware SQL Generation:** Retrieves irrelevant tables/views to reduce token usage.
+*   **Clean Architecture:** Strict separation of concerns (Domain, Application, Infrastructure, API).
+
+#### 2. Reliability & Safety
+*   **SQL Validation Layer:** `SecurityVisitor` & `Rewriter` ensure generated SQL is safe and optimized. **(Verified by 62 Unit Tests ✅)**.
+*   **Retry Policies:** Polly integration for resilient API calls.
+
+#### 3. Observability & Cost Tracking
+*   **Cost Tracker (`GeminiCostTracker`):** Real-time tracking of input/output tokens and cost calculation for every request.
+*   **Structured Logging (`Serilog`):** Unified JSON-ready logs across all services for seamless monitoring.
+*   **Request Metrics:** Tracks latency (`TotalDuration`) and Status Codes.
+
+#### 4. Testing Strategy
+*   **Unit Tests:** Extensive coverage for `SqlValidatorService`, `SqlRewriterService`, and `SqlGenerationService`.
+*   **Integration Tests:** Verifies the full pipeline from `QueryOrchestrator` to `Gemini`.
+*   **Mocking:** Uses `FakeItEasy` for reliable dependency simulation.
 
 ### 🚧 Caching Logic Details
 *   **Similarity Threshold:** Configurable (default `0.92`).
@@ -159,41 +175,27 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 
 ### 🗺️ Development Phases
 
-#### 1️⃣ Phase 1: MVP (Completed) ✅
-*   **Goal:** Functional Foundation
-*   **Status:** Stable
-*   **Key Features:**
-    *   [x] Vector Database (Qdrant)
-    *   [x] Embedding (Gemini)
-    *   [x] SQL Generation
-    *   [x] Basic Semantic Caching
-    *   [x] Clean Architecture
-    *   [x] SQL Validation Layer (SecurityVisitor & Rewriter) - Verified by 62 Unit Tests ✅
-
-#### 2️⃣ Phase 2: Hardening (Months 2-3) 🔴 [High Priority]
+#### 1️⃣ Phase 2: Hardening (Months 2-3) 🔴 [High Priority]
 *   **Goal:** Reliability & Safety (Fixing "Silent Failures" & "Hallucinations")
 *   **Key Features:**
     *   **Reranking Layer:** Implement `IRerankingService` to re-score top-K documents (Reduces hallucinations by ~30%).
-    *   **(Completed) SQL Validation Layer:** Moved to Phase 1.
     *   **User Quotas:** Implement rate limiting and cost controls per tenant ("Cost Explosion").
     *   **Streaming Responses:** Improve UX latency perception ("Latency Blindspot").
 
-#### 3️⃣ Phase 3: Intelligence (Months 3-4) 🟡
+#### 2️⃣ Phase 3: Intelligence (Months 3-4) 🟡
 *   **Goal:** Higher Recall & Context Quality
 *   **Key Features:**
     *   **Hybrid Search:** Combine Vector Search + Keyword Search for exact matches (improves recall by ~20%).
     *   **Smart Chunking:** Implement document-aware splitting in `SchemaReaderService`.
     *   **Confidence Scoring:** Expose AI confidence levels to the user.
 
-#### 4️⃣ Phase 4: Observability (Months 4-5) 🟡 [In Progress]
-*   **Goal:** Production Monitoring
+#### 3️⃣ Phase 4: Advanced Observability (Months 4-5) 🟡
+*   **Goal:** Deep Production Monitoring
 *   **Key Features:**
     *   **Tracing:** OpenTelemetry integration for full request visibility.
-    *   [x] **Cost Dashboard:** real-time monitoring of token consumption (GeminiCostTracker).
-    *   [x] **Structured Logging:** Serilog integration for unified logs.
     *   **Quality Metrics:** Automated evaluation of faithfulness and context recall.
 
-#### 5️⃣ Phase 5: Scale (Months 5-6) ⚪
+#### 4️⃣ Phase 5: Scale (Months 5-6) ⚪
 *   **Goal:** Massive Scale Support
 *   **Key Features:**
     *   **Embedding Fine-tuning:** Customize models for domain-specific ERP terminology.
@@ -205,39 +207,15 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 | Axis | Status | Score | Notes |
 |:---|:---:|:---:|:---|
 | **Vector DB** | ✅✅✅ | 9/10 | Qdrant with proper payload indexing is solid. |
+| **Silent Failures** | ✅✅ | 9/10 | **Solved:** SQL Validation Layer (62 Tests) catches most errors. |
 | **Embedding** | ✅✅ | 8/10 | Gemini models are performing well. |
 | **Architecture** | ✅✅ | 8/10 | Clean Architecture & Semantic Kernel are excellent choices. |
+| **Observability** | ✅✅ | 8/10 | Cost tracking & Structured logging implemented. |
 | **Prompt Engineering** | ✅✅ | 7/10 | Modular static rules preventing excessive drift. |
 | **Cost Control** | ✅✅ | 7/10 | Good start with Implicit Cache optimization. |
 | **Doc Parsing** | ✅ | 6/10 | SMO-based SQL parsing is accurate but limited to SQL. |
 | **RAG Scaling** | ⚠️ | 6/10 | Needs validation for larger datasets. |
 | **Chunking** | ⚠️ | 5/10 | Needs "Smart Chunking" for better context. |
 | **Latency** | ⚠️ | 5/10 | Needs Streaming & more client-side handling. |
-| **Silent Failures** | ⚠️ | 4/10 | **Critical:** Needs SQL Validation Layer. |
-| **Observability** | ✅ | 8/10 | Cost tracking & Structured logging implemented. |
 | **Hybrid Search** | ❌ | 2/10 | **Missing:** Pure vector search misses exact keywords. |
 | **Reranking** | ❌ | 0/10 | **Critical:** Major cause of hallucinations. |
-
----
-
-## 📊 Observability & Cost Tracking (New)
-
-We have implemented a robust observability layer to monitor system health and costs.
-
-### 1. Cost Tracker (`GeminiCostTracker`)
-*   **Real-time Cost Calculation:** Tracks input/output tokens for every request.
-*   **Supported Models:**
-    *   **Chat:** Gemini 2.5 Flash (`$0.15` / `$0.60` per 1M tokens).
-    *   **Embedding:** Text Embedding 004 (`$0.15` per 1M tokens).
-*   **Logs:** Outputs precise `CostUSD` metrics for billing estimation.
-
-### 2. Structured Logging (`Serilog`)
-*   **Unified Logging:** Replaced console output with structured JSON-ready logs across `SchemaGenerator` and `DynamicAi.Api`.
-*   **Request Metrics:** Tracks API latency (`TotalDuration`) and Status Codes for performance monitoring.---
-
-
-### 3. Testing Strategy (`DynamicAI.Tests`)
-We enforce a strict testing protocol to ensure reliability.
-*   **Unit Tests:** xUnit tests covering `SqlValidatorService`, `SqlRewriterService`, and `SqlGenerationService`.
-*   **Integration Tests:** Verifies the full pipeline from `QueryOrchestrator` to `Gemini`.
-*   **Mocking:** Uses `FakeItEasy` to simulate dependencies effectively.
