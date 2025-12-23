@@ -11,6 +11,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Value = Qdrant.Client.Grpc.Value;
+using DynamicAi.Application.Interfaces;
 
 namespace SchemaGenerator.Services
 {
@@ -24,6 +25,7 @@ namespace SchemaGenerator.Services
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
         private readonly IStateService _stateService;
         private readonly ILogger<QdrantVectorDbService> _logger;
+        private readonly IGeminiCostTracker _costTracker; // (جديد) تتبع التكلفة
         private const string UploadStateKey = "QdrantUploadedDocumentIds";
 
         // --- إعدادات Rate Limiting المحسّنة لـ Tier 1 ---
@@ -44,12 +46,14 @@ namespace SchemaGenerator.Services
             QdrantClient qdrantClient,
             IEmbeddingGenerator<string, Embedding<float>> embeddingService,
             IStateService stateService,
-            ILogger<QdrantVectorDbService> logger)
+            ILogger<QdrantVectorDbService> logger,
+            IGeminiCostTracker costTracker)
         {
             _qdrantClient = qdrantClient;
             _embeddingService = embeddingService;
             _stateService = stateService;
             _logger = logger;
+            _costTracker = costTracker;
         }
 
         public async Task SyncBatchAsync(string collectionName, List<VectorDocument> documents)
@@ -274,7 +278,13 @@ namespace SchemaGenerator.Services
             try
             {
                 _logger.LogInformation("[VectorDB] │ 🔄 Generating embeddings for {Count} docs...", batch.Count);
+                _logger.LogInformation("[VectorDB] │ 🔄 Generating embeddings for {Count} docs...", batch.Count);
                 generatedEmbeddings = await _embeddingService.GenerateAsync(textsToEmbed);
+
+                // --- (جديد) حساب التكلفة التقريبي ---
+                // Gemini Tokenizer ~ 1 token per 4 characters
+                int estimatedTokens = textsToEmbed.Sum(t => t.Length) / 4;
+                _costTracker.TrackEmbeddingUsage("SchemaGen-Embed", estimatedTokens);
             }
             catch (Exception ex) when (IsForbiddenException(ex))
             {

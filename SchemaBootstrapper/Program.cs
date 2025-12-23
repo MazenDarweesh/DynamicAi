@@ -6,6 +6,8 @@ using SchemaGenerator.Interfaces;
 using SchemaGenerator.Services;
 using Microsoft.SemanticKernel.Connectors.Google;
 using Polly;
+using DynamicAi.Application.Interfaces;
+using DynamicAi.Application.Services;
 using System.Net;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Embeddings;
@@ -60,6 +62,9 @@ builder.ConfigureServices((context, services) =>
             apiKey: qdrantApiKey
         );
     });
+
+    // (جديد) تسجيل خدمة تتبع التكلفة
+    services.AddTransient<IGeminiCostTracker, GeminiCostTracker>();
 
     // --- تسجيل خدمات Gemini ---
     string googleApiKey = context.Configuration["Gemini:ApiKey"]!;
