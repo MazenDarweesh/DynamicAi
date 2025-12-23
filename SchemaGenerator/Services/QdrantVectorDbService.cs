@@ -9,6 +9,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Logging;
 using Value = Qdrant.Client.Grpc.Value;
 
 namespace SchemaGenerator.Services
@@ -22,6 +23,7 @@ namespace SchemaGenerator.Services
         private readonly QdrantClient _qdrantClient;
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
         private readonly IStateService _stateService;
+        private readonly ILogger<QdrantVectorDbService> _logger;
         private const string UploadStateKey = "QdrantUploadedDocumentIds";
 
         // --- إعدادات Rate Limiting المحسّنة لـ Tier 1 ---
@@ -41,11 +43,13 @@ namespace SchemaGenerator.Services
         public QdrantVectorDbService(
             QdrantClient qdrantClient,
             IEmbeddingGenerator<string, Embedding<float>> embeddingService,
-            IStateService stateService) // (جديد) حقن خدمة الحالة
+            IStateService stateService,
+            ILogger<QdrantVectorDbService> logger)
         {
             _qdrantClient = qdrantClient;
             _embeddingService = embeddingService;
             _stateService = stateService;
+            _logger = logger;
         }
 
         public async Task SyncBatchAsync(string collectionName, List<VectorDocument> documents)
@@ -60,7 +64,7 @@ namespace SchemaGenerator.Services
 
             if (pointsToDelete.Any())
             {
-                Console.WriteLine($"[VectorDB] Deleting {pointsToDelete.Count} points from Qdrant...");
+                _logger.LogInformation("[VectorDB] Deleting {Count} points from Qdrant...", pointsToDelete.Count);
                 await _qdrantClient.DeleteAsync(collectionName, pointsToDelete);
             }
 
@@ -74,23 +78,19 @@ namespace SchemaGenerator.Services
 
             if (completedDocumentIds.Any())
             {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"\n[VectorDB] ✅ Resiliency: Found and skipped {completedDocumentIds.Count} previously uploaded documents.");
-                Console.ResetColor();
+                _logger.LogInformation("[VectorDB] ✅ Resiliency: Found and skipped {Count} previously uploaded documents.", completedDocumentIds.Count);
             }
 
             if (!documentsToUpsert.Any())
             {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine("[VectorDB] ✨ All documents are already synchronized. Nothing to do.");
-                Console.ResetColor();
+                _logger.LogInformation("[VectorDB] ✨ All documents are already synchronized. Nothing to do.");
                 return;
             }
 
             // --- 3. تنفيذ عمليات الإضافة/التحديث (محسّن بـ Tier 1) ---
             await ProcessUpsertsWithTier1OptimizationAsync(collectionName, documentsToUpsert, completedDocumentIds, totalOriginalCount);
         }
-        
+
         /// <summary>
         /// (محسّن) معالجة Upserts مع Resiliency و Tier 1 Optimization
         /// </summary>
@@ -111,7 +111,7 @@ namespace SchemaGenerator.Services
             while (processedThisRun < totalToProcessThisRun)
             {
                 batchNumber++;
-                
+
                 await EnforceRateLimitsAsync();
 
                 var currentBatch = documentsToProcess
@@ -121,9 +121,9 @@ namespace SchemaGenerator.Services
 
                 int remainingDocs = totalToProcessThisRun - processedThisRun;
 
-                Console.WriteLine($"\n[VectorDB] ┌─ Batch {batchNumber} of {Math.Ceiling(totalToProcessThisRun / (double)_currentBatchSize):F0} ──────────");
-                Console.WriteLine($"[VectorDB] │ Size: {currentBatch.Count} | Remaining this run: {remainingDocs}");
-                Console.WriteLine($"[VectorDB] │ RPM: {_requestsThisMinute}/{_targetRPM} | Delay: {_delayBetweenBatches}ms");
+                _logger.LogInformation("\n[VectorDB] ┌─ Batch {BatchNumber} of {TotalBatches} ──────────", batchNumber, Math.Ceiling(totalToProcessThisRun / (double)_currentBatchSize));
+                _logger.LogInformation("[VectorDB] │ Size: {Size} | Remaining this run: {Remaining}", currentBatch.Count, remainingDocs);
+                _logger.LogInformation("[VectorDB] │ RPM: {RPM}/{TargetRPM} | Delay: {Delay}ms", _requestsThisMinute, _targetRPM, _delayBetweenBatches);
 
                 try
                 {
@@ -137,19 +137,15 @@ namespace SchemaGenerator.Services
                         var processedIds = currentBatch.Select(d => d.DocumentId);
                         completedDocumentIds.UnionWith(processedIds);
                         await _stateService.SaveStateAsync(UploadStateKey, completedDocumentIds);
-                        
-                        Console.ForegroundColor = ConsoleColor.DarkGreen;
-                        Console.WriteLine($"[VectorDB] │ 💾 Progress Saved! ({completedDocumentIds.Count}/{totalOriginalCount})");
-                        Console.ResetColor();
+
+                        _logger.LogInformation("[VectorDB] │ 💾 Progress Saved! ({Completed}/{Total})", completedDocumentIds.Count, totalOriginalCount);
 
                         PrintProgress(completedDocumentIds.Count, totalOriginalCount, stopwatch);
                     }
                     else
                     {
-                        processedThisRun += currentBatch.Count; 
-                        Console.ForegroundColor = ConsoleColor.Yellow;
-                        Console.WriteLine($"[VectorDB] │ ⏭️ Skipping problematic batch. Progress for this batch will not be saved.");
-                        Console.ResetColor();
+                        processedThisRun += currentBatch.Count;
+                        _logger.LogWarning("[VectorDB] │ ⏭️ Skipping problematic batch. Progress for this batch will not be saved.");
                     }
 
                     if (processedThisRun < totalToProcessThisRun)
@@ -159,17 +155,13 @@ namespace SchemaGenerator.Services
                 }
                 catch (Exception ex) when (IsRateLimitException(ex))
                 {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"[VectorDB] ✗ Rate limit hit! Waiting 60 seconds before retrying...");
-                    Console.ResetColor();
+                    _logger.LogError("[VectorDB] ✗ Rate limit hit! Waiting 60 seconds before retrying...");
                     await Task.Delay(60000); // Wait a full minute
                 }
                 catch (Exception ex)
                 {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"[VectorDB] ✗ An unexpected error occurred: {ex.Message}");
-                    Console.WriteLine("[VectorDB] The process will stop. Progress up to the last successful batch has been saved.");
-                    Console.ResetColor();
+                    _logger.LogError(ex, "[VectorDB] ✗ An unexpected error occurred: {Message}", ex.Message);
+                    _logger.LogCritical("[VectorDB] The process will stop. Progress up to the last successful batch has been saved.");
                     throw;
                 }
             }
@@ -180,17 +172,14 @@ namespace SchemaGenerator.Services
 
         private void PrintHeader(int totalToProcess, int totalOriginal, int completed)
         {
-             Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"\n╔═══════════════════════════════════════════════════════════════╗");
-            Console.WriteLine($"║          GEMINI API TIER 1 - HIGH PERFORMANCE MODE           ║");
-            Console.WriteLine($"╚═══════════════════════════════════════════════════════════════╝");
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"[VectorDB] 🚀 Processing {totalToProcess:N0} documents for this run.");
-            Console.WriteLine($"   • Total in knowledge base: {totalOriginal:N0}");
-            Console.WriteLine($"   • Already completed: {completed:N0}");
+            _logger.LogInformation("╔══════════════════════════════════════════════════════════════════╗");
+            _logger.LogInformation("║          GEMINI API TIER 1 - HIGH PERFORMANCE MODE               ║");
+            _logger.LogInformation("╚══════════════════════════════════════════════════════════════════╝");
+            _logger.LogInformation("[VectorDB] 🚀 Processing {Total:N0} documents for this run.", totalToProcess);
+            _logger.LogInformation("   • Total in knowledge base: {Total:N0}", totalOriginal);
+            _logger.LogInformation("   • Already completed: {Completed:N0}", completed);
             var estimatedTime = EstimateProcessingTime(totalToProcess);
-            Console.WriteLine($"[VectorDB] ⏱️  Estimated completion for this run: {estimatedTime:mm\\:ss}");
-            Console.ResetColor();
+            _logger.LogInformation("[VectorDB] ⏱️  Estimated completion for this run: {ETA:mm\\:ss}", estimatedTime);
         }
 
         private async Task EnforceRateLimitsAsync()
@@ -202,18 +191,16 @@ namespace SchemaGenerator.Services
                     _requestsThisMinute = 0;
                     _currentMinuteStart = DateTime.UtcNow;
                 }
-                
+
                 if (_requestsThisMinute >= _targetRPM)
                 {
                     var waitTime = 60 - (DateTime.UtcNow - _currentMinuteStart).TotalSeconds;
                     if (waitTime > 0)
                     {
-                        Console.ForegroundColor = ConsoleColor.Yellow;
-                        Console.WriteLine($"\n[VectorDB] ⏸️  Reached {_targetRPM} RPM. Waiting {waitTime:F0}s for next minute...");
-                        Console.ResetColor();
-                        
+                        _logger.LogInformation("\n[VectorDB] ⏸️  Reached {TargetRPM} RPM. Waiting {WaitTime:F0}s for next minute...", _targetRPM, waitTime);
+
                         Task.Delay(TimeSpan.FromSeconds(waitTime)).Wait();
-                        
+
                         _requestsThisMinute = 0;
                         _currentMinuteStart = DateTime.UtcNow;
                     }
@@ -228,7 +215,7 @@ namespace SchemaGenerator.Services
                 _requestsThisMinute++;
             }
         }
-        
+
         private TimeSpan EstimateProcessingTime(int totalDocs)
         {
             double batchesNeeded = Math.Ceiling(totalDocs / (double)_maxBatchSize);
@@ -242,38 +229,33 @@ namespace SchemaGenerator.Services
             double docsPerSec = processed / sw.Elapsed.TotalSeconds;
             double docsPerMin = docsPerSec * 60;
             TimeSpan eta = TimeSpan.FromSeconds((total - processed) / Math.Max(docsPerSec, 0.1));
-            
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[VectorDB] └─ ✓ Batch completed!");
-            Console.ResetColor();
-            
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"\n[VectorDB] 📊 Overall Progress: {processed:N0}/{total:N0} ({progress:F1}%)");
-            Console.WriteLine($"[VectorDB] ⚡ Speed: {docsPerMin:F0} docs/min ({docsPerSec:F1} docs/sec)");
-            Console.WriteLine($"[VectorDB] ⏱️  Elapsed: {sw.Elapsed:mm\\:ss} | Overall ETA: {eta:mm\\:ss}");
-            Console.ResetColor();
+
+            _logger.LogInformation("[VectorDB] └─ ✓ Batch completed!");
+
+            _logger.LogInformation("\n[VectorDB] 📊 Overall Progress: {Processed:N0}/{Total:N0} ({Progress:F1}%)", processed, total, progress);
+            _logger.LogInformation("[VectorDB] ⚡ Speed: {DocsPerMin:F0} docs/min ({DocsPerSec:F1} docs/sec)", docsPerMin, docsPerSec);
+            _logger.LogInformation("[VectorDB] ⏱️  Elapsed: {Elapsed:mm\\:ss} | Overall ETA: {ETA:mm\\:ss}", sw.Elapsed, eta);
         }
 
         private void PrintFinalSummary(int total, Stopwatch sw)
         {
             double docsPerSec = total / sw.Elapsed.TotalSeconds;
             double docsPerMin = docsPerSec * 60;
-            
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"\n╔═══════════════════════════════════════════════════════════════╗");
-            Console.WriteLine($"║                  ✅ PROCESSING COMPLETED!                     ║");
-            Console.WriteLine($"╚═══════════════════════════════════════════════════════════════╝");
-            Console.WriteLine($"\n[VectorDB] 📊 Final Statistics:");
-            Console.WriteLine($"   • Total documents synchronized: {total:N0}");
-            Console.WriteLine($"   • Total time for this run: {sw.Elapsed:mm\\:ss}");
-            Console.WriteLine($"   • Average speed: {docsPerMin:F0} docs/min ({docsPerSec:F1} docs/sec)");
-            Console.ResetColor();
+
+            _logger.LogInformation("\n╔══════════════════════════════════════════════════════════════════╗");
+            _logger.LogInformation("║                  ✅ PROCESSING COMPLETED!                     ║");
+            _logger.LogInformation("╚══════════════════════════════════════════════════════════════════╝");
+            _logger.LogInformation("\n[VectorDB] 📊 Final Statistics:");
+            _logger.LogInformation("   • Total documents synchronized: {Total:N0}", total);
+            _logger.LogInformation("   • Total time for this run: {Elapsed:mm\\:ss}", sw.Elapsed);
+            _logger.LogInformation("   • Average speed: {DocsPerMin:F0} docs/min ({DocsPerSec:F1} docs/sec)", docsPerMin, docsPerSec);
         }
+
         private bool IsRateLimitException(Exception ex)
         {
             if (ex.Message.Contains("429") || ex.Message.Contains("Too Many Requests")) return true;
             if (ex is HttpRequestException httpEx && httpEx.StatusCode == System.Net.HttpStatusCode.TooManyRequests) return true;
-            
+
             var innerEx = ex.InnerException;
             while (innerEx != null)
             {
@@ -291,20 +273,18 @@ namespace SchemaGenerator.Services
 
             try
             {
-                Console.WriteLine($"[VectorDB] │ 🔄 Generating embeddings for {batch.Count} docs...");
+                _logger.LogInformation("[VectorDB] │ 🔄 Generating embeddings for {Count} docs...", batch.Count);
                 generatedEmbeddings = await _embeddingService.GenerateAsync(textsToEmbed);
             }
             catch (Exception ex) when (IsForbiddenException(ex))
             {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("[VectorDB] │ ✗ ERROR: Gemini API returned 403 (Forbidden). This batch likely triggered a safety filter.");
-                Console.WriteLine("[VectorDB] │ Logging problematic batch content for review:");
-                Console.ResetColor();
+                _logger.LogError("[VectorDB] │ ✗ ERROR: Gemini API returned 403 (Forbidden). This batch likely triggered a safety filter.");
+                _logger.LogError("[VectorDB] │ Logging problematic batch content for review:");
 
                 for (int i = 0; i < batch.Count; i++)
                 {
-                    Console.WriteLine($"[VectorDB] │   - ID: {batch[i].DocumentId}");
-                    Console.WriteLine($"[VectorDB] │     Content: {batch[i].TextContent.Substring(0, Math.Min(200, batch[i].TextContent.Length))}...");
+                    _logger.LogError("[VectorDB] │   - ID: {Id}", batch[i].DocumentId);
+                    _logger.LogError("[VectorDB] │     Content: {Content}...", batch[i].TextContent.Substring(0, Math.Min(200, batch[i].TextContent.Length)));
                 }
                 return false; // تشير إلى فشل الدفعة
             }
@@ -317,7 +297,7 @@ namespace SchemaGenerator.Services
                 var embedding = embeddingList[i];
                 var point = new PointStruct { Id = new PointId { Uuid = GetStableGuid(doc.DocumentId).ToString() } };
                 point.Vectors = embedding.Vector.ToArray();
-                
+
                 foreach (var meta in doc.Metadata)
                 {
                     if (IsIntegerKey(meta.Key) && long.TryParse(meta.Value, out long intValue))
@@ -329,12 +309,12 @@ namespace SchemaGenerator.Services
                         point.Payload.Add(meta.Key, new Value { StringValue = meta.Value });
                     }
                 }
-                
+
                 point.Payload.Add(VectorDbMeta.OriginalText, new Value { StringValue = doc.TextContent });
                 pointsToUpsert.Add(point);
             }
 
-            Console.WriteLine($"[VectorDB] │ 📤 Upserting to VectorDB...");
+            _logger.LogInformation("[VectorDB] │ 📤 Upserting to VectorDB...");
             await _qdrantClient.UpsertAsync(collectionName, pointsToUpsert);
             return true; // تشير إلى نجاح الدفعة
         }
@@ -384,36 +364,3 @@ namespace SchemaGenerator.Services
         }
     }
 }
-/*
-* ==========================================================================================
-* SERVICE SUMMARY (With Examples)
-* ==========================================================================================
-* Input (Example):  Method: SyncBatchAsync
-* Inputs: collectionName = "erp_knowledge_base"
-* List<VectorDocument> containing 2 documents:
-* 1. (Upsert): { DocumentId: "Data_ListSetups_38980", 
-* TextContent: "{\"id\":38980, \"arColumnLabel\":\"رقم العقد\"...}", 
-* IsDeleted: false,
-* Metadata: {"source_type":"data", "table_name":"ListSetups"} }
-* 2. (Delete):  { DocumentId: "Data_Pages_123", 
-* TextContent: "...", 
-* IsDeleted: true,
-* Metadata: {"source_type":"data", "table_name":"Pages"} }
-*
-* Output (Example): Task (Void).
-* (Side Effect): 2 operations executed in Qdrant:
-* 1. (Upsert): A Point is created/updated for ID "Data_ListSetups_38980"
-* Payload: { "original_text": "{\"id\":38980...}", "source_type": "data", ... }
-* Vector: [0.123, 0.456, ...] (from gemini-embedding-001)
-* 2. (Delete): The Point with ID "Data_Pages_123" is deleted.
-*
-* Called By:        SchemaOrchestrator.cs (as the final step [Phase 6] in the pipeline).
-*
-* Benefit:          This is the "Loader" service (the 'L' in our ETL pipeline). 
-* It handles all the complex, low-level communication with Qdrant.
-* Its key responsibilities are:
-* 1. Calling the IEmbeddingGenerator ('gemini-embedding-001') to convert texts to Vectors.
-* 2. Intelligently syncing changes: routing documents to 'UpsertAsync' 
-* (for new/updated) or 'DeleteAsync' (for deleted data from CDC).
-* 3. Batching operations for efficiency.
-*/  

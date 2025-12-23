@@ -12,6 +12,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace SchemaGenerator.Services
 {
@@ -27,6 +28,12 @@ namespace SchemaGenerator.Services
         /// (سنتركها فارغة الآن للـ MVP ونركز على التقسيم البسيط)
         /// </summary>
         private readonly Dictionary<string, Dictionary<string, List<string>>> _chunkingMap = new();
+        private readonly ILogger<SchemaReaderService> _logger;
+
+        public SchemaReaderService(ILogger<SchemaReaderService> logger)
+        {
+            _logger = logger;
+        }
 
         /// <summary>
         /// (مُعدل) يستخرج الـ Scripts بشكل تعاودي (Recursive) لضمان الوصول للجداول الأساسية.
@@ -56,7 +63,7 @@ namespace SchemaGenerator.Services
                 ScriptData = false
             };
 
-            Console.WriteLine("[SchemaReader] Starting recursive schema extraction...");
+            _logger.LogInformation("[SchemaReader] Starting recursive schema extraction...");
 
             while (objectsToProcess.Count > 0)
             {
@@ -71,7 +78,7 @@ namespace SchemaGenerator.Services
                 if (db.Views.Contains(objectName))
                 {
                     var view = db.Views[objectName];
-                    Console.WriteLine($"[SchemaReader] Processing View: '{objectName}'");
+                    _logger.LogInformation("[SchemaReader] Processing View: '{ObjectName}'", objectName);
 
                     // أضف سكربت الـ View
                     var script = string.Join("\n", view.Script(options).Cast<string>());
@@ -80,7 +87,7 @@ namespace SchemaGenerator.Services
 
                     // استكشف ما بداخل الـ View
                     var dependencies = ParseTablesFromViewScript(view.TextBody);
-                    Console.WriteLine($"[SchemaReader]   -> Found dependencies: {string.Join(", ", dependencies)}");
+                    _logger.LogInformation("[SchemaReader]   -> Found dependencies: {Dependencies}", string.Join(", ", dependencies));
                     foreach (var dep in dependencies)
                     {
                         if (!processedObjects.Contains(dep))
@@ -93,30 +100,27 @@ namespace SchemaGenerator.Services
                 else if (db.Tables.Contains(objectName))
                 {
                     var table = db.Tables[objectName];
-                    Console.WriteLine($"[SchemaReader] Processing Table: '{objectName}'");
+                    _logger.LogInformation("[SchemaReader] Processing Table: '{ObjectName}'", objectName);
                     documents.AddRange(ChunkTableScript(table, options));
                     processedObjects.Add(objectName);
                 }
                 else
                 {
-                    Console.ForegroundColor = ConsoleColor.DarkYellow;
-                    Console.WriteLine($"[SchemaReader] Warning: Object '{objectName}' not found as a table or view. Skipping.");
-                    Console.ResetColor();
+                    _logger.LogWarning("[SchemaReader] Warning: Object '{ObjectName}' not found as a table or view. Skipping.", objectName);
                     processedObjects.Add(objectName); // نعتبره معالجاً لتجنب التكرار
                 }
             }
 
-            Console.WriteLine($"[SchemaReader] Recursive extraction finished. Processed {processedObjects.Count} unique objects.");
+            _logger.LogInformation("[SchemaReader] Recursive extraction finished. Processed {Count} unique objects.", processedObjects.Count);
 
             // --- (بداية التعديل: إضافة ملخص) ---
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("\n[SchemaReader] --- Summary of All Processed Schema Objects ---");
+            _logger.LogInformation("\n[SchemaReader] --- Summary of All Processed Schema Objects ---");
             foreach (var processedObject in processedObjects.OrderBy(x => x))
             {
-                Console.WriteLine($"  - {processedObject}");
+                _logger.LogInformation("  - {ProcessedObject}", processedObject);
             }
-            Console.WriteLine("-------------------------------------------------");
-            Console.ResetColor();
+            _logger.LogInformation("-------------------------------------------------");
+            // --- (نهاية التعديل) ---
             // --- (نهاية التعديل) ---
 
             return documents;
@@ -134,9 +138,7 @@ namespace SchemaGenerator.Services
             var docList = new List<VectorDocument>();
             string script = string.Join("\n", table.Script(options).Cast<string>());
 
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine($"[SchemaReader] Generated script for Table '{table.Name}':\n{script}");
-            Console.ResetColor();
+            _logger.LogDebug("[SchemaReader] Generated script for Table '{TableName}':\n{Script}", table.Name, script);
 
             docList.Add(CreateVectorDocument(table.Name, script, "Table", table.Name));
             return docList;
@@ -179,20 +181,20 @@ namespace SchemaGenerator.Services
                 if (fragment == null || (parseErrors != null && parseErrors.Count > 0))
                 {
                     // --- (بداية التعديل: طباعة الخطأ بوضوح) ---
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"[SchemaReader] ⛔️ ERROR: TSqlParser FAILED to analyze a View script.");
-                    Console.WriteLine($"[SchemaReader] View (First 150 chars): {script.Substring(0, Math.Min(150, script.Length))}...");
+                    // --- (بداية التعديل: طباعة الخطأ بوضوح) ---
+                    _logger.LogError("[SchemaReader] ⛔️ ERROR: TSqlParser FAILED to analyze a View script.");
+                    _logger.LogError("[SchemaReader] View (First 150 chars): {Snippet}...", script.Substring(0, Math.Min(150, script.Length)));
 
                     if (parseErrors != null)
                     {
                         foreach (var error in parseErrors)
                         {
-                            Console.WriteLine($"[SchemaReader] Parse Error: {error.Message} (Line: {error.Line}, Column: {error.Column})");
+                            _logger.LogError("[SchemaReader] Parse Error: {Message} (Line: {Line}, Column: {Column})", error.Message, error.Line, error.Column);
                         }
                     }
-                    Console.ResetColor();
 
                     // --- (الجزء الجديد: سؤال المستخدم) ---
+                    // Note: Interactive prompts kept in Console as this is a CLI input requirement
                     Console.ForegroundColor = ConsoleColor.Yellow;
                     Console.WriteLine("\n[SchemaReader] This error means the tables *inside* this View were NOT found.");
                     Console.WriteLine("  - (C) Continue: Ignore this view's tables and proceed with the pipeline.");
@@ -211,7 +213,7 @@ namespace SchemaGenerator.Services
                         }
                         if (response == "C" || response == "CONTINUE")
                         {
-                            Console.WriteLine("[SchemaReader] User chose to continue. Skipping table discovery for this view...");
+                            _logger.LogWarning("[SchemaReader] User chose to continue. Skipping table discovery for this view...");
                             Console.ResetColor();
                             return new List<string>(); // (الإكمال: إرجاع قائمة فارغة)
                         }
@@ -225,9 +227,8 @@ namespace SchemaGenerator.Services
                 fragment.Accept(visitor);
 
                 // (تعديل إضافي) طباعة الجداول المكتشفة
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"[SchemaReader] Successfully parsed view. Found tables: {string.Join(", ", visitor.TableNames.Distinct())}");
-                Console.ResetColor();
+                _logger.LogInformation("[SchemaReader] Successfully parsed view. Found tables: {Tables}", string.Join(", ", visitor.TableNames.Distinct()));
+
 
                 return visitor.TableNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             }

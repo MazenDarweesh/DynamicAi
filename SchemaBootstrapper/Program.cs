@@ -10,10 +10,18 @@ using System.Net;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Embeddings;
 using Qdrant.Client;
+using Serilog;
 using Microsoft.Extensions.AI;
 
-// 1. بناء الـ Host (لقراءة الإعدادات و DI)
+// 1. إعداد Serilog
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .WriteTo.File("logs/bootstrapper-.txt", rollingInterval: RollingInterval.Day)
+    .CreateLogger();
+
+// 2. بناء الـ Host (لقراءة الإعدادات و DI)
 var builder = Host.CreateDefaultBuilder(args)
+    .UseSerilog() // Use Serilog for ILogger injection
     .ConfigureAppConfiguration((context, config) =>
     {
         // تحميل User Secrets (دائماً لـ Console Apps)
