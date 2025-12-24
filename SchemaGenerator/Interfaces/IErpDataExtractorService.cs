@@ -16,6 +16,7 @@ namespace SchemaGenerator.Interfaces
             string connectionString,
             string dbName,
             Dictionary<string, ErpPageContext> contextMap,
-            string stateFilePath);
+            string stateFilePath,
+            string tenantId = "ALL");
     }
 }

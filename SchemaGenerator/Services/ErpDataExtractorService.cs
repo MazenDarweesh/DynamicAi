@@ -45,7 +45,8 @@ namespace SchemaGenerator.Services
             string connectionString,
             string dbName,
             Dictionary<string, ErpPageContext> contextMap,
-            string stateFilePath)
+            string stateFilePath,
+            string tenantId = "ALL")
         {
             var allDocuments = new List<VectorDocument>();
             await using var connection = new Microsoft.Data.SqlClient.SqlConnection(connectionString);
@@ -58,7 +59,7 @@ namespace SchemaGenerator.Services
                 return allDocuments;
             }
 
-            _logger.LogInformation("Starting targeted metadata extraction...");
+            _logger.LogInformation("Starting targeted metadata extraction for Tenant: {TenantId}...", tenantId);
 
             var allContexts = contextMap.Values;
             var targetPageIds = allContexts.Select(c => c.PageId).Distinct().ToList();
@@ -67,10 +68,10 @@ namespace SchemaGenerator.Services
             var allListNames = masterListNames.Concat(detailListNames).Distinct().ToList();
 
             var pages = await FetchDataAsync(connection, DbTables.Pages, DbColumns.PageID_Upper, targetPageIds);
-            allDocuments.AddRange(pages.Select(row => TransformRowToDocument(row, DbTables.Pages)));
+            allDocuments.AddRange(pages.Select(row => TransformRowToDocument(row, DbTables.Pages, tenantId: tenantId)));
 
             var pageAttributes = await FetchDataAsync(connection, DbTables.PageAttribute, DbColumns.PageId_Lower, targetPageIds);
-            allDocuments.AddRange(pageAttributes.Select(row => TransformRowToDocument(row, DbTables.PageAttribute)));
+            allDocuments.AddRange(pageAttributes.Select(row => TransformRowToDocument(row, DbTables.PageAttribute, tenantId: tenantId)));
 
             // --- (بداية التعديل الجذري) ---
             // المرور على كل PageAttribute لجلب التفاصيل المرتبطة به وتمرير سياق الـ ID
@@ -78,7 +79,7 @@ namespace SchemaGenerator.Services
             foreach (var attrId in attributesById.Keys)
             {
                 var pageDetails = await FetchDataAsync(connection, DbTables.PageDetail, DbColumns.PageAttributeId, new List<int> { attrId });
-                allDocuments.AddRange(pageDetails.Select(row => TransformRowToDocument(row, DbTables.PageDetail, attributeId: attrId)));
+                allDocuments.AddRange(pageDetails.Select(row => TransformRowToDocument(row, DbTables.PageDetail, tenantId: tenantId, attributeId: attrId)));
             }
 
             // المرور على كل Page لجلب الموديول والقائمة الرئيسية وتمرير سياق الـ ID
@@ -89,12 +90,12 @@ namespace SchemaGenerator.Services
                 if (page.TryGetValue(DbColumns.ModulID_Upper, out var modulIdObj) && modulIdObj != null)
                 {
                     var moduls = await FetchDataAsync(connection, DbTables.Modul, DbColumns.MID, new List<int> { (int)modulIdObj });
-                    allDocuments.AddRange(moduls.Select(row => TransformRowToDocument(row, DbTables.Modul, pageId: pageId)));
+                    allDocuments.AddRange(moduls.Select(row => TransformRowToDocument(row, DbTables.Modul, tenantId: tenantId, pageId: pageId)));
                 }
                 if (page.TryGetValue(DbColumns.MasterID_Upper, out var menuMasterIdObj) && menuMasterIdObj != null)
                 {
                     var menuMasters = await FetchDataAsync(connection, DbTables.MenuMaster, DbColumns.MID, new List<int> { (int)menuMasterIdObj });
-                    allDocuments.AddRange(menuMasters.Select(row => TransformRowToDocument(row, DbTables.MenuMaster, pageId: pageId)));
+                    allDocuments.AddRange(menuMasters.Select(row => TransformRowToDocument(row, DbTables.MenuMaster, tenantId: tenantId, pageId: pageId)));
                 }
             }
             // --- (نهاية التعديل الجذري) ---
@@ -102,7 +103,7 @@ namespace SchemaGenerator.Services
             if (allListNames.Any())
             {
                 var listSetups = await FetchDataAsync(connection, DbTables.ListSetups, DbColumns.ListName, allListNames);
-                allDocuments.AddRange(listSetups.Select(row => TransformRowToDocument(row, DbTables.ListSetups)));
+                allDocuments.AddRange(listSetups.Select(row => TransformRowToDocument(row, DbTables.ListSetups, tenantId: tenantId)));
             }
 
             _logger.LogInformation("Targeted extraction complete. Found {RowCount} relevant metadata rows.", allDocuments.Count);
@@ -120,7 +121,7 @@ namespace SchemaGenerator.Services
             return rows.Select(row => ((IDictionary<string, object>)row).ToDictionary(kvp => kvp.Key, kvp => kvp.Value)).ToList();
         }
 
-        private VectorDocument TransformRowToDocument(Dictionary<string, object> row, string tableName, int? pageId = null, int? attributeId = null)
+        private VectorDocument TransformRowToDocument(Dictionary<string, object> row, string tableName, string tenantId = "ALL", int? pageId = null, int? attributeId = null)
         {
             string rowAsJson = JsonSerializer.Serialize(row, _jsonOptions);
             string rowId = row.Values.FirstOrDefault()?.ToString() ?? Guid.NewGuid().ToString();
@@ -143,7 +144,7 @@ namespace SchemaGenerator.Services
                 { VectorDbMeta.SourceType, VectorDbMeta.SourceTypeData },
                 { VectorDbMeta.TableName, tableName },
                 { VectorDbMeta.RowId, rowId },
-                { VectorDbMeta.TenantId, VectorDbMeta.TenantAll }
+                { VectorDbMeta.TenantId, tenantId }
             };
 
             // --- (منطق الربط المحسّن) ---

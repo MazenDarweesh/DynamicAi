@@ -72,9 +72,10 @@ namespace SchemaGenerator
             _checkpointFilePath = Path.Combine(infrastructurePath, "pipeline_checkpoint.json");
         }
 
-        public async Task GenerateSchemaAsync()
+        public async Task GenerateSchemaAsync(string tenantId = "ALL")
         {
             _logger.LogInformation("=== Knowledge Base Ingestion Pipeline: STARTED ===");
+            _logger.LogInformation("[Pipeline] Running for Tenant: {TenantId}", tenantId);
 
             PipelineCheckpoint? checkpoint = null;
 
@@ -170,7 +171,7 @@ namespace SchemaGenerator
                 {
                     _logger.LogInformation("[Phase 4] Extracting targeted Data for {ContextCount} page contexts...", checkpoint.ContextMap!.Count);
                     checkpoint.DataDocuments = await _dataExtractorService.ExtractDataChangesAsync(
-                        _connectionString, _dbName, checkpoint.ContextMap, _stateFilePath);
+                        _connectionString, _dbName, checkpoint.ContextMap, _stateFilePath, tenantId);
                     _logger.LogInformation("[Phase 4] Data extraction complete. Found {RowCount} relevant rows.", checkpoint.DataDocuments.Count);
 
                     checkpoint.LastCompletedPhase = 4;

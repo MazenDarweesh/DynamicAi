@@ -4,6 +4,6 @@ namespace SchemaGenerator.Interfaces
 {
     public interface ISchemaOrchestrator
     {
-        Task GenerateSchemaAsync();
+        Task GenerateSchemaAsync(string tenantId = "ALL");
     }
 }
