@@ -63,8 +63,8 @@ builder.ConfigureServices((context, services) =>
         );
     });
 
-    // (جديد) تسجيل خدمة تتبع التكلفة
-    services.AddTransient<IGeminiCostTracker, GeminiCostTracker>();
+    // (جديد) تسجيل خدمة تتبع التكلفة (Singleton ليحتفظ بالـ Session counters)
+    services.AddSingleton<IGeminiCostTracker, GeminiCostTracker>();
 
     // --- تسجيل خدمات Gemini ---
     string googleApiKey = context.Configuration["Gemini:ApiKey"]!;
@@ -144,7 +144,24 @@ if (!isValid)
 // 4. التشغيل الفعلي للبرنامج
 // ============================================================================
 var orchestrator = host.Services.GetRequiredService<ISchemaOrchestrator>();
+var costTracker = host.Services.GetRequiredService<IGeminiCostTracker>();
+
+// Reset session counters before pipeline run
+costTracker.ResetSession();
+
 await orchestrator.GenerateSchemaAsync();
+
+// Log cost summary at the end
+var (totalInputTokens, totalOutputTokens, totalCostUsd, callCount) = costTracker.GetSessionSummary();
+Log.Information("╔══════════════════════════════════════════════════════════════════╗");
+Log.Information("║                  💰 GEMINI COST SUMMARY                          ║");
+Log.Information("╠══════════════════════════════════════════════════════════════════╣");
+Log.Information("║  API Calls:           {CallCount,10}", callCount);
+Log.Information("║  Input Tokens:        {InputTokens,10:N0}", totalInputTokens);
+Log.Information("║  Output Tokens:       {OutputTokens,10:N0}", totalOutputTokens);
+Log.Information("║  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ║");
+Log.Information("║  💵 TOTAL COST:       ${TotalCost,10:F4} USD", totalCostUsd);
+Log.Information("╚══════════════════════════════════════════════════════════════════╝");
 
 // Dummy class for User Secrets assembly reference
 public partial class Program { }

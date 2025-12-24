@@ -18,4 +18,14 @@ public interface IGeminiCostTracker
     void TrackUsage(string requestId, int inputTokens, int outputTokens, int cachedTokens);
 
     void TrackEmbeddingUsage(string requestId, int inputTokens);
+
+    /// <summary>
+    /// Gets the cumulative session summary (total tokens, total cost, call count).
+    /// </summary>
+    (long TotalInputTokens, long TotalOutputTokens, double TotalCostUsd, int CallCount) GetSessionSummary();
+
+    /// <summary>
+    /// Resets the session counters. Call at the start of a new pipeline run.
+    /// </summary>
+    void ResetSession();
 }

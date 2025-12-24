@@ -19,6 +19,13 @@ public class GeminiCostTracker : IGeminiCostTracker
     // Gemini Embedding Pricing (USD per 1M tokens)
     private const double EmbeddingInputCostPerMillion = 0.15; // gemini-embedding-001
 
+    // Session-level accumulators (thread-safe)
+    private long _sessionInputTokens;
+    private long _sessionOutputTokens;
+    private double _sessionTotalCost;
+    private int _sessionCallCount;
+    private readonly object _lock = new();
+
     public GeminiCostTracker(ILogger<GeminiCostTracker> logger)
     {
         _logger = logger;
@@ -51,6 +58,15 @@ public class GeminiCostTracker : IGeminiCostTracker
     {
         var (totalCost, _) = CalculateCost(inputTokens, outputTokens, cachedTokens);
 
+        // Accumulate session totals
+        lock (_lock)
+        {
+            _sessionInputTokens += inputTokens;
+            _sessionOutputTokens += outputTokens;
+            _sessionTotalCost += totalCost;
+            _sessionCallCount++;
+        }
+
         // Structured Log Event for Observability
         _logger.LogInformation(
             "GeminiUsage RequestId={RequestId} Input={InputTokens} Output={OutputTokens} Cached={CachedTokens} CostUSD={Cost:F6} Model=Gemini-2.5-Flash",
@@ -61,8 +77,36 @@ public class GeminiCostTracker : IGeminiCostTracker
     {
         double cost = CalculateEmbeddingCost(inputTokens);
 
+        // Accumulate session totals
+        lock (_lock)
+        {
+            _sessionInputTokens += inputTokens;
+            _sessionTotalCost += cost;
+            _sessionCallCount++;
+        }
+
         _logger.LogInformation(
             "GeminiUsage RequestId={RequestId} Input={InputTokens} Output=0 Cached=0 CostUSD={Cost:F6} Model=gemini-embedding-001",
             requestId, inputTokens, cost);
+    }
+
+    public (long TotalInputTokens, long TotalOutputTokens, double TotalCostUsd, int CallCount) GetSessionSummary()
+    {
+        lock (_lock)
+        {
+            return (_sessionInputTokens, _sessionOutputTokens, _sessionTotalCost, _sessionCallCount);
+        }
+    }
+
+    public void ResetSession()
+    {
+        lock (_lock)
+        {
+            _sessionInputTokens = 0;
+            _sessionOutputTokens = 0;
+            _sessionTotalCost = 0;
+            _sessionCallCount = 0;
+        }
+        _logger.LogDebug("GeminiCostTracker session counters reset.");
     }
 }
