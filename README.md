@@ -42,10 +42,28 @@ The system follows **Clean Architecture** principles and is divided into distinc
 ## 🧩 Key Components
 
 ### 1. Schema Generator Pipeline (`SchemaGenerator` & `SchemaBootstrapper`)
-A standalone utility that treats the database schema as a "Knowledge Base".
-*   **Extraction:** Reads table and view definitions from SQL Server.
-*   **Embedding:** Converts schema definitions into vector embeddings.
-*   **Storage:** Uploads these embeddings to `Qdrant` so the AI can "understand" the database structure semantically.
+A standalone **6-Phase Checkpointed Knowledge Ingestion Pipeline** that bootstraps the AI's understanding of the database.
+
+**Pipeline Phases:**
+| Phase | Description |
+|:---|:---|
+| **1. Context Map** | Reads ERP metadata (Pages, PageAttribute, PageDetail) to understand structure |
+| **2. Target Lists** | Identifies Views/Tables to process |
+| **3. (Deferred)** | Reserved for future optimization |
+| **4. Data Extraction** | Extracts metadata rows (Full Load, CDC-ready) |
+| **5. Schema CDC** | Detects schema changes via `sys.objects.modify_date` |
+| **6. Upload** | Syncs documents to Qdrant with checkpoint resiliency |
+
+**Key Features:**
+*   ✅ **Checkpoint Resiliency:** Automatic resume from last successful phase on crash.
+*   ✅ **Schema CDC:** Only uploads changed Tables/Views (incremental updates).
+*   ⚠️ **Data CDC:** Infrastructure built (`CdcChangeStrategy`), awaiting activation.
+*   ⚠️ **Multi-Tenancy:** `tenant_id` support planned (Module 1 in roadmap).
+
+**Components:**
+*   `SchemaOrchestrator.cs` - Main orchestrator (350 lines)
+*   `CdcChangeStrategy.cs` - SQL Server CDC integration (built, not wired)
+*   `QdrantVectorDbService.cs` - Gemini embedding + Tier 1 rate limiting
 
 ### 2. Dynamic AI Core (`DynamicAi.Application`)
 The brain of the operation, containing the business logic.

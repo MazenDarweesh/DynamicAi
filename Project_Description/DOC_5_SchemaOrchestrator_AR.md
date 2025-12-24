@@ -1,83 +1,206 @@
-# الملف الخامس: SchemaOrchestrator.cs (المهندس المعماري)
+# الملف الخامس: SchemaOrchestrator.cs (العقل المدبر - The Brain)
 
 > **"كيف يعرف الذكاء الاصطناعي كل شيء عن قاعدة البيانات؟ لأن هذا الملف قام بقراءتها، فهمها، وإرسالها إليه."**
 
 ---
 
-## 1. الكود الكامل ومقتطفات هامة (The Core Logic)
+## 1. نظرة عامة (Overview)
 
-هذا الملف هو المسؤول عن **Ingestion Pipeline** (خط تلقيم البيانات). يعمل بشكل منفصل عن الموقع (Offline Process) لتجهيز المعلومات.
+هذا الملف هو **"العقل المدبر"** (The Orchestrator) لخط أنابيب تلقيم المعرفة (Knowledge Ingestion Pipeline). يعمل بشكل منفصل عن الموقع (Offline Process) لتجهيز المعلومات.
+
+**الموقع:** `SchemaGenerator/SchemaOrchestrator.cs` (350 سطر)
+
+**المسؤوليات:**
+1. تنسيق جميع الخدمات الخمس في البنية التحتية.
+2. إدارة نظام Checkpoint للاستئناف بعد الأعطال.
+3. تتبع التغييرات (CDC) للسكيما والبيانات.
+4. رفع المستندات إلى Qdrant.
+
+---
+
+## 2. بنية الخدمات (Service Architecture)
 
 ```csharp
-using SchemaGenerator.Interfaces;
-using SchemaGenerator.Models;
-
-namespace SchemaGenerator
+public class SchemaOrchestrator : ISchemaOrchestrator
 {
-    public class SchemaOrchestrator : ISchemaOrchestrator
+    // ← الخدمات الخمس المعتمدة
+    private readonly IStateService _stateService;           // إدارة الحالة
+    private readonly IErpMetadataService _metadataService;  // قراءة الـ Context
+    private readonly ISchemaReaderService _schemaReaderService; // استخراج SMO
+    private readonly IErpDataExtractorService _dataExtractorService; // استخراج البيانات
+    private readonly IVectorDbService _vectorDbService;     // الرفع إلى Qdrant
+    
+    // ← الصفحات المستهدفة (قابلة للتوسيع)
+    private readonly List<int> _targetPageIds = new List<int> { 244, 289 };
+}
+```
+
+---
+
+## 3. مراحل الـ Pipeline (The 6 Phases)
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                    INGESTION PIPELINE                            │
+├──────────┬──────────────────────────────────────────────────────┤
+│ Phase 1  │ Build Context Map (IErpMetadataService)              │
+│          │ → قراءة Pages, PageAttribute, PageDetail             │
+├──────────┼──────────────────────────────────────────────────────┤
+│ Phase 2  │ Extract Target Lists                                 │
+│          │ → تحديد أسماء الـ Views والجداول المطلوبة             │
+├──────────┼──────────────────────────────────────────────────────┤
+│ Phase 3  │ (Deferred) - مؤجل للأداء                              │
+├──────────┼──────────────────────────────────────────────────────┤
+│ Phase 4  │ Data Extraction (IErpDataExtractorService)           │
+│          │ → استخراج الـ Metadata (Full Load حالياً)             │
+├──────────┼──────────────────────────────────────────────────────┤
+│ Phase 5  │ Schema CDC (modify_date comparison)                  │
+│          │ → فقط الـ Views/Tables التي تغيرت                     │
+├──────────┼──────────────────────────────────────────────────────┤
+│ Phase 6  │ Upload to Qdrant (IVectorDbService)                  │
+│          │ → مزامنة المستندات مع حفظ الحالة                     │
+└──────────┴──────────────────────────────────────────────────────┘
+```
+
+### تفاصيل كل مرحلة:
+
+| المرحلة | الوصف | الإخراج |
+|:---|:---|:---|
+| **Phase 1** | قراءة الـ Metadata من `Pages`, `PageAttribute`, `PageDetail` | `ContextMap` |
+| **Phase 2** | استخراج قوائم الـ Views والجداول | `TargetViewNames`, `TargetMetadataTables` |
+| **Phase 3** | *(مؤجلة)* | - |
+| **Phase 4** | استخراج صفوف الـ Metadata | `DataDocuments` |
+| **Phase 5** | مقارنة `sys.objects.modify_date` لاكتشاف التغييرات | `DocumentsToUpload` |
+| **Phase 6** | رفع إلى Qdrant + حفظ الحالة | ✅ Upload Complete |
+
+---
+
+## 4. نظام الـ Checkpoint (Resiliency)
+
+```csharp
+// إذا فشلت العملية، نكمل من حيث توقفنا
+var checkpoint = await LoadCheckpointAsync();
+
+if (checkpoint.LastCompletedPhase < 5)
+{
+    // ... تنفيذ المرحلة 5
+    checkpoint.LastCompletedPhase = 5;
+    await SaveCheckpointAsync(checkpoint);  // ← حفظ التقدم
+}
+```
+
+**الملفات المستخدمة:**
+- `pipeline_checkpoint.json` - تتبع المراحل المكتملة
+- `process_state.json` - تتبع تواريخ التعديل وLSN
+
+---
+
+## 5. بنية CDC التحتية (موجودة لكن غير مفعلة)
+
+> **اكتشاف مهم:** الـ CDC جاهز 100% لكنه **غير موصول**!
+
+| المكون | الملف | الحالة |
+|:---|:---|:---|
+| `IChangeTrackingStrategy` | Interface | ✅ جاهز |
+| `CdcChangeStrategy` | Service | ✅ جاهز (يستخدم `cdc.fn_cdc_get_all_changes_*`) |
+| `CdcChangeResult` | Model | ✅ جاهز |
+| **التسجيل في DI** | `Program.cs:44` | ✅ **مسجل** |
+| **الحقن في DataExtractor** | Constructor | ❌ **غير محقون!** |
+
+**المطلوب للتفعيل:**
+```csharp
+// في ErpDataExtractorService.cs
+public ErpDataExtractorService(
+    IStateService stateService,
+    IChangeTrackingStrategy cdcStrategy  // ← إضافة هذا
+)
+```
+
+---
+
+## 6. دعم Multi-Tenancy (قيد التطوير)
+
+**الحالة الحالية:**
+- الـ `tenant_id` مثبت على `"ALL"` لجميع البيانات.
+- لا يوجد parameter لتمرير الـ tenant.
+
+**الخطة المستقبلية:**
+```csharp
+// الواجهة الحالية
+Task GenerateSchemaAsync();
+
+// الواجهة المطلوبة (Module 1)
+Task GenerateSchemaAsync(string tenantId = "ALL");
+```
+
+---
+
+## 7. مثال حقيقي (Real-World Example)
+
+### السيناريو: المطور أضاف عمود جديد "TaxAmount"
+
+```text
+1. [SchemaOrchestrator] → يبدأ
+2. [Phase 1-4] → ✓ تم سابقاً (Checkpoint)
+3. [Phase 5] → يقارن sys.objects.modify_date
+   → يكتشف: "InvoiceView" تغير اليوم!
+4. [SchemaReaderService] → يولد CREATE VIEW الجديد
+5. [QdrantVectorDbService] → يحذف القديم، يرفع الجديد
+6. [Phase 6] → ✅ Complete
+
+⏱️ النتيجة: بعد دقيقة، المستخدم يسأل "كم الضريبة؟"
+            → النظام يفهم السؤال فوراً!
+```
+
+---
+
+## 8. الكود الأساسي (Core Logic Snippet)
+
+```csharp
+public async Task GenerateSchemaAsync()
+{
+    var checkpoint = await LoadCheckpointAsync();
+    
+    // Phase 1: Build Context Map
+    if (checkpoint.LastCompletedPhase < 1)
     {
-        // قائمة الصفحات التي نريد تعليم الذكاء الاصطناعي عنها
-        private readonly List<int> _targetPageIds = new List<int> { 244, 289 };
-
-        public async Task GenerateSchemaAsync()
+        checkpoint.ContextMap = await _metadataService.BuildContextMapAsync(
+            _connectionString, _dbName, _targetPageIds);
+        await SaveCheckpointAsync(checkpoint);
+    }
+    
+    // Phase 5: Smart CDC Detection
+    if (checkpoint.LastCompletedPhase < 5)
+    {
+        var state = await _stateService.LoadStateAsync(_stateFilePath);
+        var currentDates = await _schemaReaderService.GetObjectsModificationDatesAsync(
+            _connectionString, normalizedTargetViewNames);
+        
+        foreach (var objName in normalizedTargetViewNames)
         {
-            // نظام Checkpoint: إذا فشلت العملية في المنتصف، نكمل من حيث توقفنا
-            var checkpoint = await LoadCheckpointAsync();
-
-            // Phase 1: Build Context Map
-            // نفهم العلاقات بين الجداول (Master-Detail) من الداتابيز
-            if (checkpoint.LastCompletedPhase < 1) {
-                 checkpoint.ContextMap = await _metadataService.BuildContextMapAsync(...);
-                 await SaveCheckpointAsync(checkpoint);
-            }
-
-            // Phase 5: Check State (Smart CDC)
-            // لا نرفع كل شيء كل مرة. نفحص تاريخ التعديل (modify_date)
-            if (checkpoint.LastCompletedPhase < 5) {
-                 var changes = DetectChanges(checkpoint.TargetViewNames);
-                 if (changes.Any()) {
-                     // فقط نرفع الجداول التي تغير هيكلها
-                     await _vectorDbService.SyncBatchAsync(_collectionName, changes);
-                 }
+            if (currentDates.TryGetValue(objName, out var currentDate))
+            {
+                if (!state.SchemaDates.TryGetValue(objName, out var storedDate) 
+                    || currentDate > storedDate)
+                {
+                    changedObjectNames.Add(objName);  // ← تم اكتشاف تغيير!
+                }
             }
         }
+        // ... generate and upload changed schemas
     }
 }
 ```
 
 ---
 
-## 2. مراحل البناء (The 6 Phases)
+## 9. ملخص الميزات
 
-يقوم النظام ببناء المعرفة في 6 مراحل متتالية:
-1.  **Phase 1 (Context Map):** قراءة الـ Metadata من جداول `PageAttribute` و `PageDetail` لفهم الهيكل.
-2.  **Phase 2 (Scan):** تحديد قوائم الجداول المطلوب مراقبتها.
-3.  **Phase 3 (Schema Gen):** استخراج كود `CREATE VIEW` لكل جدول.
-4.  **Phase 4 (Data Extractor):** استخراج عينات من البيانات (أول 10 صفوف) لفهم المحتوى.
-5.  **Phase 5 (Change Detection):** مقارنة التواريخ لتحديد ما هو جديد.
-6.  **Phase 6 (Upload):** الإرسال إلى Qdrant.
-
----
-
-## 3. الشرح والتحليل (Deep Dive Analysis)
-
-### دوره في المشروع (Role)
-هو "المعلم" الذي يغذي "دماغ" الذكاء الاصطناعي. بدونه، يكون الـ LLM جاهلاً ببيانات الشركة.
-
-### الذكاء في التصميم (Design Intelligence)
-*   **Resumable:** لو انقطع الإنترنت في المرحلة 4، عند التشغيل مرة أخرى يبدأ من 4 (وليس من الصفر) بفضل ملف `pipeline_checkpoint.json`.
-*   **Incremental Updates:** لو عندك 1000 جدول، وتغير جدول واحد، يقوم برفع الجدول الواحد فقط. هذا يوفر ساعات من المعالجة.
-
----
-
-## 4. مثال حقيقي (Real-World Example)
-
-**المطور أضاف عمود جديد "TaxAmount" في الداتابيز.**
-
-1.  **SchemaOrchestrator:** يعمل.
-2.  **Phase 5:** يلاحظ أن `sys.objects.modify_date` لجدول الفواتير تغير اليوم.
-3.  **Action:**
-    *   يقوم بتوليد `CREATE VIEW` الجديد (الذي يحتوي على `TaxAmount`).
-    *   يمسح النسخة القديمة من Qdrant.
-    *   يرفع النسخة الجديدة.
-4.  **النتيجة:** بعد دقيقة واحدة، إذا سأل المستخدم "كم قيمة الضريبة؟"، سيفهم النظام السؤال فوراً.
+| الميزة | الحالة | الوصف |
+|:---|:---:|:---|
+| **6-Phase Pipeline** | ✅ | خط أنابيب مقسم لمراحل واضحة |
+| **Checkpoint Resiliency** | ✅ | استئناف من نقطة الفشل |
+| **Schema CDC** | ✅ | تتبع التغييرات عبر `modify_date` |
+| **Data CDC** | ⚠️ | مُعد لكن غير موصول |
+| **Multi-Tenancy** | ⚠️ | مخطط (Module 1) |
+| **Rate Limiting** | ✅ | Tier 1 Gemini optimization |
