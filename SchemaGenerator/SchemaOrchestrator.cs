@@ -37,11 +37,6 @@ namespace SchemaGenerator
         private readonly string _stateFilePath;
         private readonly string _checkpointFilePath;
 
-        private readonly List<int> _targetPageIds = new List<int>
-        {
-            244, 289 // 7912, 330, 332, 333, 336, 
-        };
-
         public SchemaOrchestrator(
             IStateService stateService,
             IErpMetadataService metadataService,
@@ -109,11 +104,21 @@ namespace SchemaGenerator
                     await ClearUploadStateAsync();
                 }
 
+                // === [Phase 0: Discover AI-Enabled Pages] ===
+                var targetPageIds = await _metadataService.GetAIEnabledPageIdsAsync(_connectionString, _dbName);
+                if (!targetPageIds.Any())
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine("[Phase 0] ✗ No AI-enabled pages found (AISetup = 1). Please enable pages in the database.");
+                    Console.ResetColor();
+                    return;
+                }
+
                 // === [Phase 1: Build Context Map] ===
                 if (checkpoint.LastCompletedPhase < 1)
                 {
-                    Console.WriteLine($"[Phase 1] Building ERP Context Map from {_targetPageIds.Count} Target Page(s)...");
-                    checkpoint.ContextMap = await _metadataService.BuildContextMapAsync(_connectionString, _dbName, _targetPageIds);
+                    Console.WriteLine($"[Phase 1] Building ERP Context Map from {targetPageIds.Count} AI-enabled Page(s)...");
+                    checkpoint.ContextMap = await _metadataService.BuildContextMapAsync(_connectionString, _dbName, targetPageIds);
                     Console.WriteLine($"[Phase 1] Context Map built. Found {checkpoint.ContextMap.Count} relevant Page Contexts.");
 
                     checkpoint.LastCompletedPhase = 1;

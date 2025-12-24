@@ -25,5 +25,13 @@ namespace SchemaGenerator.Interfaces
             string connectionString,
             string dbName,
             List<int> targetPageIds);
+
+        /// <summary>
+        /// يجلب IDs الصفحات المفعّل لها AISetup = 1 من جدول Pages.
+        /// </summary>
+        /// <param name="connectionString">Connection string للداتابيز</param>
+        /// <param name="dbName">اسم الداتابيز (QualityControl)</param>
+        /// <returns>قائمة بـ PageIDs المفعّل لها الذكاء الاصطناعي.</returns>
+        Task<List<int>> GetAIEnabledPageIdsAsync(string connectionString, string dbName);
     }
 }

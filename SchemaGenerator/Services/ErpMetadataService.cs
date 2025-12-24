@@ -133,7 +133,7 @@ namespace SchemaGenerator.Services
                         ForeignKeyToMaster = detailFirst.DetailForeignKey,
                         TailCondition = detailFirst.DetailTailCondition
                     };
-                    
+
                     Console.ForegroundColor = ConsoleColor.DarkCyan;
                     Console.WriteLine($"  - Processing Detail Context: '{detailContext.ViewName}' (List: '{detailContext.ListName}')");
                     Console.ResetColor();
@@ -152,7 +152,7 @@ namespace SchemaGenerator.Services
                         }
                     }
                     Console.WriteLine($"    - Found {detailContext.ColumnContext.Count} columns for Detail View.");
-                    
+
                     if (!context.DetailContexts.Any(dc => dc.ViewName == detailContext.ViewName))
                     {
                         context.DetailContexts.Add(detailContext);
@@ -169,6 +169,28 @@ namespace SchemaGenerator.Services
             Console.WriteLine($"\n[MetadataService] ✅ Context Map built successfully. Found {contextMap.Count} unique page contexts.");
             Console.ResetColor();
             return contextMap;
+        }
+
+        /// <summary>
+        /// يجلب IDs الصفحات المفعّل لها AISetup = 1 من جدول Pages.
+        /// </summary>
+        public async Task<List<int>> GetAIEnabledPageIdsAsync(string connectionString, string dbName)
+        {
+            Console.WriteLine("[MetadataService] Discovering AI-enabled pages from database...");
+
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync();
+            await connection.ChangeDatabaseAsync(dbName);
+
+            const string query = "SELECT PageID FROM Pages WHERE AISetup = 1";
+            var pageIds = await connection.QueryAsync<int>(query);
+            var result = pageIds.ToList();
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"[MetadataService] ✅ Found {result.Count} AI-enabled pages: [{string.Join(", ", result)}]");
+            Console.ResetColor();
+
+            return result;
         }
     }
 }
