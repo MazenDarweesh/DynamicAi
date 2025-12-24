@@ -1,4 +1,5 @@
 ﻿using Dapper;
+using Microsoft.Extensions.Logging;
 using SchemaGenerator.Common;
 using SchemaGenerator.Interfaces;
 using SchemaGenerator.Models;
@@ -20,11 +21,15 @@ namespace SchemaGenerator.Services
     /// </summary>
     public class ErpDataExtractorService : IErpDataExtractorService
     {
+        private readonly ILogger<ErpDataExtractorService> _logger;
         private readonly IStateService _stateService;
         private readonly JsonSerializerOptions _jsonOptions;
 
-        public ErpDataExtractorService(IStateService stateService)
+        public ErpDataExtractorService(
+            ILogger<ErpDataExtractorService> logger,
+            IStateService stateService)
         {
+            _logger = logger;
             _stateService = stateService;
             _jsonOptions = new JsonSerializerOptions
             {
@@ -49,11 +54,11 @@ namespace SchemaGenerator.Services
 
             if (!contextMap.Any())
             {
-                Console.WriteLine("[DataExtractor] Context map is empty, skipping data extraction.");
+                _logger.LogWarning("Context map is empty, skipping data extraction.");
                 return allDocuments;
             }
 
-            Console.WriteLine("[DataExtractor] Starting targeted metadata extraction...");
+            _logger.LogInformation("Starting targeted metadata extraction...");
 
             var allContexts = contextMap.Values;
             var targetPageIds = allContexts.Select(c => c.PageId).Distinct().ToList();
@@ -100,7 +105,7 @@ namespace SchemaGenerator.Services
                 allDocuments.AddRange(listSetups.Select(row => TransformRowToDocument(row, DbTables.ListSetups)));
             }
 
-            Console.WriteLine($"[DataExtractor] Targeted extraction complete. Found {allDocuments.Count} relevant metadata rows.");
+            _logger.LogInformation("Targeted extraction complete. Found {RowCount} relevant metadata rows.", allDocuments.Count);
             return allDocuments;
         }
 
@@ -108,7 +113,8 @@ namespace SchemaGenerator.Services
         {
             if (ids == null || !ids.Any()) return new List<Dictionary<string, object>>();
 
-            Console.WriteLine($"  - Fetching from '{tableName}' where '{columnName}' IN ({string.Join(",", ids.Take(5))}{(ids.Count > 5 ? "..." : "")})");
+            _logger.LogDebug("Fetching from '{TableName}' where '{ColumnName}' IN ({SampleIds}...)",
+                tableName, columnName, string.Join(",", ids.Take(5)));
             var query = $"SELECT * FROM dbo.[{tableName}] WHERE [{columnName}] IN @Ids";
             var rows = await connection.QueryAsync(query, new { Ids = ids });
             return rows.Select(row => ((IDictionary<string, object>)row).ToDictionary(kvp => kvp.Key, kvp => kvp.Value)).ToList();
@@ -149,7 +155,7 @@ namespace SchemaGenerator.Services
             // 2. إذا لم يوجد، ابحث عنه في بيانات الصف نفسه
             else if (row.TryGetValue(DbColumns.PageID_Upper, out var pageIdValue) || row.TryGetValue(DbColumns.PageId_Lower, out pageIdValue))
             {
-                if (pageIdValue != null) metadata[VectorDbMeta.PageId] = pageIdValue.ToString();
+                if (pageIdValue != null) metadata[VectorDbMeta.PageId] = pageIdValue.ToString() ?? string.Empty;
             }
 
             if (attributeId.HasValue)
@@ -158,21 +164,21 @@ namespace SchemaGenerator.Services
             }
             else if (row.TryGetValue(DbColumns.AttributeId, out var attrIdValue) && attrIdValue != null)
             {
-                metadata[VectorDbMeta.AttributeId] = attrIdValue.ToString();
+                metadata[VectorDbMeta.AttributeId] = attrIdValue.ToString() ?? string.Empty;
             }
             // --- (نهاية منطق الربط) ---
 
             if (row.TryGetValue(DbColumns.DetailId, out var detailIdValue) && detailIdValue != null)
             {
-                metadata[VectorDbMeta.DetailId] = detailIdValue.ToString();
+                metadata[VectorDbMeta.DetailId] = detailIdValue.ToString() ?? string.Empty;
             }
             if (row.TryGetValue(DbColumns.ListName, out var listNameValue) && listNameValue != null)
             {
-                metadata[VectorDbMeta.ListName] = listNameValue.ToString();
+                metadata[VectorDbMeta.ListName] = listNameValue.ToString() ?? string.Empty;
             }
             if (row.TryGetValue(DbColumns.PageDisplay, out var pageDisplayValue) && pageDisplayValue != null)
             {
-                metadata[VectorDbMeta.PageName] = pageDisplayValue.ToString();
+                metadata[VectorDbMeta.PageName] = pageDisplayValue.ToString() ?? string.Empty;
             }
 
             return new VectorDocument

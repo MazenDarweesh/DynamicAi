@@ -1,5 +1,6 @@
 ﻿using Dapper;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
 using SchemaGenerator.Interfaces;
 using SchemaGenerator.Models;
 using SchemaGenerator.Models.Erp;
@@ -17,6 +18,13 @@ namespace SchemaGenerator.Services
     /// </summary>
     public class ErpMetadataService : IErpMetadataService
     {
+        private readonly ILogger<ErpMetadataService> _logger;
+
+        public ErpMetadataService(ILogger<ErpMetadataService> logger)
+        {
+            _logger = logger;
+        }
+
         /// <summary>
         /// يبني "خريطة سياق" (Context Map) من قائمة PageIDs المستهدفة.
         /// </summary>
@@ -29,7 +37,7 @@ namespace SchemaGenerator.Services
             if (targetPageIds == null || !targetPageIds.Any())
                 return contextMap;
 
-            Console.WriteLine("[MetadataService] Building context map from database...");
+            _logger.LogInformation("Building context map from database...");
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync();
             await connection.ChangeDatabaseAsync(dbName);
@@ -79,7 +87,7 @@ namespace SchemaGenerator.Services
             ";
 
             var results = await connection.QueryAsync<PageStructureDto>(query, new { TargetPageIDs = targetPageIds });
-            Console.WriteLine($"[MetadataService]   - DB query returned {results.Count()} flat rows.");
+            _logger.LogDebug("DB query returned {RowCount} flat rows", results.Count());
 
             var groupedByPage = results.GroupBy(r => r.PageID);
 
@@ -98,10 +106,10 @@ namespace SchemaGenerator.Services
                     TailCondition = first.MasterTailCondition
                 };
 
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"\n[MetadataService] 🏗️  Processing Page Context for PageID: {context.PageId} ('{context.PageName}')");
-                Console.ResetColor();
-                Console.WriteLine($"  - Master View: '{context.ViewName}' (List: '{context.ListName}')");
+                _logger.LogInformation("Processing Page Context for PageID: {PageId} ('{PageName}')",
+                    context.PageId, context.PageName);
+                _logger.LogDebug("  Master View: '{ViewName}' (List: '{ListName}')",
+                    context.ViewName, context.ListName);
 
                 // تجميع بيانات القاموس للـ Master View
                 var masterColumns = pageGroup.Where(r => r.ContextListName == context.ListName && !string.IsNullOrEmpty(r.ColumnName)).ToList();
@@ -116,7 +124,7 @@ namespace SchemaGenerator.Services
                         };
                     }
                 }
-                Console.WriteLine($"    - Found {context.ColumnContext.Count} columns for Master View.");
+                _logger.LogDebug("  Found {ColumnCount} columns for Master View", context.ColumnContext.Count);
 
                 // تجميع الـ Details وقواميسها
                 var detailGroups = pageGroup
@@ -134,9 +142,8 @@ namespace SchemaGenerator.Services
                         TailCondition = detailFirst.DetailTailCondition
                     };
 
-                    Console.ForegroundColor = ConsoleColor.DarkCyan;
-                    Console.WriteLine($"  - Processing Detail Context: '{detailContext.ViewName}' (List: '{detailContext.ListName}')");
-                    Console.ResetColor();
+                    _logger.LogDebug("  Processing Detail Context: '{ViewName}' (List: '{ListName}')",
+                        detailContext.ViewName, detailContext.ListName);
 
                     // تجميع بيانات القاموس للـ Detail View
                     var detailColumns = detailGroup.Where(r => r.ContextListName == detailContext.ListName && !string.IsNullOrEmpty(r.ColumnName)).ToList();
@@ -151,7 +158,7 @@ namespace SchemaGenerator.Services
                             };
                         }
                     }
-                    Console.WriteLine($"    - Found {detailContext.ColumnContext.Count} columns for Detail View.");
+                    _logger.LogDebug("    Found {ColumnCount} columns for Detail View", detailContext.ColumnContext.Count);
 
                     if (!context.DetailContexts.Any(dc => dc.ViewName == detailContext.ViewName))
                     {
@@ -165,9 +172,7 @@ namespace SchemaGenerator.Services
                 }
             }
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"\n[MetadataService] ✅ Context Map built successfully. Found {contextMap.Count} unique page contexts.");
-            Console.ResetColor();
+            _logger.LogInformation("Context Map built successfully. Found {PageCount} unique page contexts", contextMap.Count);
             return contextMap;
         }
 
@@ -176,7 +181,7 @@ namespace SchemaGenerator.Services
         /// </summary>
         public async Task<List<int>> GetAIEnabledPageIdsAsync(string connectionString, string dbName)
         {
-            Console.WriteLine("[MetadataService] Discovering AI-enabled pages from database...");
+            _logger.LogInformation("Discovering AI-enabled pages from database...");
 
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync();
@@ -186,9 +191,8 @@ namespace SchemaGenerator.Services
             var pageIds = await connection.QueryAsync<int>(query);
             var result = pageIds.ToList();
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[MetadataService] ✅ Found {result.Count} AI-enabled pages: [{string.Join(", ", result)}]");
-            Console.ResetColor();
+            _logger.LogInformation("Found {PageCount} AI-enabled pages: [{PageIds}]",
+                result.Count, string.Join(", ", result));
 
             return result;
         }

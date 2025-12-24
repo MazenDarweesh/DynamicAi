@@ -97,9 +97,7 @@ builder.ConfigureServices((context, services) =>
             sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt) * 5),
             onRetry: (outcome, timespan, retryCount, ctx) =>
             {
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"[Polly] Rate limit detected. Retry #{retryCount} after {timespan.TotalSeconds:F1}s...");
-                Console.ResetColor();
+                Log.Warning("[Polly] Rate limit detected. Retry #{RetryCount} after {Seconds:F1}s...", retryCount, timespan.TotalSeconds);
             });
 
     // HTTP Clients
@@ -138,10 +136,7 @@ var isValid = await validationService.ValidateAndEnsureCollectionAsync();
 
 if (!isValid)
 {
-    Console.ForegroundColor = ConsoleColor.Red;
-    Console.WriteLine("\n✗ Qdrant validation failed. Cannot proceed.");
-    Console.WriteLine("Please fix the issues above and try again.");
-    Console.ResetColor();
+    Log.Error("Qdrant validation failed. Cannot proceed. Please fix the issues above and try again.");
     return; // إنهاء البرنامج
 }
 

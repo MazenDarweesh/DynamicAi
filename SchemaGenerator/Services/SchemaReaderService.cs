@@ -195,10 +195,9 @@ namespace SchemaGenerator.Services
 
                     // --- (الجزء الجديد: سؤال المستخدم) ---
                     // Note: Interactive prompts kept in Console as this is a CLI input requirement
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine("\n[SchemaReader] This error means the tables *inside* this View were NOT found.");
-                    Console.WriteLine("  - (C) Continue: Ignore this view's tables and proceed with the pipeline.");
-                    Console.WriteLine("  - (S) Stop: Abort the entire pipeline (safest option).");
+                    _logger.LogWarning("This error means the tables *inside* this View were NOT found.");
+                    _logger.LogWarning("  - (C) Continue: Ignore this view's tables and proceed with the pipeline.");
+                    _logger.LogWarning("  - (S) Stop: Abort the entire pipeline (safest option).");
 
                     while (true)
                     {
@@ -218,7 +217,7 @@ namespace SchemaGenerator.Services
                             return new List<string>(); // (الإكمال: إرجاع قائمة فارغة)
                         }
 
-                        Console.WriteLine("  Invalid input. Please enter 'C' or 'S'.");
+                        _logger.LogWarning("Invalid input. Please enter 'C' or 'S'.");
                     }
                     // --- (نهاية الجزء الجديد) ---
                 }

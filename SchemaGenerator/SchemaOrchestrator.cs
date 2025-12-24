@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using SchemaGenerator.Common;
 using SchemaGenerator.Interfaces;
 using SchemaGenerator.Models;
@@ -26,6 +27,7 @@ namespace SchemaGenerator
     public class SchemaOrchestrator : ISchemaOrchestrator
     {
         // --- الخدمات الخمس المعتمدة ---
+        private readonly ILogger<SchemaOrchestrator> _logger;
         private readonly IStateService _stateService;
         private readonly IErpMetadataService _metadataService;
         private readonly ISchemaReaderService _schemaReaderService;
@@ -38,6 +40,7 @@ namespace SchemaGenerator
         private readonly string _checkpointFilePath;
 
         public SchemaOrchestrator(
+            ILogger<SchemaOrchestrator> logger,
             IStateService stateService,
             IErpMetadataService metadataService,
             ISchemaReaderService schemaReaderService,
@@ -45,6 +48,7 @@ namespace SchemaGenerator
             IVectorDbService vectorDbService,
             IConfiguration config)
         {
+            _logger = logger;
             _stateService = stateService;
             _metadataService = metadataService;
             _schemaReaderService = schemaReaderService;
@@ -70,7 +74,7 @@ namespace SchemaGenerator
 
         public async Task GenerateSchemaAsync()
         {
-            Console.WriteLine("--- Knowledge Base Ingestion Pipeline: STARTED ---");
+            _logger.LogInformation("=== Knowledge Base Ingestion Pipeline: STARTED ===");
 
             PipelineCheckpoint? checkpoint = null;
 
@@ -80,21 +84,19 @@ namespace SchemaGenerator
 
                 if (checkpoint != null)
                 {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"[Checkpoint] Found existing checkpoint from phase {checkpoint.LastCompletedPhase}");
+                    _logger.LogWarning("Found existing checkpoint from phase {Phase}", checkpoint.LastCompletedPhase);
                     Console.Write($"[Checkpoint] Do you want to resume from this checkpoint? (yes/no): ");
-                    Console.ResetColor();
 
                     var response = Console.ReadLine()?.Trim().ToLower();
                     if (response != "yes" && response != "y")
                     {
                         checkpoint = null;
-                        Console.WriteLine("[Checkpoint] Starting fresh pipeline...");
+                        _logger.LogInformation("Starting fresh pipeline...");
                         await ClearUploadStateAsync();
                     }
                     else
                     {
-                        Console.WriteLine($"[Checkpoint] Resuming from phase {checkpoint.LastCompletedPhase + 1}...");
+                        _logger.LogInformation("Resuming from phase {Phase}...", checkpoint.LastCompletedPhase + 1);
                     }
                 }
 
@@ -108,31 +110,29 @@ namespace SchemaGenerator
                 var targetPageIds = await _metadataService.GetAIEnabledPageIdsAsync(_connectionString, _dbName);
                 if (!targetPageIds.Any())
                 {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("[Phase 0] ✗ No AI-enabled pages found (AISetup = 1). Please enable pages in the database.");
-                    Console.ResetColor();
+                    _logger.LogError("[Phase 0] No AI-enabled pages found (AISetup = 1). Please enable pages in the database.");
                     return;
                 }
 
                 // === [Phase 1: Build Context Map] ===
                 if (checkpoint.LastCompletedPhase < 1)
                 {
-                    Console.WriteLine($"[Phase 1] Building ERP Context Map from {targetPageIds.Count} AI-enabled Page(s)...");
+                    _logger.LogInformation("[Phase 1] Building ERP Context Map from {PageCount} AI-enabled Page(s)...", targetPageIds.Count);
                     checkpoint.ContextMap = await _metadataService.BuildContextMapAsync(_connectionString, _dbName, targetPageIds);
-                    Console.WriteLine($"[Phase 1] Context Map built. Found {checkpoint.ContextMap.Count} relevant Page Contexts.");
+                    _logger.LogInformation("[Phase 1] Context Map built. Found {ContextCount} relevant Page Contexts.", checkpoint.ContextMap.Count);
 
                     checkpoint.LastCompletedPhase = 1;
                     await SaveCheckpointAsync(checkpoint);
                 }
                 else
                 {
-                    Console.WriteLine($"[Phase 1] ✓ Skipped (already completed). Found {checkpoint.ContextMap!.Count} relevant Page Contexts.");
+                    _logger.LogInformation("[Phase 1] Skipped (already completed). Found {ContextCount} relevant Page Contexts.", checkpoint.ContextMap!.Count);
                 }
 
                 // === [Phase 2: Extract Target Lists] ===
                 if (checkpoint.LastCompletedPhase < 2)
                 {
-                    Console.WriteLine("[Phase 2] Extracting target lists...");
+                    _logger.LogInformation("[Phase 2] Extracting target lists...");
                     var allContexts = checkpoint.ContextMap!.Values.Distinct();
                     checkpoint.TargetViewNames = allContexts.Select(c => c.ViewName)
                         .Concat(allContexts.SelectMany(c => c.DetailContexts.Select(d => d.ViewName)))
@@ -154,13 +154,13 @@ namespace SchemaGenerator
                 }
                 else
                 {
-                    Console.WriteLine($"[Phase 2] ✓ Skipped (already completed). Found {checkpoint.TargetViewNames!.Count} views.");
+                    _logger.LogInformation("[Phase 2] Skipped (already completed). Found {ViewCount} views.", checkpoint.TargetViewNames!.Count);
                 }
 
                 // === [Phase 3: Generate All Schema Documents (DEFERRED)] ===
                 if (checkpoint.LastCompletedPhase < 3)
                 {
-                    Console.WriteLine("[Phase 3] ✓ Skipped (Deferred to Phase 5 for performance).");
+                    _logger.LogInformation("[Phase 3] Skipped (Deferred to Phase 5 for performance).");
                     checkpoint.LastCompletedPhase = 3;
                     await SaveCheckpointAsync(checkpoint);
                 }
@@ -168,23 +168,23 @@ namespace SchemaGenerator
                 // === [Phase 4: Process Data (CDC)] ===
                 if (checkpoint.LastCompletedPhase < 4)
                 {
-                    Console.WriteLine($"[Phase 4] Extracting targeted Data for {checkpoint.ContextMap!.Count} page contexts...");
+                    _logger.LogInformation("[Phase 4] Extracting targeted Data for {ContextCount} page contexts...", checkpoint.ContextMap!.Count);
                     checkpoint.DataDocuments = await _dataExtractorService.ExtractDataChangesAsync(
                         _connectionString, _dbName, checkpoint.ContextMap, _stateFilePath);
-                    Console.WriteLine($"[Phase 4] Data extraction complete. Found {checkpoint.DataDocuments.Count} relevant rows.");
+                    _logger.LogInformation("[Phase 4] Data extraction complete. Found {RowCount} relevant rows.", checkpoint.DataDocuments.Count);
 
                     checkpoint.LastCompletedPhase = 4;
                     await SaveCheckpointAsync(checkpoint);
                 }
                 else
                 {
-                    Console.WriteLine($"[Phase 4] ✓ Skipped (already completed). Found {checkpoint.DataDocuments!.Count} changes.");
+                    _logger.LogInformation("[Phase 4] Skipped (already completed). Found {RowCount} changes.", checkpoint.DataDocuments!.Count);
                 }
 
                 // === [Phase 5: Check State (Modification Date Strategy)] ===
                 if (checkpoint.LastCompletedPhase < 5)
                 {
-                    Console.WriteLine("[Phase 5] Checking Schema modification dates (Fast Check)...");
+                    _logger.LogInformation("[Phase 5] Checking Schema modification dates (Fast Check)...");
                     var state = await _stateService.LoadStateAsync(_stateFilePath);
 
                     // تنظيف أسماء الـ Views من الأقواس المربعة [ViewName] -> ViewName
@@ -203,11 +203,8 @@ namespace SchemaGenerator
                             // تحقق إذا كان جديد أو تم تعديله
                             if (!state.SchemaDates.TryGetValue(objName, out var storedDate) || currentDate > storedDate)
                             {
-                                Console.ForegroundColor = ConsoleColor.Yellow;
-                                Console.WriteLine($"  -> Change detected in '{objName}':");
-                                Console.WriteLine($"     - DB Modify Date:   {currentDate}");
-                                Console.WriteLine($"     - Last Known Date:  {(storedDate == default ? "N/A (New Object)" : storedDate.ToString())}");
-                                Console.ResetColor();
+                                _logger.LogWarning("Change detected in '{ObjectName}': DB Date={CurrentDate}, Last Known={StoredDate}",
+                                    objName, currentDate, storedDate == default ? "N/A (New Object)" : storedDate.ToString());
                                 changedObjectNames.Add(objName);
                             }
                         }
@@ -217,27 +214,25 @@ namespace SchemaGenerator
                             // حاول إضافته إذا لم يكن في state file (جديد تماماً)
                             if (!state.SchemaDates.ContainsKey(objName))
                             {
-                                Console.ForegroundColor = ConsoleColor.Cyan;
-                                Console.WriteLine($"  -> New object detected: '{objName}' (not in DB modify_date, will attempt extraction)");
-                                Console.ResetColor();
+                                _logger.LogInformation("New object detected: '{ObjectName}' (not in DB modify_date, will attempt extraction)", objName);
                                 changedObjectNames.Add(objName);
                             }
                         }
                     }
 
-                    Console.WriteLine($"[Phase 5] Found {changedObjectNames.Count} modified schema objects to process.");
+                    _logger.LogInformation("[Phase 5] Found {ChangedCount} modified schema objects to process.", changedObjectNames.Count);
                     checkpoint.DocumentsToUpload = new List<VectorDocument>();
 
                     if (changedObjectNames.Any())
                     {
-                        Console.WriteLine($"[Phase 5] Generating SMO scripts for {changedObjectNames.Count} changed objects...");
+                        _logger.LogInformation("[Phase 5] Generating SMO scripts for {ChangedCount} changed objects...", changedObjectNames.Count);
                         var schemaDocs = await _schemaReaderService.ExtractSchemasAsync(_connectionString, _dbName, changedObjectNames, new List<string>());
                         checkpoint.SchemaDocuments = schemaDocs;
                         checkpoint.DocumentsToUpload.AddRange(schemaDocs);
                     }
                     else
                     {
-                        Console.WriteLine("[Phase 5] No new schema changes detected based on modify_date.");
+                        _logger.LogInformation("[Phase 5] No new schema changes detected based on modify_date.");
                         checkpoint.SchemaDocuments = new List<VectorDocument>();
                     }
 
@@ -246,13 +241,13 @@ namespace SchemaGenerator
                         checkpoint.DocumentsToUpload.AddRange(checkpoint.DataDocuments);
                     }
 
-                    Console.WriteLine($"[Phase 5] Found {checkpoint.DocumentsToUpload.Count} total new/modified documents to upload.");
+                    _logger.LogInformation("[Phase 5] Found {TotalCount} total new/modified documents to upload.", checkpoint.DocumentsToUpload.Count);
                     checkpoint.LastCompletedPhase = 5;
                     await SaveCheckpointAsync(checkpoint);
                 }
                 else
                 {
-                    Console.WriteLine($"[Phase 5] ✓ Skipped (already completed). {checkpoint.DocumentsToUpload!.Count} documents ready.");
+                    _logger.LogInformation("[Phase 5] Skipped (already completed). {DocCount} documents ready.", checkpoint.DocumentsToUpload!.Count);
                 }
 
                 // === [Phase 6: Load to VectorDB] ===
@@ -260,9 +255,9 @@ namespace SchemaGenerator
                 {
                     if (checkpoint.DocumentsToUpload!.Any())
                     {
-                        Console.WriteLine($"[Phase 6] Starting upload of {checkpoint.DocumentsToUpload.Count} total documents to VectorDB...");
+                        _logger.LogInformation("[Phase 6] Starting upload of {DocCount} total documents to VectorDB...", checkpoint.DocumentsToUpload.Count);
                         await _vectorDbService.SyncBatchAsync(_collectionName, checkpoint.DocumentsToUpload);
-                        Console.WriteLine("[Phase 6] Upload complete.");
+                        _logger.LogInformation("[Phase 6] Upload complete.");
 
                         var state = await _stateService.LoadStateAsync(_stateFilePath);
                         var currentDates = await _schemaReaderService.GetObjectsModificationDatesAsync(_connectionString, checkpoint.SchemaDocuments!.Select(d => d.Metadata[VectorDbMeta.ObjectName]).ToList());
@@ -276,34 +271,28 @@ namespace SchemaGenerator
                             }
                         }
                         await _stateService.SaveStateAsync(_stateFilePath, state);
-                        Console.WriteLine("[Phase 6] New schema modification dates saved to state file.");
+                        _logger.LogInformation("[Phase 6] New schema modification dates saved to state file.");
                     }
                     else
                     {
-                        Console.WriteLine("[Phase 6] No changes found. Pipeline is up-to-date.");
+                        _logger.LogInformation("[Phase 6] No changes found. Pipeline is up-to-date.");
                     }
 
                     checkpoint.LastCompletedPhase = 6;
                     await SaveCheckpointAsync(checkpoint);
                 }
 
-                Console.WriteLine("--- Knowledge Base Ingestion Pipeline: FINISHED SUCCESSFULLY ---");
+                _logger.LogInformation("=== Knowledge Base Ingestion Pipeline: FINISHED SUCCESSFULLY ===");
                 await DeleteCheckpointAsync();
             }
             catch (Exception ex)
             {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"--- KNOWLEDGE BASE PIPELINE: FAILED ---");
-                Console.WriteLine($"Error: {ex.Message}");
-                Console.WriteLine($"StackTrace: {ex.StackTrace}");
+                _logger.LogError(ex, "KNOWLEDGE BASE PIPELINE: FAILED");
 
                 if (checkpoint != null)
                 {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"\n[Checkpoint] Progress saved at phase {checkpoint.LastCompletedPhase}");
-                    Console.WriteLine($"[Checkpoint] You can resume from this point on the next run.");
+                    _logger.LogWarning("Progress saved at phase {Phase}. You can resume from this point on the next run.", checkpoint.LastCompletedPhase);
                 }
-                Console.ResetColor();
 
                 throw;
             }
@@ -321,7 +310,7 @@ namespace SchemaGenerator
             }
             catch
             {
-                Console.WriteLine("[Checkpoint] Warning: Could not parse checkpoint file. Starting fresh.");
+                _logger.LogWarning("Could not parse checkpoint file. Starting fresh.");
                 return null;
             }
         }
@@ -330,9 +319,7 @@ namespace SchemaGenerator
         {
             var json = JsonSerializer.Serialize(checkpoint, new JsonSerializerOptions { WriteIndented = true });
             await File.WriteAllTextAsync(_checkpointFilePath, json);
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"[Checkpoint] ✓ Saved progress at phase {checkpoint.LastCompletedPhase}");
-            Console.ResetColor();
+            _logger.LogDebug("Saved progress at phase {Phase}", checkpoint.LastCompletedPhase);
         }
 
         private async Task DeleteCheckpointAsync()
@@ -340,15 +327,13 @@ namespace SchemaGenerator
             if (File.Exists(_checkpointFilePath))
             {
                 File.Delete(_checkpointFilePath);
-                Console.WriteLine("[Checkpoint] Deleted checkpoint file (pipeline completed successfully)");
+                _logger.LogDebug("Deleted checkpoint file (pipeline completed successfully)");
             }
         }
 
         private async Task ClearUploadStateAsync()
         {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("[Orchestrator] Clearing previous upload state for a fresh start...");
-            Console.ResetColor();
+            _logger.LogDebug("Clearing previous upload state for a fresh start...");
             await _stateService.SaveStateAsync("QdrantUploadedDocumentIds", new HashSet<string>());
         }
     }

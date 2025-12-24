@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Qdrant.Client;
 using Qdrant.Client.Grpc;
 using SchemaGenerator.Common;
@@ -15,15 +16,18 @@ namespace SchemaGenerator.Services
     /// </summary>
     public class QdrantValidationService : IQdrantValidationService
     {
+        private readonly ILogger<QdrantValidationService> _logger;
         private readonly QdrantClient _qdrantClient;
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
         private readonly IConfiguration _configuration;
 
         public QdrantValidationService(
+            ILogger<QdrantValidationService> logger,
             QdrantClient qdrantClient,
             IEmbeddingGenerator<string, Embedding<float>> embeddingService,
             IConfiguration configuration)
         {
+            _logger = logger;
             _qdrantClient = qdrantClient;
             _embeddingService = embeddingService;
             _configuration = configuration;
@@ -32,45 +36,35 @@ namespace SchemaGenerator.Services
         public async Task<bool> ValidateAndEnsureCollectionAsync()
         {
             var collectionName = _configuration["Qdrant:CollectionName"]!;
-            
-            PrintHeader();
+
+            _logger.LogInformation("═══════════════════════════════════════════════════════");
+            _logger.LogInformation("   QDRANT CONNECTION & SCHEMA VALIDATION");
+            _logger.LogInformation("═══════════════════════════════════════════════════════");
 
             try
             {
                 var collectionInfo = await GetCollectionInfoAsync(collectionName);
-                
+
                 if (collectionInfo == null)
                 {
                     return await CreateCollectionWithIndexesAsync(collectionName);
                 }
-                
+
                 return await ValidateExistingCollectionAsync(collectionName, collectionInfo);
             }
             catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.Unauthenticated)
             {
-                PrintError("Authentication Failed", 
-                    "Qdrant authentication failed. Please check your API key in appsettings.json",
-                    ex.Message);
+                _logger.LogError("Authentication Failed: Qdrant authentication failed. Please check your API key in appsettings.json. {Message}", ex.Message);
                 return false;
             }
             catch (Grpc.Core.RpcException ex)
             {
-                PrintError("gRPC Error", 
-                    $"Qdrant gRPC error: {ex.StatusCode}",
-                    ex.Message,
-                    ex.Status.Detail);
+                _logger.LogError("gRPC Error: Qdrant gRPC error: {StatusCode}. {Message}. {Detail}", ex.StatusCode, ex.Message, ex.Status.Detail);
                 return false;
             }
             catch (System.Exception ex)
             {
-                PrintError("Connection Failed",
-                    $"Qdrant connection failed: {ex.GetType().Name}",
-                    ex.Message,
-                    "Please verify:",
-                    "  - Host URL is correct in appsettings.json",
-                    "  - API key is valid",
-                    "  - Network connectivity to Qdrant cloud",
-                    "  - Firewall allows outbound connection to port 6334");
+                _logger.LogError(ex, "Connection Failed: Qdrant connection failed. Please verify: Host URL, API key, Network connectivity, Firewall (port 6334)");
                 return false;
             }
         }
@@ -79,18 +73,16 @@ namespace SchemaGenerator.Services
         {
             try
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"Creating new collection '{collectionName}'...");
-                Console.ResetColor();
+                _logger.LogWarning("Creating new collection '{CollectionName}'...", collectionName);
 
                 var actualDimension = await GetEmbeddingDimensionAsync();
-                
+
                 await _qdrantClient.CreateCollectionAsync(
                     collectionName: collectionName,
                     vectorsConfig: new VectorParams { Size = (ulong)actualDimension, Distance = Distance.Cosine }
                 );
-                
-                PrintSuccess($"✓ Collection '{collectionName}' created successfully (Dimension: {actualDimension}, Metric: Cosine).");
+
+                _logger.LogInformation("✓ Collection '{CollectionName}' created successfully (Dimension: {Dimension}, Metric: Cosine)", collectionName, actualDimension);
 
                 await CreateAllPayloadIndexesAsync(collectionName);
 
@@ -98,9 +90,7 @@ namespace SchemaGenerator.Services
             }
             catch (System.Exception createEx)
             {
-                PrintError("Collection Creation Failed",
-                    $"Failed to create collection: {createEx.Message}",
-                    $"Stack: {createEx.StackTrace}");
+                _logger.LogError(createEx, "Collection Creation Failed: Failed to create collection");
                 return false;
             }
         }
@@ -120,7 +110,7 @@ namespace SchemaGenerator.Services
 
         private async Task<bool> EnsurePayloadIndexesAsync(string collectionName, CollectionInfo collectionInfo)
         {
-            Console.WriteLine($"\n🔧 Verifying payload indexes for existing collection...");
+            _logger.LogInformation("Verifying payload indexes for existing collection...");
 
             var requiredIndexes = new Dictionary<string, PayloadSchemaType>
             {
@@ -140,26 +130,24 @@ namespace SchemaGenerator.Services
 
             if (!missingIndexes.Any())
             {
-                PrintSuccess("✓ All required payload indexes are present.");
+                _logger.LogInformation("✓ All required payload indexes are present.");
                 return true;
             }
 
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"Found {missingIndexes.Count} missing index(es). Creating them now...");
-            Console.ResetColor();
+            _logger.LogWarning("Found {Count} missing index(es). Creating them now...", missingIndexes.Count);
 
             foreach (var missingIndex in missingIndexes)
             {
                 await CreateIndexAsync(collectionName, missingIndex.Key, missingIndex.Value);
             }
 
-            PrintSuccess("\n✓ All missing indexes created successfully.");
+            _logger.LogInformation("✓ All missing indexes created successfully.");
             return true;
         }
 
         private async Task CreateAllPayloadIndexesAsync(string collectionName)
         {
-            Console.WriteLine($"\n🔧 Creating all payload indexes for new collection...");
+            _logger.LogInformation("Creating all payload indexes for new collection...");
             var requiredIndexes = new Dictionary<string, PayloadSchemaType>
             {
                 { VectorDbMeta.TenantId, PayloadSchemaType.Keyword },
@@ -178,61 +166,52 @@ namespace SchemaGenerator.Services
                 await CreateIndexAsync(collectionName, index.Key, index.Value);
             }
 
-            PrintSuccess("\n✓ All payload indexes configured successfully.");
+            _logger.LogInformation("✓ All payload indexes configured successfully.");
         }
 
         private async Task CreateIndexAsync(string collection, string field, PayloadSchemaType type)
         {
             try
             {
-                Console.Write($"   • Creating index '{field}' ({type})... ");
+                _logger.LogDebug("Creating index '{Field}' ({Type})...", field, type);
                 await _qdrantClient.CreatePayloadIndexAsync(collection, field, type);
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine("✓");
-                Console.ResetColor();
+                _logger.LogDebug("✓ Index '{Field}' created.", field);
             }
             catch (System.Exception ex)
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"⚠️  Warning: Index '{field}' may already exist. {ex.Message}");
-                Console.ResetColor();
+                _logger.LogWarning("Index '{Field}' may already exist. {Message}", field, ex.Message);
             }
         }
-        
+
         private async Task<CollectionInfo?> GetCollectionInfoAsync(string collectionName)
         {
             try
             {
-                Console.WriteLine($"Connecting to Qdrant Cloud...");
-                Console.WriteLine($"Collection: {collectionName}");
+                _logger.LogInformation("Connecting to Qdrant Cloud...");
+                _logger.LogInformation("Collection: {CollectionName}", collectionName);
                 return await _qdrantClient.GetCollectionInfoAsync(collectionName);
             }
             catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"⚠ Collection '{collectionName}' not found.");
-                Console.ResetColor();
+                _logger.LogWarning("⚠ Collection '{CollectionName}' not found.", collectionName);
                 return null;
             }
         }
 
         private async Task<bool> ValidateVectorDimensionsAsync(string collectionName, CollectionInfo collectionInfo)
         {
-            Console.WriteLine($"Testing embedding service to determine vector dimensions...");
+            _logger.LogInformation("Testing embedding service to determine vector dimensions...");
             var actualDimension = await GetEmbeddingDimensionAsync();
             var expectedDimension = collectionInfo.Config.Params.VectorsConfig.Params.Size;
 
-            PrintSuccess(
-                $"✓ Qdrant connection successful!",
-                $"✓ Collection '{collectionName}' found with {collectionInfo.PointsCount} points",
-                $"✓ Collection expects vector dimension: {expectedDimension}",
-                $"✓ Embedding service produces dimension: {actualDimension}");
+            _logger.LogInformation("✓ Qdrant connection successful!");
+            _logger.LogInformation("✓ Collection '{CollectionName}' found with {PointsCount} points", collectionName, collectionInfo.PointsCount);
+            _logger.LogInformation("✓ Collection expects vector dimension: {ExpectedDimension}", expectedDimension);
+            _logger.LogInformation("✓ Embedding service produces dimension: {ActualDimension}", actualDimension);
 
             if ((ulong)actualDimension != expectedDimension)
             {
-                PrintError("FATAL: Dimension Mismatch", 
-                    $"The existing collection expects vectors of size {expectedDimension}, but the current embedding model produces size {actualDimension}.",
-                    "This cannot be fixed automatically. You must manually delete the collection in Qdrant and restart this process.");
+                _logger.LogError("FATAL: Dimension Mismatch - The existing collection expects vectors of size {Expected}, but the current embedding model produces size {Actual}. You must manually delete the collection in Qdrant and restart.", expectedDimension, actualDimension);
                 return false;
             }
 
@@ -243,36 +222,6 @@ namespace SchemaGenerator.Services
         {
             var testEmbedding = await _embeddingService.GenerateAsync(new[] { "test" });
             return testEmbedding.First().Vector.Length;
-        }
-
-        private void PrintHeader()
-        {
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("\n═══════════════════════════════════════════════════════");
-            Console.WriteLine("   QDRANT CONNECTION & SCHEMA VALIDATION");
-            Console.WriteLine("═══════════════════════════════════════════════════════");
-            Console.ResetColor();
-        }
-
-        private void PrintSuccess(params string[] messages)
-        {
-            Console.ForegroundColor = ConsoleColor.Green;
-            foreach (var message in messages)
-            {
-                Console.WriteLine(message);
-            }
-            Console.ResetColor();
-        }
-
-        private void PrintError(string title, params string[] messages)
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"\n✗ {title}");
-            foreach (var message in messages)
-            {
-                Console.WriteLine($"  {message}");
-            }
-            Console.ResetColor();
         }
     }
 }
