@@ -1,6 +1,7 @@
 ﻿using DynamicAi.Infrastructure.Persistence;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Services;
+using DynamicAi.Api.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.SemanticKernel.Connectors.Google;
@@ -102,6 +103,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddSingleton<IQueryCacheService, QueryCacheService>();
     services.AddSingleton<IFailedQueryLogger, FailedQueryLogger>();
     services.AddSingleton<IGeminiCostTracker, GeminiCostTracker>(); // Phase 1: Observability
+    services.AddSingleton<IGeminiCacheManager, GeminiCacheManager>(); // Gemini Context Caching
 
     // --- تسجيل عميل Qdrant ---
     var qdrantHost = configuration["Qdrant:Host"]!;
@@ -163,6 +165,11 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
         client.Timeout = TimeSpan.FromSeconds(900);
     })
     .AddPolicyHandler(retryPolicy);
+
+    services.AddHttpClient("GeminiCache", client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(60);
+    });
 
     // خدمة المحادثة (Chat)
     services.AddSingleton<IChatCompletionService>(sp =>
