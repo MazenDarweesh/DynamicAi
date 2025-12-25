@@ -425,9 +425,12 @@ namespace DynamicAi.Application.Services
 
             // Response Format Rules
             sb.AppendLine("\n--- RESPONSE FORMAT RULES (STRICT) ---");
-            sb.AppendLine("1. **NO HYBRID RESPONSES**: You must output EITHER valid T-SQL code OR a clarification message. NEVER BOTH.");
-            sb.AppendLine("2. **IF CLARIFICATION NEEDED**: Output ONLY `CLARIFICATION_NEEDED: [Message in Arabic]`. Do NOT write any SQL after it.");
-            sb.AppendLine("3. **IF SQL GENERATED**: Output ONLY the SQL code inside markdown tags.");
+            sb.AppendLine("1. **CONFIDENCE THRESHOLD (75%)**: User prefers ACTION over questions. Only ask for clarification if you are **less than 75% confident**.");
+            sb.AppendLine("   - **If >= 75% Sure**: INFER the most likely intent based on context and GENERATE SQL.");
+            sb.AppendLine("   - **If < 75% Sure**: Output `CLARIFICATION_NEEDED`.");
+            sb.AppendLine("2. **NO HYBRID RESPONSES**: You must output EITHER valid T-SQL code OR a clarification message. NEVER BOTH.");
+            sb.AppendLine("3. **IF CLARIFICATION NEEDED**: Output ONLY `CLARIFICATION_NEEDED: [Message in Arabic]`. Do NOT write any SQL after it.");
+            sb.AppendLine("4. **IF SQL GENERATED**: Output ONLY the SQL code inside markdown tags.");
 
             // System Cycle
             sb.AppendLine("\n--- THE SYSTEM CYCLE (MENTAL MODEL) ---");
@@ -472,16 +475,7 @@ namespace DynamicAi.Application.Services
             sb.AppendLine("   - Example: `SELECT Sum(Total) AS [اجمالي المبيعات]`. Use terms from 'DICTIONARY CONTEXT' for aliases.");
             sb.AppendLine("5. SAFETY: If no aggregation (SUM/COUNT) is requested, ALWAYS add `TOP 100` to the query.");
             sb.AppendLine("6. **STRICT ALIASING (PREVENT AMBIGUITY)**: You MUST assign an alias to every table (e.g., `FROM Table AS T1`). You MUST prefix EVERY column in the `SELECT`, `WHERE`, `JOIN`, and `ORDER BY` clauses with its alias (e.g., `T1.IsResale`, `T2.ContractType`). NEVER use a column name without its alias.");
-
-            // More T-SQL Rules
-            sb.AppendLine("\n--- T-SQL SYNTAX RULES ---");
-            sb.AppendLine("1. **STRICT ALIASING**: Use aliases (e.g., `T1.Column`).");
-            sb.AppendLine("2. **NO CTEs ALLOWED**: You are FORBIDDEN from using Common Table Expressions (`WITH ...`).");
-            sb.AppendLine("   - USE ONLY standard `SELECT`, `JOIN`, and `SUBQUERIES` in the `WHERE` clause.");
-            sb.AppendLine("   - REASON: Performance and security constraints.");
-            sb.AppendLine("3. **DATE LOGIC**: Use `WHERE MONTH(Col) = X`.");
-            sb.AppendLine("4. **SEARCH**: Use `LIKE N'%Val%'`.");
-            sb.AppendLine("5. **LIMITS**: Use `TOP 100`.");
+            sb.AppendLine("7. **NO CTEs ALLOWED**: You are FORBIDDEN from using Common Table Expressions (`WITH ...`). Use standard SELECT/JOIN/SUBQUERIES only.");
 
             // Default Ordering
             sb.AppendLine("\n6. **DEFAULT ORDERING (MANDATORY when no ORDER BY specified by user)**:");
