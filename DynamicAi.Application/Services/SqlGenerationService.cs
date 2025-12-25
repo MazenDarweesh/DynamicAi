@@ -1,6 +1,7 @@
 ﻿using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Connectors.Google;
 using Microsoft.SemanticKernel;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -18,11 +19,12 @@ namespace DynamicAi.Application.Services
         private readonly IChatCompletionService _chatService;
         private readonly ILogger<SqlGenerationService> _logger;
         private readonly IGeminiCostTracker _costTracker;
+        private readonly IGeminiCacheManager _cacheManager;
 
         // ============================================================================
-        // GEMINI IMPLICIT CACHE OPTIMIZATION
-        // Static rules are cached as a constant string to ensure IDENTICAL prefix
-        // for every request, maximizing Gemini's implicit cache hit rate (75% discount)
+        // GEMINI EXPLICIT CACHE OPTIMIZATION
+        // Static rules are cached on Google's servers for 75% cost discount
+        // and 3-5 second latency reduction per request
         // ============================================================================
         private static readonly Lazy<string> _cachedStaticRules = new Lazy<string>(() => BuildStaticSystemRules());
         private static int _staticRulesTokenCount = 0;
@@ -30,11 +32,13 @@ namespace DynamicAi.Application.Services
         public SqlGenerationService(
             IChatCompletionService chatService,
             ILogger<SqlGenerationService> logger,
-            IGeminiCostTracker costTracker)
+            IGeminiCostTracker costTracker,
+            IGeminiCacheManager cacheManager)
         {
             _chatService = chatService;
             _logger = logger;
             _costTracker = costTracker;
+            _cacheManager = cacheManager;
         }
 
         /// <summary>
@@ -253,14 +257,33 @@ namespace DynamicAi.Application.Services
 
             var aiStart = DateTime.UtcNow;
 
-            // (New) Enforce Consistency
-            var executionSettings = new PromptExecutionSettings
+            // ============================================================================
+            // GEMINI EXPLICIT CACHING - Use cached content for static rules
+            // ============================================================================
+            string? cachedContentId = null;
+            try
             {
-                ExtensionData = new Dictionary<string, object>
+                cachedContentId = _cacheManager.CurrentCacheId;
+                if (!string.IsNullOrEmpty(cachedContentId))
                 {
-                    { "temperature", 0.0 }, // Zero temperature for deterministic output
-                    { "topP", 0.1 }         // Low topP for more focused sampling
+                    _logger.LogInformation("[SqlGeneration] ✓ Using Gemini Cached Content: {CacheId}", cachedContentId);
                 }
+                else
+                {
+                    _logger.LogWarning("[SqlGeneration] ⚠ No cached content available, using full prompt");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[SqlGeneration] ⚠ Cache check failed, continuing without cache");
+            }
+
+            // Use GeminiPromptExecutionSettings with CachedContent for explicit caching
+            var executionSettings = new GeminiPromptExecutionSettings
+            {
+                Temperature = 0.0,  // Zero temperature for deterministic output
+                TopP = 0.1,         // Low topP for more focused sampling
+                CachedContent = cachedContentId  // Reference to cached static rules
             };
 
             var response = await _chatService.GetChatMessageContentAsync(chatHistory, executionSettings);
