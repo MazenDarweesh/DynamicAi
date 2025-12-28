@@ -83,7 +83,7 @@ A modern, responsive web interface built with **Angular (Latest)**.
 ## 🚀 Getting Started
 
 ### Prerequisites
-*   [Docker Desktop](https://www.docker.com/products/docker-desktop) (for running Qdrant)
+*   [Docker Desktop](https://www.docker.com/products/docker-desktop) (**Optional**: Only if running Qdrant locally)
 *   [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 *   [Node.js](https://nodejs.org/) (LTS version recommended)
 *   SQL Server instance
