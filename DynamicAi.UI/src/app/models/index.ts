@@ -7,4 +7,6 @@ export * from './dislike-request.model';
 export * from './dislike-response.model';
 export * from './ask-request.model';
 export * from './like-request.model';
+export * from './like-response.model';
+
 
