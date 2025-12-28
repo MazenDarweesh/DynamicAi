@@ -13,4 +13,9 @@ export interface ChatMessage {
     retryCount?: number;
     isLogged?: boolean;
     askRetry?: boolean;
+    // Golden Dataset fields
+    queryLogId?: string;
+    isLiked?: boolean;
+    suggestionTips?: string[];
 }
+

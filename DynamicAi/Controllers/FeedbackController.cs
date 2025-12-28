@@ -15,17 +15,20 @@ public class FeedbackController : ControllerBase
 {
     private readonly IFeedbackService _feedbackService;
     private readonly IQueryCacheService _queryCacheService;
+    private readonly ITrainingExampleRepository _trainingRepo;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embedder;
     private readonly ILogger<FeedbackController> _logger;
 
     public FeedbackController(
         IFeedbackService feedbackService,
         IQueryCacheService queryCacheService,
+        ITrainingExampleRepository trainingRepo,
         IEmbeddingGenerator<string, Embedding<float>> embedder,
         ILogger<FeedbackController> logger)
     {
         _feedbackService = feedbackService;
         _queryCacheService = queryCacheService;
+        _trainingRepo = trainingRepo;
         _embedder = embedder;
         _logger = logger;
     }
@@ -224,4 +227,81 @@ public class FeedbackController : ControllerBase
     }
 
     #endregion
+
+    #region Export & Statistics
+
+    /// <summary>
+    /// تصدير أمثلة التدريب المعتمدة كـ JSONL للـ Fine-Tuning.
+    /// </summary>
+    [HttpGet("training/export")]
+    public async Task<IActionResult> ExportTrainingData([FromQuery] bool verifiedOnly = true)
+    {
+        _logger.LogInformation("╔═══════════════════════════════════════════════════════════╗");
+        _logger.LogInformation("║          EXPORT TRAINING DATA 📤                          ║");
+        _logger.LogInformation("╚═══════════════════════════════════════════════════════════╝");
+
+        try
+        {
+            var examples = verifiedOnly
+                ? await _trainingRepo.GetVerifiedAsync()
+                : await _trainingRepo.GetUnverifiedAsync(1000);
+
+            if (examples.Count == 0)
+            {
+                return Ok(new { success = true, message = "لا توجد أمثلة للتصدير.", count = 0 });
+            }
+
+            // Format as JSONL (one JSON object per line)
+            var jsonlLines = examples.Select(e => System.Text.Json.JsonSerializer.Serialize(new
+            {
+                messages = new[]
+                {
+                    new { role = "user", content = e.NaturalQuery },
+                    new { role = "assistant", content = e.GeneratedSql }
+                }
+            }));
+
+            var jsonlContent = string.Join("\n", jsonlLines);
+            var bytes = System.Text.Encoding.UTF8.GetBytes(jsonlContent);
+
+            _logger.LogInformation("[Export] ✅ Exported {Count} training examples.", examples.Count);
+
+            return File(bytes, "application/jsonl", $"training_data_{DateTime.UtcNow:yyyyMMdd}.jsonl");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Export] ❌ Error exporting training data");
+            return StatusCode(500, new { success = false, message = "حدث خطأ أثناء التصدير." });
+        }
+    }
+
+    /// <summary>
+    /// إحصائيات الـ Golden Dataset.
+    /// </summary>
+    [HttpGet("training/stats")]
+    public async Task<IActionResult> GetTrainingStats()
+    {
+        try
+        {
+            var verifiedCount = await _trainingRepo.GetVerifiedCountAsync();
+            var unverified = await _trainingRepo.GetUnverifiedAsync(1);
+            var unverifiedCount = unverified.Count; // Approximate
+
+            return Ok(new
+            {
+                verified = verifiedCount,
+                pendingReview = unverifiedCount,
+                targetForFineTuning = 500,
+                progress = Math.Round((double)verifiedCount / 500 * 100, 1)
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Stats] ❌ Error getting training stats");
+            return StatusCode(500, new { error = "حدث خطأ" });
+        }
+    }
+
+    #endregion
 }
+

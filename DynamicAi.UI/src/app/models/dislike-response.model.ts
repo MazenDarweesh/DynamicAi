@@ -7,4 +7,6 @@ export interface DislikeResponse {
     shouldStopRetrying: boolean;
     regeneratedData?: any;
     askForRetry?: boolean;
+    suggestionTips?: string[];
 }
+

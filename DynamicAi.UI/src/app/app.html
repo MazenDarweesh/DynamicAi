@@ -101,6 +101,26 @@
               </div>
               <!-- Feedback Actions (Moved Inside Bubble) -->
               <div *ngIf="msg.isAi && !msg.isLogged" class="feedback-actions">
+                <!-- Like Button -->
+                <button class="like-btn" (click)="likeResponse(msg)"
+                  [disabled]="loading || msg.isLiked"
+                  [class.liked]="msg.isLiked"
+                  title="Like this response">
+                  <ng-container *ngIf="msg.isLiked; else likeIcon">
+                    <!-- Filled Heart Icon -->
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2">
+                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                    </svg>
+                  </ng-container>
+                  <ng-template #likeIcon>
+                    <!-- Thumbs Up Icon -->
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                      stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
+                    </svg>
+                  </ng-template>
+                </button>
+                <!-- Dislike Button -->
                 <button class="dislike-btn" (click)="dislikeResponse(msg)"
                   [disabled]="loading || (msg.retryCount ?? 0) >= 2"
                   [title]="(msg.retryCount ?? 0) >= 2 ? 'Reported' : 'Dislike and Report'">
@@ -121,6 +141,14 @@
                     </svg>
                   </ng-template>
                 </button>
+              </div>
+
+              <!-- Suggestion Tips (from Dislike Response) -->
+              <div *ngIf="msg.suggestionTips && msg.suggestionTips.length > 0" class="suggestion-tips">
+                <div class="tips-header">💡 نصائح لتحسين السؤال:</div>
+                <ul class="tips-list">
+                  <li *ngFor="let tip of msg.suggestionTips">{{ tip }}</li>
+                </ul>
               </div>
             </div>
             <!-- Feedback Actions (only for AI messages) -->

@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { DislikeRequest, DislikeResponse } from '../models';
+import { DislikeRequest, DislikeResponse, LikeResponse } from '../models';
 
 @Injectable({
     providedIn: 'root'
@@ -27,4 +27,11 @@ export class ApiService {
     dislike(request: DislikeRequest): Observable<DislikeResponse> {
         return this.http.post<DislikeResponse>(`${this.apiUrl}/api/Feedback/dislike`, request);
     }
+
+    like(queryLogId: string, tenantId?: number): Observable<LikeResponse> {
+        return this.http.post<LikeResponse>(`${this.apiUrl}/api/Feedback/like/${queryLogId}`, null, {
+            params: tenantId ? { tenantId: tenantId.toString() } : {}
+        });
+    }
 }
+

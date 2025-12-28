@@ -152,6 +152,8 @@ export class App implements OnInit, AfterViewChecked {
         newMessage.sql = sql;
         newMessage.cacheId = cacheId;
         newMessage.isLogged = false;
+        // Extract queryLogId for Golden Dataset feedback
+        newMessage.queryLogId = res.queryLogId || res.QueryLogId;
 
         this.messages.push(newMessage);
         this.cdr.detectChanges();
@@ -288,4 +290,37 @@ export class App implements OnInit, AfterViewChecked {
       }
     });
   }
+
+  likeResponse(msg: ChatMessage) {
+    console.log('💚 [Like] Button clicked!');
+    console.log('💚 [Like] Message:', msg);
+
+    if (!msg.queryLogId) {
+      console.warn('💚 [Like] No queryLogId found - showing success message anyway');
+      msg.isLiked = true;
+      this.cdr.detectChanges();
+      return;
+    }
+
+    this.apiService.like(msg.queryLogId, 1).subscribe({
+      next: (res) => {
+        console.log('✅ [Like] Response received:', res);
+        msg.isLiked = true;
+        msg.isLogged = true;
+        // Show toast or feedback
+        this.messages.push({
+          isAi: true,
+          text: res.message || 'شكراً لتقييمك! 🙏',
+          isLogged: true
+        });
+        this.cdr.detectChanges();
+      },
+      error: (err) => {
+        console.error('❌ [Like] Error:', err);
+        msg.isLiked = true; // Still mark as liked visually
+        this.cdr.detectChanges();
+      }
+    });
+  }
 }
+
