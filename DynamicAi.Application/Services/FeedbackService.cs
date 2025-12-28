@@ -1,0 +1,137 @@
+using DynamicAi.Application.Interfaces;
+using DynamicAi.Domain.Entities;
+using Microsoft.Extensions.Logging;
+
+namespace DynamicAi.Application.Services;
+
+/// <summary>
+/// خدمة لمعالجة تقييمات المستخدمين وتحويلها لأمثلة تدريب.
+/// تحترم Clean Architecture: تعتمد فقط على Interfaces من Application Layer.
+/// </summary>
+public class FeedbackService : IFeedbackService
+{
+    private readonly ITrainingExampleRepository _trainingRepo;
+    private readonly IQueryLogRepository _queryLogRepo;
+    private readonly ILogger<FeedbackService> _logger;
+
+    public FeedbackService(
+        ITrainingExampleRepository trainingRepo,
+        IQueryLogRepository queryLogRepo,
+        ILogger<FeedbackService> logger)
+    {
+        _trainingRepo = trainingRepo;
+        _queryLogRepo = queryLogRepo;
+        _logger = logger;
+    }
+
+    public async Task<bool> RecordPositiveFeedbackAsync(Guid queryLogId, int? tenantId = null, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // 1. جلب الـ QueryLog الأصلي
+            var queryLog = await _queryLogRepo.GetByIdAsync(queryLogId, cancellationToken);
+
+            if (queryLog == null)
+            {
+                _logger.LogWarning("[Feedback] QueryLog not found: {QueryLogId}", queryLogId);
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(queryLog.GeneratedSql))
+            {
+                _logger.LogWarning("[Feedback] QueryLog has no SQL: {QueryLogId}", queryLogId);
+                return false;
+            }
+
+            // 2. إنشاء مثال تدريب جديد
+            var example = new TrainingExample
+            {
+                NaturalQuery = queryLog.RawQuestion,
+                GeneratedSql = queryLog.GeneratedSql,
+                FeedbackSource = "UserLike",
+                TenantId = tenantId,
+                OriginalQueryLogId = queryLogId,
+                IsVerified = false // ينتظر مراجعة الـ Admin
+            };
+
+            await _trainingRepo.AddAsync(example, cancellationToken);
+
+            var count = await _trainingRepo.GetVerifiedCountAsync(cancellationToken);
+            _logger.LogInformation("✅ [Feedback] Golden Example Added! Query: \"{Query}\". Total Verified: {Count}/500",
+                queryLog.RawQuestion.Length > 50 ? queryLog.RawQuestion[..50] + "..." : queryLog.RawQuestion,
+                count);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Feedback] Error recording positive feedback for QueryLog: {QueryLogId}", queryLogId);
+            return false;
+        }
+    }
+
+    public async Task<bool> RecordNegativeFeedbackAsync(Guid queryLogId, string? userComment = null, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var queryLog = await _queryLogRepo.GetByIdAsync(queryLogId, cancellationToken);
+
+            if (queryLog == null)
+            {
+                _logger.LogWarning("[Feedback] QueryLog not found for negative feedback: {QueryLogId}", queryLogId);
+                return false;
+            }
+
+            // حفظ مع SQL فارغ ليتم ملؤه يدوياً
+            var example = new TrainingExample
+            {
+                NaturalQuery = queryLog.RawQuestion,
+                GeneratedSql = string.Empty, // فارغ! لأن الأصلي خاطئ
+                CorrectionNotes = userComment ?? "User disliked - needs manual SQL",
+                FeedbackSource = "UserDislike",
+                OriginalQueryLogId = queryLogId,
+                IsVerified = false
+            };
+
+            await _trainingRepo.AddAsync(example, cancellationToken);
+
+            _logger.LogWarning("⚠️ [Feedback] Negative Feedback Recorded. Query: \"{Query}\". Needs Manual Review.",
+                queryLog.RawQuestion.Length > 50 ? queryLog.RawQuestion[..50] + "..." : queryLog.RawQuestion);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Feedback] Error recording negative feedback for QueryLog: {QueryLogId}", queryLogId);
+            return false;
+        }
+    }
+
+    public async Task<bool> AddManualExampleAsync(string naturalQuery, string sql, string? notes = null, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var example = new TrainingExample
+            {
+                NaturalQuery = naturalQuery,
+                GeneratedSql = sql,
+                CorrectionNotes = notes,
+                FeedbackSource = "ManualEntry",
+                IsVerified = true, // معتمد فوراً لأن المطور أدخله
+                VerifiedAt = DateTime.UtcNow
+            };
+
+            await _trainingRepo.AddAsync(example, cancellationToken);
+
+            var count = await _trainingRepo.GetVerifiedCountAsync(cancellationToken);
+            _logger.LogInformation("💎 [Feedback] Manual Example Added! Total Verified: {Count}/500", count);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Feedback] Error adding manual example");
+            return false;
+        }
+    }
+}

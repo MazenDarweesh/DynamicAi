@@ -6,22 +6,32 @@ namespace DynamicAi.Application.Models;
 public class DislikeRequest
 {
     /// <summary>
-    /// The original user question.
+    /// معرف الـ QueryLog للربط بالـ Golden Dataset.
     /// </summary>
-    public required string Question { get; set; }
+    public Guid? QueryLogId { get; set; }
 
     /// <summary>
-    /// The Qdrant cache entry ID (if from cache).
+    /// تعليق المستخدم يوضح المشكلة (مثال: "أريد رصيد الحساب وليس الفواتير")
+    /// </summary>
+    public string? UserComment { get; set; }
+
+    /// <summary>
+    /// The original user question.
+    /// </summary>
+    public string? Question { get; set; }
+
+    /// <summary>
+    /// The Qdrant cache entry ID (if from cache). [Legacy - for backward compatibility]
     /// </summary>
     public string? CacheId { get; set; }
 
     /// <summary>
-    /// The generated SQL that was incorrect.
+    /// The generated SQL that was incorrect. [Legacy - for backward compatibility]
     /// </summary>
     public string? Sql { get; set; }
 
     /// <summary>
-    /// How many times the user has disliked this question's response.
+    /// How many times the user has disliked this question's response. [Legacy]
     /// </summary>
     public int RetryCount { get; set; }
 
@@ -36,7 +46,7 @@ public class DislikeRequest
     public int CompanyId { get; set; } = 1;
 
     /// <summary>
-    /// The actual message displayed to the user (e.g. error text).
+    /// The actual message displayed to the user (e.g. error text). [Legacy]
     /// </summary>
     public string? DisplayedMessage { get; set; }
 }

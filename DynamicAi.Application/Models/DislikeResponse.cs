@@ -1,32 +1,22 @@
 namespace DynamicAi.Application.Models;
 
 /// <summary>
-/// Response model for dislike feedback.
+/// استجابة لعملية الـ Dislike مع نصائح لإعادة الصياغة.
 /// </summary>
 public class DislikeResponse
 {
-    /// <summary>
-    /// Whether the operation was successful.
-    /// </summary>
+    /// <summary>هل نجحت العملية؟</summary>
     public bool Success { get; set; }
 
-    /// <summary>
-    /// Message to display to the user.
-    /// </summary>
-    public required string Message { get; set; }
+    /// <summary>رسالة للمستخدم</summary>
+    public string Message { get; set; } = string.Empty;
 
-    /// <summary>
-    /// If true, the UI should disable the dislike button.
-    /// </summary>
-    public bool ShouldStopRetrying { get; set; }
+    /// <summary>هل يجب إيقاف المحاولات التلقائية؟ [Legacy]</summary>
+    public bool ShouldStopRetrying { get; set; } = false;
 
-    /// <summary>
-    /// The regenerated data (if successful).
-    /// </summary>
-    public object? RegeneratedData { get; set; }
+    /// <summary>هل نسأل المستخدم للمحاولة مرة أخرى؟ [Legacy]</summary>
+    public bool AskForRetry { get; set; } = false;
 
-    /// <summary>
-    /// If true, asks the user if they want to retry generation after cache deletion.
-    /// </summary>
-    public bool AskForRetry { get; set; }
+    /// <summary>نصائح لتحسين السؤال</summary>
+    public string[]? SuggestionTips { get; set; }
 }

@@ -1,4 +1,5 @@
 ﻿using DynamicAi.Infrastructure.Persistence;
+using DynamicAi.Infrastructure.Repositories;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Services;
 using DynamicAi.Api.Services;
@@ -123,6 +124,13 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddTransient<ISqlRewriterService, SqlRewriterService>();
     services.AddTransient<ISandboxedSqlExecutor, SandboxedSqlExecutor>();
     services.AddTransient<IRagRetrievalService, QdrantRetrievalService>();
+
+    // --- Repositories ---
+    services.AddScoped<ITrainingExampleRepository, TrainingExampleRepository>();
+    services.AddScoped<IQueryLogRepository, QueryLogRepository>();
+
+    // --- Feedback Service (Golden Dataset) ---
+    services.AddScoped<IFeedbackService, FeedbackService>();
 
     // --- Caching Services ---
     services.AddMemoryCache(); // For RAG and Session caching

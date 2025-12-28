@@ -7,219 +7,220 @@ namespace DynamicAi.Controllers;
 
 /// <summary>
 /// Controller for handling user feedback on AI responses.
+/// Collects Like/Dislike feedback for Fine-Tuning Golden Dataset.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class FeedbackController : ControllerBase
 {
+    private readonly IFeedbackService _feedbackService;
     private readonly IQueryCacheService _queryCacheService;
-    private readonly IFailedQueryLogger _failedQueryLogger;
-    private readonly IQueryOrchestrator _queryOrchestrator;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embedder;
+    private readonly ILogger<FeedbackController> _logger;
 
     public FeedbackController(
+        IFeedbackService feedbackService,
         IQueryCacheService queryCacheService,
-        IFailedQueryLogger failedQueryLogger,
-        IQueryOrchestrator queryOrchestrator,
-        IEmbeddingGenerator<string, Embedding<float>> embedder)
+        IEmbeddingGenerator<string, Embedding<float>> embedder,
+        ILogger<FeedbackController> logger)
     {
+        _feedbackService = feedbackService;
         _queryCacheService = queryCacheService;
-        _failedQueryLogger = failedQueryLogger;
-        _queryOrchestrator = queryOrchestrator;
         _embedder = embedder;
+        _logger = logger;
     }
 
+    #region Like Endpoint
+
     /// <summary>
-    /// Handles dislike feedback from the user.
-    /// RetryCount == 1: Deletes cache entry and tries to regenerate.
-    /// RetryCount >= 2: Logs to failed_queries.log and stops.
+    /// تسجيل تقييم إيجابي (Like) وإضافة المثال للـ Golden Dataset.
+    /// </summary>
+    /// <param name="queryLogId">معرف الـ QueryLog الأصلي</param>
+    /// <param name="tenantId">معرف الشركة (اختياري)</param>
+    [HttpPost("like/{queryLogId}")]
+    public async Task<IActionResult> LikeResponse(Guid queryLogId, [FromQuery] int? tenantId)
+    {
+        _logger.LogInformation("╔═══════════════════════════════════════════════════════════╗");
+        _logger.LogInformation("║              FEEDBACK - LIKE RECEIVED 👍                  ║");
+        _logger.LogInformation("╚═══════════════════════════════════════════════════════════╝");
+        _logger.LogInformation("[Feedback] QueryLogId: {QueryLogId}, TenantId: {TenantId}", queryLogId, tenantId);
+
+        var success = await _feedbackService.RecordPositiveFeedbackAsync(queryLogId, tenantId);
+
+        if (success)
+        {
+            _logger.LogInformation("[Feedback] ✅ Like recorded successfully! Added to Golden Dataset.");
+            return Ok(new FeedbackResponse
+            {
+                Success = true,
+                Message = "شكراً لتقييمك! 🙏 سيساعدنا ذلك في تحسين الذكاء الاصطناعي."
+            });
+        }
+        else
+        {
+            _logger.LogWarning("[Feedback] ⚠️ Like could not be recorded. QueryLog may not exist.");
+            return Ok(new FeedbackResponse
+            {
+                Success = false,
+                Message = "تم تسجيل إعجابك! شكراً ❤️"
+            });
+        }
+    }
+
+    #endregion
+
+    #region Dislike Endpoint
+
+    /// <summary>
+    /// تسجيل تقييم سلبي (Dislike) مع تعليق المستخدم.
+    /// يحذف الـ Cache الخاطئ ويحفظ في Golden Dataset للمراجعة.
     /// </summary>
     [HttpPost("dislike")]
     public async Task<IActionResult> DislikeResponse([FromBody] DislikeRequest request)
     {
-        Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.WriteLine("\n");
-        Console.WriteLine("╔════════════════════════════════════════════════════════════════════════╗");
-        Console.WriteLine("║                    FEEDBACK SYSTEM - DISLIKE RECEIVED                  ║");
-        Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
-        Console.ResetColor();
-
-        Console.WriteLine($"[Feedback] 👎 Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
-        Console.WriteLine($"[Feedback] Question: \"{(request.Question.Length > 60 ? request.Question.Substring(0, 60) + "..." : request.Question)}\"");
-        Console.WriteLine($"[Feedback] RetryCount: {request.RetryCount}");
-        Console.WriteLine($"[Feedback] CacheId: {request.CacheId ?? "NONE"}");
-        Console.WriteLine($"[Feedback] SQL from request: {(string.IsNullOrEmpty(request.Sql) ? "NOT PROVIDED" : $"{request.Sql.Length} chars")}");
-        Console.WriteLine($"[Feedback] TenantId: {request.TenantId}, CompanyId: {request.CompanyId}");
+        _logger.LogWarning("╔═══════════════════════════════════════════════════════════╗");
+        _logger.LogWarning("║              FEEDBACK - DISLIKE RECEIVED 👎               ║");
+        _logger.LogWarning("╚═══════════════════════════════════════════════════════════╝");
+        _logger.LogWarning("[Feedback] Question: \"{Question}\"",
+            request.Question?.Length > 60 ? request.Question[..60] + "..." : request.Question);
+        _logger.LogWarning("[Feedback] User Comment: \"{Comment}\"", request.UserComment ?? "لم يُحدد");
+        _logger.LogWarning("[Feedback] TenantId: {TenantId}, CompanyId: {CompanyId}",
+            request.TenantId, request.CompanyId);
 
         try
         {
             // ═══════════════════════════════════════════════════════════════════
-            // SECOND DISLIKE (retryCount >= 2): Log and stop
+            // Step 1: حذف الـ Cache الخاطئ
             // ═══════════════════════════════════════════════════════════════════
-            if (request.RetryCount >= 2)
-            {
-                Console.ForegroundColor = ConsoleColor.Magenta;
-                Console.WriteLine("\n════════════════════════════════════════════════════════════════════════");
-                Console.WriteLine("[Feedback] ⚠️  MAX RETRIES REACHED (retryCount >= 2)");
-                Console.WriteLine("[Feedback] 📝 LOGGING TO failed_queries.log...");
-                Console.WriteLine("════════════════════════════════════════════════════════════════════════");
-                Console.ResetColor();
-
-                await _failedQueryLogger.LogFailedQueryAsync(
-                    request.Question,
-                    request.Sql ?? "N/A - SQL not provided by frontend",
-                    "User disliked after regeneration (multiple attempts failed)",
-                    request.TenantId,
-                    request.CompanyId);
-
-                Console.ForegroundColor = ConsoleColor.Magenta;
-                Console.WriteLine("[Feedback] ✅ Failed query logged successfully!");
-                Console.ResetColor();
-
-                return Ok(new DislikeResponse
-                {
-                    Success = false,
-                    Message = "تم تسجيل المشكلة ✅ سنراجعها قريباً. شكراً لملاحظتك!",
-                    ShouldStopRetrying = true
-                });
-            }
-
-            // ═══════════════════════════════════════════════════════════════════
-            // SMART DISLIKE LOGIC
-            // ═══════════════════════════════════════════════════════════════════
-
-            // Step 1: Check if content was cached (and delete it if so)
-            bool wasCached = false;
-
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("\n════════════════════════════════════════════════════════════════════════");
-            Console.WriteLine("[Feedback] STEP 1: Checking Cache Status...");
-            Console.WriteLine("════════════════════════════════════════════════════════════════════════");
-            Console.ResetColor();
+            bool cacheDeleted = false;
 
             if (!string.IsNullOrEmpty(request.CacheId))
             {
-                Console.WriteLine($"[Feedback] 🗑️  Deleting cache entry by ID: {request.CacheId}");
+                _logger.LogInformation("[Feedback] 🗑️ Deleting cache entry by ID: {CacheId}", request.CacheId);
                 await _queryCacheService.DeleteCacheEntryAsync(request.CacheId);
-                wasCached = true;
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine("[Feedback] ✅ Cache entry deleted by ID (Was Computed From Cache)");
-                Console.ResetColor();
+                cacheDeleted = true;
+                _logger.LogInformation("[Feedback] ✅ Cache entry deleted by ID.");
             }
             else if (!string.IsNullOrEmpty(request.Question))
             {
-                Console.WriteLine("[Feedback] 🔍 No CacheId provided - searching for similar entries...");
+                _logger.LogInformation("[Feedback] 🔍 No CacheId - searching for similar entries...");
                 var embedding = await _embedder.GenerateAsync(request.Question);
 
-                // DeleteSimilarCacheAsync returns true if it actually found and deleted something
-                wasCached = await _queryCacheService.DeleteSimilarCacheAsync(
+                cacheDeleted = await _queryCacheService.DeleteSimilarCacheAsync(
                     embedding.Vector.ToArray(),
                     request.TenantId,
                     request.CompanyId);
 
-                if (wasCached)
+                if (cacheDeleted)
                 {
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine("[Feedback] ✅ Similar cache entry found and deleted (Was Computed From Cache)");
-                    Console.ResetColor();
+                    _logger.LogInformation("[Feedback] ✅ Similar cache entry found and deleted.");
                 }
                 else
                 {
-                    Console.ForegroundColor = ConsoleColor.DarkYellow;
-                    Console.WriteLine("[Feedback] ℹ️  No similar cache entries found. (Was Fresh Generation)");
-                    Console.ResetColor();
+                    _logger.LogInformation("[Feedback] ℹ️ No similar cache entries found.");
                 }
             }
 
-            // Step 2: Decide Action based on Cache Status
-            if (wasCached)
+            // ═══════════════════════════════════════════════════════════════════
+            // Step 2: حفظ في Golden Dataset للمراجعة اليدوية
+            // ═══════════════════════════════════════════════════════════════════
+            if (request.QueryLogId.HasValue)
             {
-                // Log failure even if cached (as per user request)
-                await _failedQueryLogger.LogFailedQueryAsync(
-                    request.Question,
-                    request.Sql ?? "N/A - SQL not provided by frontend",
-                    $"User disliked cached result (Cache entry deleted: {request.CacheId ?? "Similar Found"})",
-                    request.TenantId,
-                    request.CompanyId);
+                var saved = await _feedbackService.RecordNegativeFeedbackAsync(
+                    request.QueryLogId.Value,
+                    request.UserComment);
 
-                // CASE A: It was cached. We deleted it. Now ask user if they want to retry.
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine("\n════════════════════════════════════════════════════════════════════════");
-                Console.WriteLine("[Feedback] CASE: CACHED RESULT -> DELETED -> ASKING USER TO RETRY");
-                Console.WriteLine("════════════════════════════════════════════════════════════════════════\n");
-                Console.ResetColor();
-
-                return Ok(new DislikeResponse
+                if (saved)
                 {
-                    Success = true,
-                    Message = "تم حذف الإجابة القديمة من الذاكرة 🗑️ هل تريد المحاولة مرة أخرى؟",
-                    ShouldStopRetrying = true, // Stop "automatic" retries, wait for user explicit action
-                    AskForRetry = true // Trigger UI to show "Retry" button
-                });
+                    _logger.LogInformation("[Feedback] ✅ Negative feedback saved to TrainingExamples for review.");
+                }
             }
             else
             {
-                // CASE B: It was NOT cached (Fresh generation failed). Log immediately.
-                Console.ForegroundColor = ConsoleColor.Magenta;
-                Console.WriteLine("\n════════════════════════════════════════════════════════════════════════");
-                Console.WriteLine("[Feedback] CASE: FRESH RESULT -> LOGGING FAILURE IMMEDIATELY");
-                Console.WriteLine("[Feedback] � LOGGING TO failed_queries.log...");
-                Console.WriteLine("════════════════════════════════════════════════════════════════════════");
-                Console.ResetColor();
-
-                await _failedQueryLogger.LogFailedQueryAsync(
-                    request.Question,
-                    request.Sql ?? "N/A - SQL not provided by frontend",
-                    $"User disliked fresh generation. Message: {request.DisplayedMessage ?? "N/A"}",
-                    request.TenantId,
-                    request.CompanyId);
-
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine("[Feedback] ✅ Failure logged successfully.");
-                Console.ResetColor();
-
-                return Ok(new DislikeResponse
-                {
-                    Success = false,
-                    Message = "تم تسجيل المشكلة للمراجعة ✅ شكراً لملاحظتك!",
-                    ShouldStopRetrying = true,
-                    AskForRetry = false
-                });
+                _logger.LogWarning("[Feedback] ⚠️ No QueryLogId provided - cannot save to TrainingExamples.");
             }
-        }
-        catch (Exception ex)
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("\n════════════════════════════════════════════════════════════════════════");
-            Console.WriteLine("[Feedback] ❌ UNEXPECTED ERROR IN FEEDBACK CONTROLLER");
-            Console.WriteLine($"[Feedback] Error: {ex.Message}");
-            Console.WriteLine("════════════════════════════════════════════════════════════════════════\n");
-            Console.ResetColor();
 
-            // Log the error on second attempt
-            if (request.RetryCount >= 2)
-            {
-                Console.ForegroundColor = ConsoleColor.Magenta;
-                Console.WriteLine("[Feedback] 📝 Logging failed query due to exception...");
-                Console.ResetColor();
-
-                await _failedQueryLogger.LogFailedQueryAsync(
-                    request.Question,
-                    request.Sql ?? "N/A",
-                    $"Exception during feedback processing: {ex.Message}",
-                    request.TenantId,
-                    request.CompanyId);
-            }
+            // ═══════════════════════════════════════════════════════════════════
+            // Step 3: الرد للمستخدم مع اقتراح إعادة الصياغة
+            // ═══════════════════════════════════════════════════════════════════
+            _logger.LogInformation("[Feedback] Suggesting user to retry with modified question.");
 
             return Ok(new DislikeResponse
             {
+                Success = true,
+                Message = cacheDeleted
+                    ? "تم حذف الإجابة الخاطئة من الذاكرة 🗑️ جرب إعادة صياغة سؤالك."
+                    : "شكراً لملاحظتك! 🙏 جرب إعادة صياغة سؤالك بطريقة مختلفة.",
+                SuggestionTips = new[]
+                {
+                    "حاول أن تكون أكثر تحديداً في السؤال",
+                    "اذكر اسم الجدول أو الشاشة إن أمكن",
+                    "استخدم كلمات مفتاحية واضحة مثل: إجمالي، عدد، قائمة"
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Feedback] ❌ Error processing dislike feedback");
+            return Ok(new DislikeResponse
+            {
                 Success = false,
-                Message = request.RetryCount >= 2
-                    ? "تم تسجيل المشكلة للمراجعة ✅"
-                    : "حصل خطأ، حاول مرة تانية.",
-                ShouldStopRetrying = request.RetryCount >= 2
+                Message = "حصل خطأ، لكن تم تسجيل ملاحظتك. شكراً!"
             });
         }
     }
-}
 
+    #endregion
+
+    #region Manual Training Entry
+
+    /// <summary>
+    /// إدخال يدوي لمثال تدريب (للمطورين فقط).
+    /// </summary>
+    [HttpPost("training/manual")]
+    public async Task<IActionResult> AddManualTrainingExample([FromBody] ManualTrainingRequest request)
+    {
+        _logger.LogInformation("╔═══════════════════════════════════════════════════════════╗");
+        _logger.LogInformation("║          MANUAL TRAINING EXAMPLE ADDED 💎                 ║");
+        _logger.LogInformation("╚═══════════════════════════════════════════════════════════╝");
+        _logger.LogInformation("[Training] Query: \"{Query}\"",
+            request.NaturalQuery?.Length > 50 ? request.NaturalQuery[..50] + "..." : request.NaturalQuery);
+
+        // Validate required fields
+        if (string.IsNullOrWhiteSpace(request.NaturalQuery) || string.IsNullOrWhiteSpace(request.Sql))
+        {
+            _logger.LogWarning("[Training] ⚠️ Missing required fields: NaturalQuery or Sql.");
+            return BadRequest(new FeedbackResponse
+            {
+                Success = false,
+                Message = "يجب إدخال السؤال والـ SQL."
+            });
+        }
+
+        var success = await _feedbackService.AddManualExampleAsync(
+            request.NaturalQuery,
+            request.Sql,
+            request.Notes);
+
+        if (success)
+        {
+            _logger.LogInformation("[Training] ✅ Manual example added to Golden Dataset (Verified).");
+            return Ok(new FeedbackResponse
+            {
+                Success = true,
+                Message = "تم إضافة المثال للـ Golden Dataset! 💎"
+            });
+        }
+        else
+        {
+            _logger.LogWarning("[Training] ⚠️ Failed to add manual example.");
+            return BadRequest(new FeedbackResponse
+            {
+                Success = false,
+                Message = "فشل في إضافة المثال. تأكد من البيانات."
+            });
+        }
+    }
+
+    #endregion
+}
