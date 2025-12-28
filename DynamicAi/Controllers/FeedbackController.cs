@@ -128,11 +128,12 @@ public class FeedbackController : ControllerBase
             {
                 var saved = await _feedbackService.RecordNegativeFeedbackAsync(
                     request.QueryLogId.Value,
+                    request.Sql,  // الـ SQL الخاطئ الذي ولده الـ AI
                     request.UserComment);
 
                 if (saved)
                 {
-                    _logger.LogInformation("[Feedback] ✅ Negative feedback saved to TrainingExamples for review.");
+                    _logger.LogInformation("[Feedback] ✅ Negative feedback + WrongSQL saved to TrainingExamples for review.");
                 }
             }
             else

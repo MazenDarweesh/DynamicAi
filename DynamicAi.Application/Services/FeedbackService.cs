@@ -70,7 +70,7 @@ public class FeedbackService : IFeedbackService
         }
     }
 
-    public async Task<bool> RecordNegativeFeedbackAsync(Guid queryLogId, string? userComment = null, CancellationToken cancellationToken = default)
+    public async Task<bool> RecordNegativeFeedbackAsync(Guid queryLogId, string? wrongSql = null, string? userComment = null, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -82,12 +82,12 @@ public class FeedbackService : IFeedbackService
                 return false;
             }
 
-            // حفظ مع SQL فارغ ليتم ملؤه يدوياً
+            // حفظ الـ SQL الخاطئ لتحليل أخطاء الـ AI
             var example = new TrainingExample
             {
                 NaturalQuery = queryLog.RawQuestion,
-                GeneratedSql = string.Empty, // فارغ! لأن الأصلي خاطئ
-                CorrectionNotes = userComment ?? "User disliked - needs manual SQL",
+                GeneratedSql = wrongSql ?? queryLog.GeneratedSql ?? string.Empty, // الـ SQL الخاطئ!
+                CorrectionNotes = userComment ?? "User disliked - needs manual SQL correction",
                 FeedbackSource = "UserDislike",
                 OriginalQueryLogId = queryLogId,
                 IsVerified = false
@@ -95,8 +95,9 @@ public class FeedbackService : IFeedbackService
 
             await _trainingRepo.AddAsync(example, cancellationToken);
 
-            _logger.LogWarning("⚠️ [Feedback] Negative Feedback Recorded. Query: \"{Query}\". Needs Manual Review.",
-                queryLog.RawQuestion.Length > 50 ? queryLog.RawQuestion[..50] + "..." : queryLog.RawQuestion);
+            _logger.LogWarning("⚠️ [Feedback] Negative Feedback Recorded. Query: \"{Query}\", WrongSQL: {HasSQL}. Needs Manual Review.",
+                queryLog.RawQuestion.Length > 50 ? queryLog.RawQuestion[..50] + "..." : queryLog.RawQuestion,
+                !string.IsNullOrEmpty(example.GeneratedSql) ? "Saved" : "Empty");
 
             return true;
         }
