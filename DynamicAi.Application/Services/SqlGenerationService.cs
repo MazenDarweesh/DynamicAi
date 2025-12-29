@@ -133,7 +133,7 @@ namespace DynamicAi.Application.Services
             promptBuilder.AppendLine("\n--- DICTIONARY CONTEXT (User Labels to DB Columns) ---");
 
             // Unit 2: Compact Dictionary Format - Add header explaining the format
-            promptBuilder.AppendLine("Format: [Index] SearchName | ColumnName | InsertType | arColumnLabel | enColumnLabel | DroModel:DroValue:DroText (if dropdown)");
+            promptBuilder.AppendLine("Format: [Index] ListName | SearchName | ColumnName | InsertType | arColumnLabel | enColumnLabel | DroModel:DroValue:DroText (if dropdown)");
             promptBuilder.AppendLine("---");
 
             if (contextBundle.DictionaryEntries != null && contextBundle.DictionaryEntries.Any())
@@ -147,6 +147,7 @@ namespace DynamicAi.Application.Services
                         var node = System.Text.Json.JsonDocument.Parse(entry);
                         var root = node.RootElement;
 
+                        var listName = root.TryGetProperty("ListName", out var ln) ? ln.GetString() ?? "" : "";
                         var searchName = root.TryGetProperty("SearchName", out var sn) ? sn.GetString() ?? "" : "";
                         var columnName = root.TryGetProperty("ColumnName", out var cn) ? cn.GetString() ?? "" : "";
                         var insertType = root.TryGetProperty("InsertType", out var it) ? it.GetString() ?? "" : "";
@@ -154,7 +155,7 @@ namespace DynamicAi.Application.Services
                         var enLabel = root.TryGetProperty("enColumnLabel", out var en) ? en.GetString() ?? "" : "";
 
                         // Build compact entry
-                        var compactEntry = $"[{dictIndex}] {searchName} | {columnName} | {insertType} | {arLabel} | {enLabel}";
+                        var compactEntry = $"[{dictIndex}] {listName} | {searchName} | {columnName} | {insertType} | {arLabel} | {enLabel}";
 
                         // Add dropdown info if applicable
                         if (insertType == "dropdown")

@@ -218,6 +218,7 @@ export class App implements OnInit, AfterViewChecked {
       userComment: userComment // Send local user comment
     };
 
+
     console.log('🔴 [Dislike] Sending request:', request);
     console.log('🔴 [Dislike] API URL:', this.apiUrl + '/Feedback/dislike');
 
