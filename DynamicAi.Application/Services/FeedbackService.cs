@@ -70,7 +70,7 @@ public class FeedbackService : IFeedbackService
         }
     }
 
-    public async Task<bool> RecordNegativeFeedbackAsync(Guid queryLogId, string? wrongSql = null, string? userComment = null, CancellationToken cancellationToken = default)
+    public async Task<bool> RecordNegativeFeedbackAsync(Guid queryLogId, string? wrongSql = null, string? userComment = null, int? tenantId = null, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -90,6 +90,7 @@ public class FeedbackService : IFeedbackService
                 CorrectionNotes = userComment ?? "User disliked - needs manual SQL correction",
                 FeedbackSource = "UserDislike",
                 OriginalQueryLogId = queryLogId,
+                TenantId = tenantId, // ✅ Now capturing TenantId
                 IsVerified = false
             };
 

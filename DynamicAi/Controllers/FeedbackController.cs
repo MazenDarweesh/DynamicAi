@@ -132,7 +132,8 @@ public class FeedbackController : ControllerBase
                 var saved = await _feedbackService.RecordNegativeFeedbackAsync(
                     request.QueryLogId.Value,
                     request.Sql,  // الـ SQL الخاطئ الذي ولده الـ AI
-                    request.UserComment);
+                    request.UserComment,
+                    request.CompanyId);  // ✅ Now passing CompanyId to store as TenantId
 
                 if (saved)
                 {

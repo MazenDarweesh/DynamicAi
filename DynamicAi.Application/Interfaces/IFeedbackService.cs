@@ -19,8 +19,9 @@ public interface IFeedbackService
     /// <param name="queryLogId">معرف الـ QueryLog الأصلي</param>
     /// <param name="wrongSql">الـ SQL الخاطئ الذي ولده الـ AI</param>
     /// <param name="userComment">تعليق المستخدم عن المشكلة</param>
+    /// <param name="tenantId">معرف الشركة</param>
     /// <returns>true إذا تم الحفظ بنجاح</returns>
-    Task<bool> RecordNegativeFeedbackAsync(Guid queryLogId, string? wrongSql = null, string? userComment = null, CancellationToken cancellationToken = default);
+    Task<bool> RecordNegativeFeedbackAsync(Guid queryLogId, string? wrongSql = null, string? userComment = null, int? tenantId = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// إدخال يدوي من المطور (للأسئلة الصعبة).
