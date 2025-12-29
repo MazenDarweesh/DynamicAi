@@ -48,8 +48,9 @@ public class FeedbackService : IFeedbackService
             {
                 NaturalQuery = queryLog.RawQuestion,
                 GeneratedSql = queryLog.GeneratedSql,
+                SchemaContext = queryLog.SchemaContext, // ✅ Now capturing SchemaContext
                 FeedbackSource = "UserLike",
-                TenantId = tenantId,
+                TenantId = tenantId ?? queryLog.CompanyId, // Use passed value or fallback to QueryLog
                 OriginalQueryLogId = queryLogId,
                 IsVerified = false // ينتظر مراجعة الـ Admin
             };
@@ -87,10 +88,11 @@ public class FeedbackService : IFeedbackService
             {
                 NaturalQuery = queryLog.RawQuestion,
                 GeneratedSql = wrongSql ?? queryLog.GeneratedSql ?? string.Empty, // الـ SQL الخاطئ!
+                SchemaContext = queryLog.SchemaContext, // ✅ Now capturing SchemaContext
                 CorrectionNotes = userComment ?? "User disliked - needs manual SQL correction",
                 FeedbackSource = "UserDislike",
                 OriginalQueryLogId = queryLogId,
-                TenantId = tenantId, // ✅ Now capturing TenantId
+                TenantId = tenantId ?? queryLog.CompanyId, // Use passed value or fallback to QueryLog
                 IsVerified = false
             };
 

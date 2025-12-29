@@ -78,6 +78,7 @@ namespace DynamicAi.Application.Services
             Guid queryLogId = Guid.NewGuid(); // Generate tracking ID for this execution
             bool isCached = false;
             double layer1Duration = 0, layer2Duration = 0; // Initialized for cache HIT path
+            RetrievalContextBundle? contextSnippets = null; // Store for logging
 
             try
             {
@@ -126,7 +127,7 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
                 var layer1Start = DateTime.UtcNow;
-                var contextSnippets = await _retrievalService.RetrieveContextAsync(userQuestion, tenantId);
+                contextSnippets = await _retrievalService.RetrieveContextAsync(userQuestion, tenantId);
                 layer1Duration = (DateTime.UtcNow - layer1Start).TotalMilliseconds;
 
                 _logger.LogInformation("[Orchestrator] ✓ Layer 1 completed in {Duration:F0}ms", layer1Duration);
@@ -236,6 +237,9 @@ namespace DynamicAi.Application.Services
                             RawQuestion = userQuestion,
                             GeneratedSql = rewrittenResult?.RewrittenSql ?? rawSql,
                             WasSuccessful = true,
+                            SchemaContext = contextSnippets?.UnifiedPageContext, // ✅ Now capturing context
+                            TenantId = tenantId,
+                            CompanyId = comID,
                             CreatedAt = DateTime.UtcNow
                         };
                         await _queryLogRepo.AddAsync(queryLog);
@@ -305,6 +309,9 @@ namespace DynamicAi.Application.Services
                         GeneratedSql = rewrittenResult?.RewrittenSql ?? rawSql,
                         WasSuccessful = false,
                         ErrorMessage = ex.Message,
+                        SchemaContext = contextSnippets?.UnifiedPageContext, // ✅ Now capturing context
+                        TenantId = tenantId,
+                        CompanyId = comID,
                         CreatedAt = DateTime.UtcNow
                     };
                     await _queryLogRepo.AddAsync(errorLog);
