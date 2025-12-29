@@ -256,7 +256,12 @@ export class App implements OnInit, AfterViewChecked {
           msg.isLogged = true;
           this.cdr.detectChanges(); // Update UI to show "Feedback Recorded" state
           msg.retryCount = 2; // Max out
-          this.messages.push({ isAi: true, text: res.message, isLogged: true });
+          this.messages.push({
+            isAi: true,
+            text: res.message,
+            isLogged: true,
+            suggestionTips: res.suggestionTips // Capture tips
+          });
         } else if (res.regeneratedData) {
           console.log('✅ [Dislike] Regenerated data:', res.regeneratedData);
           const index = this.messages.indexOf(msg);
@@ -292,7 +297,12 @@ export class App implements OnInit, AfterViewChecked {
           msg.isLogged = true; // IMPORTANT: Disables the button
           this.cdr.detectChanges();
           if (res.message) {
-            this.messages.push({ isAi: true, text: res.message, isLogged: true });
+            this.messages.push({
+              isAi: true,
+              text: res.message,
+              isLogged: true,
+              suggestionTips: res.suggestionTips // Capture tips
+            });
           }
         }
         this.cdr.detectChanges();
