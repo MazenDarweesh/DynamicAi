@@ -28,6 +28,9 @@ namespace Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int?>("CompanyId")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -39,6 +42,12 @@ namespace Infrastructure.Migrations
 
                     b.Property<string>("RawQuestion")
                         .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SchemaContext")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("TenantId")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<bool>("WasSuccessful")
