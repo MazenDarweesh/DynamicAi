@@ -29,6 +29,9 @@ public class TrainingExample
     /// <summary>معرف الشركة للـ Multi-Tenancy</summary>
     public int? TenantId { get; set; }
 
+    /// <summary>رسالة الخطأ في حالة فشل الـ SQL (لتحليل أخطاء الـ AI)</summary>
+    public string? ErrorMessage { get; set; }
+
     /// <summary>معرف الـ QueryLog الأصلي للربط</summary>
     public Guid? OriginalQueryLogId { get; set; }
 

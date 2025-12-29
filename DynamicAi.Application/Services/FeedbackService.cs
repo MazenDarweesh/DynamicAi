@@ -89,6 +89,7 @@ public class FeedbackService : IFeedbackService
                 NaturalQuery = queryLog.RawQuestion,
                 GeneratedSql = wrongSql ?? queryLog.GeneratedSql ?? string.Empty, // الـ SQL الخاطئ!
                 SchemaContext = queryLog.SchemaContext, // ✅ Now capturing SchemaContext
+                ErrorMessage = queryLog.ErrorMessage, // ✅ Now capturing ErrorMessage
                 CorrectionNotes = userComment ?? "User disliked - needs manual SQL correction",
                 FeedbackSource = "UserDislike",
                 OriginalQueryLogId = queryLogId,
