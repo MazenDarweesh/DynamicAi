@@ -77,7 +77,12 @@ namespace DynamicAi.Api.Controllers
 
                 _logger.LogError(qEx, "API REQUEST FAILED - QueryExecutionException. SQL: {Sql}. Duration: {Duration:F0}ms", qEx.RewrittenSql, apiDuration);
 
-                return StatusCode(500, new { error = qEx.Message, sql = qEx.RewrittenSql });
+                return StatusCode(500, new
+                {
+                    error = qEx.Message,
+                    sql = qEx.RewrittenSql,
+                    queryLogId = qEx.QueryLogId // Vital for feedback on errors
+                });
             }
             catch (InvalidOperationException ex) when (ex.Message.StartsWith("INTERACTION_REQUIRED:", StringComparison.OrdinalIgnoreCase))
             {

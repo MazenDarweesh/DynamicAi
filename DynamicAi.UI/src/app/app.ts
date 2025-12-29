@@ -164,11 +164,13 @@ export class App implements OnInit, AfterViewChecked {
 
         let errorMsg = err.message;
         let sql = undefined;
+        let queryLogId = undefined; // New: Capture ID even on error
 
         // Try to extract SQL from custom error object (from TestController)
         if (err.error && typeof err.error === 'object') {
           if (err.error.sql) sql = err.error.sql;
           if (err.error.error) errorMsg = err.error.error;
+          if (err.error.queryLogId) queryLogId = err.error.queryLogId; // Vital for Dislike on Error
         }
 
         this.messages.push({
@@ -176,7 +178,8 @@ export class App implements OnInit, AfterViewChecked {
           text: 'Error: ' + errorMsg,
           originalQuestion: currentQ,
           retryCount: retryCount,
-          sql: sql // Capture SQL for dislike functionality
+          sql: sql, // Capture SQL for dislike functionality
+          queryLogId: queryLogId // Capture ID for dislike functionality
         });
         this.cdr.detectChanges();
       }
@@ -199,6 +202,10 @@ export class App implements OnInit, AfterViewChecked {
     this.loading = true;
     const retryCount = (msg.retryCount || 0) + 1;
 
+    // Prompt user for correction notes (optional)
+    // Use prompt to get feedback. If user cancels (null), treat as empty string.
+    const userComment = prompt("هل يمكنك إخبارنا ما الخطأ في الإجابة؟ (اختياري)", "") || undefined;
+
     const request = {
       question: msg.originalQuestion,
       cacheId: msg.cacheId,
@@ -206,7 +213,9 @@ export class App implements OnInit, AfterViewChecked {
       retryCount: retryCount,
       tenantId: 'default',
       companyId: 1,
-      displayedMessage: msg.text // Send the text (answer or error) handling the dislike
+      displayedMessage: msg.text, // Send the text (answer or error) handling the dislike
+      queryLogId: msg.queryLogId, // Vital for Backend to link to QueryLog
+      userComment: userComment // Send local user comment
     };
 
     console.log('🔴 [Dislike] Sending request:', request);
@@ -237,13 +246,15 @@ export class App implements OnInit, AfterViewChecked {
               isLogged: true,
               askRetry: true, // Also allow retrying from the response message
               originalQuestion: msg.originalQuestion,
-              retryCount: retryCount // Pass the incremented retry count
+              retryCount: retryCount, // Pass the incremented retry count
+              suggestionTips: res.suggestionTips // Capture suggestion tips for display
             });
           }
         }
         else if (res.shouldStopRetrying) {
           console.log('✅ [Dislike] Stopping retries, logging issue');
           msg.isLogged = true;
+          this.cdr.detectChanges(); // Update UI to show "Feedback Recorded" state
           msg.retryCount = 2; // Max out
           this.messages.push({ isAi: true, text: res.message, isLogged: true });
         } else if (res.regeneratedData) {
@@ -251,30 +262,37 @@ export class App implements OnInit, AfterViewChecked {
           const index = this.messages.indexOf(msg);
           if (index > -1) {
             msg.retryCount = retryCount;
+          }
 
-            const newData = res.regeneratedData;
-            if (Array.isArray(newData)) {
-              this.messages.push({
-                isAi: true,
-                tableData: newData,
-                originalQuestion: msg.originalQuestion,
-                retryCount: retryCount
-              });
-            } else if (newData.Message) {
-              this.messages.push({
-                isAi: true,
-                text: newData.Message,
-                originalQuestion: msg.originalQuestion,
-                retryCount: retryCount
-              });
-            } else {
-              this.messages.push({
-                isAi: true,
-                data: newData,
-                originalQuestion: msg.originalQuestion,
-                retryCount: retryCount
-              });
-            }
+          const newData = res.regeneratedData;
+          if (Array.isArray(newData)) {
+            this.messages.push({
+              isAi: true,
+              tableData: newData,
+              originalQuestion: msg.originalQuestion,
+              retryCount: retryCount
+            });
+          } else if (newData.Message) {
+            this.messages.push({
+              isAi: true,
+              text: newData.Message,
+              originalQuestion: msg.originalQuestion,
+              retryCount: retryCount
+            });
+          } else {
+            this.messages.push({
+              isAi: true,
+              data: newData,
+              originalQuestion: msg.originalQuestion,
+              retryCount: retryCount
+            });
+          }
+        } else if (res.success) { // Fallback for simple success
+          console.log('✅ [Dislike] Standard feedback recorded');
+          msg.isLogged = true; // IMPORTANT: Disables the button
+          this.cdr.detectChanges();
+          if (res.message) {
+            this.messages.push({ isAi: true, text: res.message, isLogged: true });
           }
         }
         this.cdr.detectChanges();

@@ -24,6 +24,7 @@ namespace DynamicAi.Application.Services
         private readonly IQueryCacheService _queryCacheService;          // (Cache Layer)
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
         private readonly ILogger<QueryOrchestrator> _logger;
+        private readonly IQueryLogRepository _queryLogRepo;              // (Logging)
         private readonly bool _queryCacheEnabled;
 
         public QueryOrchestrator(
@@ -34,6 +35,7 @@ namespace DynamicAi.Application.Services
             ISandboxedSqlExecutor executorService,
             IQueryCacheService queryCacheService,
             IEmbeddingGenerator<string, Embedding<float>> embeddingService,
+            IQueryLogRepository queryLogRepo,
             ILogger<QueryOrchestrator> logger,
             IConfiguration configuration)
         {
@@ -44,16 +46,11 @@ namespace DynamicAi.Application.Services
             _executorService = executorService;
             _queryCacheService = queryCacheService;
             _embeddingService = embeddingService;
+            _queryLogRepo = queryLogRepo;
             _logger = logger;
             _queryCacheEnabled = bool.Parse(configuration["Caching:QueryCache:Enabled"] ?? "true");
         }
 
-        /// <summary>
-        /// يعالج سؤال المستخدم بالكامل، مروراً بجميع طبقات الأمان والتوليد.
-        /// </summary>
-        /// <summary>
-        /// يعالج سؤال المستخدم بالكامل، مروراً بجميع طبقات الأمان والتوليد.
-        /// </summary>
         /// <summary>
         /// يعالج سؤال المستخدم بالكامل، مروراً بجميع طبقات الأمان والتوليد.
         /// </summary>
@@ -78,6 +75,7 @@ namespace DynamicAi.Application.Services
             float[]? questionEmbedding = null;
             int? pageId = null;
             string? cacheId = null;
+            Guid queryLogId = Guid.NewGuid(); // Generate tracking ID for this execution
             bool isCached = false;
             double layer1Duration = 0, layer2Duration = 0; // Initialized for cache HIT path
 
@@ -107,6 +105,11 @@ namespace DynamicAi.Application.Services
 
                         rawSql = cachedResult.Sql;
                         cacheId = cachedResult.CacheId;
+                        // Use the existing CacheId as QueryLogId for feedback consistency
+                        if (Guid.TryParse(cacheId, out var existingGuid))
+                        {
+                            queryLogId = existingGuid;
+                        }
                         isCached = true;
                         // Skip to Layer 3 (validation)
                         goto SkipToValidation;
@@ -175,9 +178,13 @@ namespace DynamicAi.Application.Services
                 // Store in cache AFTER validation passes (never cache invalid SQL!)
                 if (_queryCacheEnabled && questionEmbedding != null && !isCached)
                 {
+                    // Use the generated queryLogId for the cache entry
                     await _queryCacheService.StoreCachedSqlAsync(
+                        queryLogId,
                         userQuestion, questionEmbedding, rawSql,
                         pageId ?? 0, tenantId, comID ?? 0);
+
+                    cacheId = queryLogId.ToString();
                 }
 
                 // ============================================================================
@@ -213,6 +220,34 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("[Orchestrator] ✓ Layer 5 completed in {Duration:F0}ms", layer5Duration);
                 _logger.LogInformation("[Orchestrator] Query executed successfully. Rows returned.");
 
+                _logger.LogInformation("[Orchestrator] ✓ Layer 5 completed in {Duration:F0}ms", layer5Duration);
+                _logger.LogInformation("[Orchestrator] Query executed successfully. Rows returned.");
+
+                // ============================================================================
+                // Logging: Save to SQL QueryLogs (Vital for Feedback System)
+                // ============================================================================
+                if (!isCached) // Only log new executions (Cached ones are already logged)
+                {
+                    try
+                    {
+                        var queryLog = new Domain.Entities.QueryLog
+                        {
+                            Id = queryLogId,
+                            RawQuestion = userQuestion,
+                            GeneratedSql = rewrittenResult?.RewrittenSql ?? rawSql,
+                            WasSuccessful = true,
+                            CreatedAt = DateTime.UtcNow
+                        };
+                        await _queryLogRepo.AddAsync(queryLog);
+                        _logger.LogInformation("[Orchestrator] ✓ Query Logged to SQL DB (ID: {Id})", queryLogId);
+                    }
+                    catch (Exception logEx)
+                    {
+                        _logger.LogError(logEx, "[Orchestrator] ⚠ Failed to log query to SQL DB");
+                        // Don't fail the request just because logging failed
+                    }
+                }
+
                 // ============================================================================
                 // Pipeline مكتمل - عرض الإحصائيات النهائية
                 // ============================================================================
@@ -237,7 +272,8 @@ namespace DynamicAi.Application.Services
                     Data = data,
                     RewrittenSql = rewrittenResult?.RewrittenSql ?? rawSql,
                     IsCached = isCached,
-                    CacheId = cacheId
+                    CacheId = cacheId,
+                    QueryLogId = queryLogId
                 };
             }
             catch (Exception ex)
@@ -257,7 +293,29 @@ namespace DynamicAi.Application.Services
                     _logger.LogError("[Orchestrator] Stack Trace:\n{StackTrace}", ex.StackTrace);
                 }
 
-                // If we have generated SQL, wrap the exception to pass it up
+                // ============================================================================
+                // ERROR HANDLING & LOGGING (New: Save failure to SQL)
+                // ============================================================================
+                try
+                {
+                    var errorLog = new Domain.Entities.QueryLog
+                    {
+                        Id = queryLogId,
+                        RawQuestion = userQuestion,
+                        GeneratedSql = rewrittenResult?.RewrittenSql ?? rawSql,
+                        WasSuccessful = false,
+                        ErrorMessage = ex.Message,
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    await _queryLogRepo.AddAsync(errorLog);
+                    _logger.LogInformation("[Orchestrator] ✗ Failed Query Logged to SQL DB (ID: {Id})", queryLogId);
+                }
+                catch (Exception logEx)
+                {
+                    _logger.LogError(logEx, "[Orchestrator] ⚠ Failed to log error query to SQL DB");
+                }
+
+                // If we have generated SQL, wrap the exception to pass it up (with QueryLogId)
                 if (!string.IsNullOrEmpty(rewrittenResult?.RewrittenSql ?? rawSql))
                 {
                     _logger.LogWarning("[Orchestrator] Wrapping {ErrorType} in QueryExecutionException to preserve SQL.", ex.GetType().Name);
@@ -265,8 +323,11 @@ namespace DynamicAi.Application.Services
                     throw new QueryExecutionException(
                         ex.Message,
                         rewrittenResult?.RewrittenSql ?? rawSql,
-                        ex);
+                        ex,
+                        queryLogId); // Pass the ID for frontend feedback
                 }
+
+                throw;
 
                 throw;
             }

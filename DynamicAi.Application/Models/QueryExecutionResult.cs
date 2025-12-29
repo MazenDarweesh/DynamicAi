@@ -26,4 +26,9 @@ public class QueryExecutionResult
     /// The unique ID of the cache entry (if cached).
     /// </summary>
     public string? CacheId { get; set; }
+
+    /// <summary>
+    /// The unique ID of the query log in the database (for feedback).
+    /// </summary>
+    public Guid? QueryLogId { get; set; }
 }

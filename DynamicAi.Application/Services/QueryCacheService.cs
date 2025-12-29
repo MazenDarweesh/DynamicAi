@@ -180,7 +180,8 @@ public class QueryCacheService : IQueryCacheService
     }
 
     /// <inheritdoc/>
-    public async Task StoreCachedSqlAsync(
+    public async Task<Guid> StoreCachedSqlAsync(
+        Guid id,
         string question,
         float[] embedding,
         string sql,
@@ -192,7 +193,7 @@ public class QueryCacheService : IQueryCacheService
         {
             await EnsureCollectionExistsAsync();
 
-            var pointId = Guid.NewGuid();
+            var pointId = id; // Use specific ID provided by orchestrator
             var now = DateTime.UtcNow;
 
             var point = new PointStruct
@@ -220,11 +221,14 @@ public class QueryCacheService : IQueryCacheService
                 question.Substring(0, Math.Min(50, question.Length)));
 
             _logger.LogInformation("[QueryCache] Cached query for PageID {PageId}", pageId);
+
+            return pointId;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[QueryCache] Failed to store cache entry");
             _logger.LogWarning(ex, "[QueryCache] ⚠ Failed to cache: {ErrorMessage}", ex.Message);
+            return Guid.Empty;
         }
     }
 

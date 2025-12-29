@@ -9,9 +9,12 @@ public class QueryExecutionException : Exception
 {
     public string RewrittenSql { get; }
 
-    public QueryExecutionException(string message, string rewrittenSql, Exception innerException)
+    public Guid? QueryLogId { get; }
+
+    public QueryExecutionException(string message, string rewrittenSql, Exception innerException, Guid? queryLogId = null)
         : base(message, innerException)
     {
         RewrittenSql = rewrittenSql;
+        QueryLogId = queryLogId;
     }
 }

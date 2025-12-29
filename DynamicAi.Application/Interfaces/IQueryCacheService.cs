@@ -28,7 +28,8 @@ public interface IQueryCacheService
     /// <param name="pageId">The page ID used for context.</param>
     /// <param name="tenantId">The tenant identifier.</param>
     /// <param name="companyId">The company identifier.</param>
-    Task StoreCachedSqlAsync(
+    Task<Guid> StoreCachedSqlAsync(
+        Guid id,
         string question,
         float[] embedding,
         string sql,
