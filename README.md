@@ -244,6 +244,15 @@ We are currently in the **MVP Caching** phase (Branch: `Dy_AI_PreProducitionTest
 
 Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the prioritized roadmap to move from **MVP (Current)** to **Scale**.
 
+### ✅ Recently Completed
+
+| Feature | Status | Impact |
+|:---|:---:|:---|
+| **Golden Dataset Pipeline** | ✅ Done | Like/Dislike → TrainingExamples → Fine-tuning ready |
+| **QueryLog Tracking** | ✅ Done | SchemaContext, TenantId, CompanyId, ErrorMessage |
+| **Docker Support** | ✅ Done | CORS for localhost:8080, static file serving |
+| **Prompt Diet (ListName Fix)** | ✅ Done | Fixed column-to-table mapping in AI prompts |
+
 ### 🗺️ Development Phases
 
 #### 1️⃣ Phase 2: Hardening (Months 2-3) 🔴 [High Priority]
@@ -252,7 +261,6 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
     *   **Reranking Layer:** Implement `IRerankingService` to re-score top-K documents (Reduces hallucinations by ~30%).
     *   **User Quotas:** Implement rate limiting and cost controls per tenant ("Cost Explosion").
     *   **Prompt Hardening:** Further refine prompt rules to handle edge cases in "Clarification Loop".
-    *   **User Quotas:** Implement rate limiting and cost controls per tenant ("Cost Explosion").
 
 #### 2️⃣ Phase 3: Intelligence (Months 3-4) 🟡
 *   **Goal:** Higher Recall & Context Quality
@@ -267,9 +275,10 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
     *   **Tracing:** OpenTelemetry integration for full request visibility.
     *   **Quality Metrics:** Automated evaluation of faithfulness and context recall.
 
-#### 4️⃣ Phase 5: Scale (Months 5-6) ⚪
-*   **Goal:** Massive Scale Support
+#### 4️⃣ Phase 5: Scale & Fine-tuning (Months 5-6) ⚪
+*   **Goal:** Massive Scale Support + AI Improvement
 *   **Key Features:**
+    *   **Fine-tuning with Golden Dataset:** Use collected TrainingExamples to fine-tune Gemini.
     *   **Embedding Fine-tuning:** Customize models for domain-specific ERP terminology.
     *   **Scaling Tests:** Validation for 100K+ schema objects.
     *   **Prompt Versioning:** Manage `Prompt Drift` with versioned registries.
@@ -279,15 +288,18 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 | Axis | Status | Score | Notes |
 |:---|:---:|:---:|:---|
 | **Silent Failures** | ✅✅✅ | 10/10 | **Solved:** "Clarification Loop" + Validation Layer prevents almost all guessing. |
-| **Prompt Engineering** | ✅✅✅ | 9/10 | **Optimized:** "Prompt Diet" reduced tokens by 60%. Strict Static Rules. |
+| **Prompt Engineering** | ✅✅✅ | 9/10 | **Optimized:** "Prompt Diet" + ListName fix. Strict Static Rules. |
+| **Feedback System** | ✅✅✅ | 9/10 | 🆕 **Complete:** Like/Dislike → TrainingExamples with full context. |
 | **Vector DB** | ✅✅✅ | 9/10 | Qdrant with proper payload indexing is solid. |
 | **Architecture** | ✅✅✅ | 9/10 | Clean Arch + Semantic Kernel + Explicit Caching Support. |
-| **Observability** | ✅✅ | 8/10 | Cost tracking & Structured logging implemented. |
+| **Observability** | ✅✅ | 8/10 | Cost tracking & Structured logging + QueryLog tracking. |
 | **Cost Control** | ✅✅ | 8/10 | **Improved:** 60% less input tokens per request + Caching. |
 | **Embedding** | ✅✅ | 8/10 | Gemini models are performing well. |
+| **Containerization** | ✅✅ | 8/10 | 🆕 Docker support with CORS and static files. |
 | **Doc Parsing** | ✅ | 6/10 | SMO-based SQL parsing is accurate but limited to SQL. |
 | **RAG Scaling** | ⚠️ | 6/10 | Needs validation for larger datasets. |
 | **Latency** | ⚠️ | 6/10 | High (20s+) but mitigated by Caching. Streaming deemed unnecessary for SQL. |
 | **Chunking** | ⚠️ | 5/10 | Needs "Smart Chunking" for better context. |
 | **Hybrid Search** | ❌ | 2/10 | **Missing:** Pure vector search misses exact keywords. |
 | **Reranking** | ❌ | 0/10 | **Critical:** Major cause of hallucinations (retrieving wrong tables). |
+
