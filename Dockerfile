@@ -54,7 +54,7 @@ COPY --from=backend-build /app/publish .
 
 # Copy Angular static files to wwwroot
 # Note: Angular 17+ outputs to dist/<project-name>/browser
-COPY --from=frontend-build /app/frontend/dist/dynamic-ai.ui/browser ./wwwroot
+COPY --from=frontend-build /app/frontend/dist/DynamicAi.UI/browser ./wwwroot
 
 # Set ownership to non-root user
 RUN chown -R appuser:appuser /app
