@@ -21,9 +21,16 @@ services:
       - "8080:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      # Database connection (points to sqlserver service)
+      # ============================================
+      # DATABASE 1: App Database (QueryLogs, Feedback)
+      # → Docker SQL Server (internal)
+      # ============================================
       - ConnectionStrings__AppDbContextConnection=Server=sqlserver;Database=DynamicAi_AppDb;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;
-      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=QualityControl;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;
+      # ============================================
+      # DATABASE 2: Production Data (AI executes SQL here)
+      # → External Production Server
+      # ============================================
+      - ConnectionStrings__DefaultConnection=${PRODUCTION_DB_CONNECTION_STRING}
       # Gemini AI configuration
       - Gemini__ApiKey=${GEMINI_API_KEY}
       - Gemini__ChatModel=gemini-2.5-flash
@@ -33,7 +40,7 @@ services:
       - Qdrant__ApiKey=${QDRANT_API_KEY}
       - Qdrant__CollectionName=erp_knowledge_base_v3_indexed
       # Database name for dynamic queries
-      - Database__Name=QualityControl
+      - Database__Name=${PRODUCTION_DB_NAME}
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -42,7 +49,8 @@ services:
     restart: unless-stopped
 
   # --------------------------------------------------------------------------
-  # SQL Server 2022 Database
+  # SQL Server 2022 Database (for App Logs & Feedback ONLY)
+  # Production data comes from external server
   # --------------------------------------------------------------------------
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest

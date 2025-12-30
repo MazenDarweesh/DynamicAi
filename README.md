@@ -15,17 +15,25 @@ The system follows **Clean Architecture** principles and is divided into distinc
       ↕ 
 [DynamicAi UI (Angular)] 
       ↕ 
-[DynamicAi API (.NET)] ──────┐
-                             │
-            ┌────────────────▼────────────────┐
-            │       Query Orchestrator        │
-            └───────┬────────┬────────┬───────┘
-                    │        │        │
-          ┌─────────▼─┐  ┌───▼──┐  ┌──▼─────┐
-          │Query Cache│  │SQLGen│  │Schema  │
-          └─────┬─────┘  └──┬───┘  └──┬─────┘
-                ↕           ↕         │
-         [(Qdrant DB)]   [Gemini]  [(SQL DB)]
+[DynamicAi API (.NET)] ──────┬─────────────────┐
+                             │                 │
+            ┌────────────────▼────────────────┐│
+            │       Query Orchestrator        ││
+            └───────┬────────┬────────┬───────┘│
+                    │        │        │        │
+          ┌─────────▼─┐  ┌───▼──┐  ┌──▼─────┐  │
+          │Query Cache│  │SQLGen│  │Schema  │  │
+          └─────┬─────┘  └──┬───┘  └──┬─────┘  │
+                ↕           ↕         │        │
+         [(Qdrant DB)]   [Gemini]  [(SQL DB)]  │
+                                               │
+                         ┌─────────────────────▼──┐
+                         │   Feedback Service     │
+                         │ (Like/Dislike → Golden │
+                         │    Dataset Pipeline)   │
+                         └────────────┬───────────┘
+                                      ↕
+                            [TrainingExamples DB]
 ```
 
 ### 🛠️ Technology Stack
@@ -34,8 +42,8 @@ The system follows **Clean Architecture** principles and is divided into distinc
 *   **Frontend:** Angular 17+ (TypeScript, SCSS)
 *   **Vector Database:** Qdrant (for schema embeddings & query caching)
 *   **LLM:** Google Gemini (via AI API)
-*   **Database:** SQL Server
-*   **Containerization:** Docker (for Qdrant)
+*   **Database:** SQL Server + EF Core (QueryLogs, TrainingExamples)
+*   **Containerization:** Docker (Qdrant, API, UI)
 
 ---
 
@@ -76,7 +84,19 @@ The brain of the operation, containing the business logic.
 A modern, responsive web interface built with **Angular (Latest)**.
 *   **Chat Interface:** A ChatGPT-like experience for interacting with the data.
 *   **Data Visualization:** Displays query results in clean, formatted tables.
-*   **Feedback Loop:** Allows users to "dislike" or retry queries, feeding back into the system improvement loop.
+*   **Feedback System:** Like/Dislike buttons with user comments for Golden Dataset collection.
+*   **SQL Display:** Copy-to-clipboard functionality for viewing generated SQL.
+
+### 4. Feedback & Golden Dataset Pipeline (`FeedbackService`) 🆕
+A system for collecting user feedback to build a fine-tuning dataset.
+
+| Feature | Description |
+|:---|:---|
+| **Like 👍** | Saves successful query to `TrainingExamples` table |
+| **Dislike 👎** | Saves failed query + ErrorMessage + User comment for review |
+| **QueryLog** | Stores `SchemaContext`, `TenantId`, `CompanyId` for traceability |
+| **TrainingExamples** | Full feedback record: NaturalQuery, GeneratedSql, SchemaContext, ErrorMessage |
+| **Golden Dataset Export** | Verified examples can be exported to JSONL for fine-tuning |
 
 ---
 
@@ -148,6 +168,25 @@ npm start    # Runs 'ng serve'
 ```
 Navigate to `http://localhost:4200` to use the application.
 
+### 🐳 Docker Deployment (Optional)
+
+The application supports Docker deployment with static file serving.
+
+**CORS Origins Configured:**
+*   `http://localhost:4200` - Angular dev server
+*   `http://localhost:8080` - Docker container
+
+**Static Files:** Angular build output in `wwwroot` is served automatically.
+
+```powershell
+# Build Angular for production
+cd DynamicAi.UI
+npm run build -- --output-path ../DynamicAi/wwwroot
+
+# Run with Docker
+docker-compose up
+```
+
 ### 🔧 Troubleshooting
 *   **"Unknown Error" in Chat:** This usually means the browser blocked the backend SSL certificate. Run `dotnet dev-certs https --trust` and restart your browser/use Incognito.
 *   **Qdrant HTTP/2 Protocol Error:** Ensure your `Program.cs` is using the URI-based `QdrantClient` constructor with port `6334` for Cloud instances.
@@ -183,6 +222,16 @@ We are currently in the **MVP Caching** phase (Branch: `Dy_AI_PreProducitionTest
 *   **Unit Tests:** Extensive coverage for `SqlValidatorService`, `SqlRewriterService`, and `SqlGenerationService`.
 *   **Integration Tests:** Verifies the full pipeline from `QueryOrchestrator` to `Gemini`.
 *   **Mocking:** Uses `FakeItEasy` for reliable dependency simulation.
+
+#### 5. Feedback & Training Data Collection 🆕
+*   **Like/Dislike System:** Frontend buttons trigger `FeedbackController` endpoints.
+*   **QueryLog Tracking:** Every query execution is logged with:
+    *   `SchemaContext` - JSON of the page/view context used
+    *   `TenantId` - Multi-tenant support
+    *   `CompanyId` - Company identifier
+    *   `ErrorMessage` - For failed executions
+*   **TrainingExamples Table:** Stores verified (Like) and unverified (Dislike) examples.
+*   **Golden Dataset Pipeline:** Verified examples → JSONL export → Fine-tuning ready.
 
 ### 🚧 Caching Logic Details
 *   **Similarity Threshold:** Configurable (default `0.92`).
