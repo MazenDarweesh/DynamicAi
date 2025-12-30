@@ -1,4 +1,4 @@
 export const environment = {
-    production: false,
-    apiUrl: 'https://localhost:7257'
+    production: true,
+    apiUrl: ''  // Empty = same origin (for Docker where frontend is served by the API)
 };
