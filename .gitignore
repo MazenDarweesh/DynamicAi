@@ -367,3 +367,7 @@ SECRETS_GUIDE.md
 # Allow logs folder visibility but ignore content
 logs/*
 !logs/.gitkeep
+
+# Docker environment files (contains secrets!)
+.env
+!.env.example
