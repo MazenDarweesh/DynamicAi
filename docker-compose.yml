@@ -60,7 +60,7 @@ services:
       - SA_PASSWORD=${SA_PASSWORD}
       - MSSQL_PID=Developer
     ports:
-      - "1433:1433"
+      - "1434:1433"  # Using 1434 to avoid conflict with local SQL Server
     volumes:
       - sqlvolume:/var/opt/mssql
     networks:
