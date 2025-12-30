@@ -25,7 +25,7 @@ WORKDIR /src
 COPY DynamicAi.sln .
 COPY DynamicAi/DynamicAi.Api.csproj ./DynamicAi/
 COPY DynamicAi.Application/DynamicAi.Application.csproj ./DynamicAi.Application/
-COPY Domain/DynamicAI.Domain.csproj ./Domain/
+COPY Domain/DynamicAi.Domain.csproj ./Domain/
 COPY Infrastructure/DynamicAi.Infrastructure.csproj ./Infrastructure/
 
 # Restore dependencies
