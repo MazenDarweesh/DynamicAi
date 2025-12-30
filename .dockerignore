@@ -1,0 +1,47 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.vs
+.vscode
+*.user
+*.suo
+
+# Build outputs
+**/bin
+**/obj
+**/out
+
+# Node.js
+**/node_modules
+
+# Angular build output (we build inside Docker)
+DynamicAi.UI/dist
+
+# Logs
+logs
+*.log
+
+# Environment files (secrets)
+.env
+*.local
+
+# Documentation (not needed in container)
+Project_Description
+*.md
+!README.md
+
+# Test projects (optional for production)
+DynamicAI.Tests
+
+# Schema tools (not needed in runtime)
+SchemaBootstrapper
+SchemaGenerator
+
+# Misc
+*.tmp
+*.temp
+Thumbs.db
+.DS_Store

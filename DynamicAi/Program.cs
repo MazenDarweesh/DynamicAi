@@ -97,6 +97,11 @@ try
     }
 
     app.UseHttpsRedirection();
+
+    // Serve Angular static files from wwwroot (for Docker deployment)
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
+
     app.UseCors("AllowAngularDev");
     app.UseAuthorization();
     app.MapControllers();
@@ -234,7 +239,10 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
         options.AddPolicy("AllowAngularDev",
             policy =>
             {
-                policy.WithOrigins("http://localhost:4200") // Default Angular port
+                policy.WithOrigins(
+                    "http://localhost:4200",  // Angular dev server
+                    "http://localhost:8080"   // Docker container
+                )
                       .AllowAnyMethod()
                       .AllowAnyHeader();
             });
