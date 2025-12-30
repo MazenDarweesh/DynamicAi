@@ -371,3 +371,4 @@ logs/*
 # Docker environment files (contains secrets!)
 .env
 !.env.example
+docker-compose.team.yml
