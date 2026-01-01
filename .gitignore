@@ -372,3 +372,8 @@ logs/*
 .env
 !.env.example
 docker-compose.team.yml
+
+# CV Assets
+FULL_RESUME_TEMPLATE.md
+GENAI_INTERVIEW_QA_FROM_PROJECT.md
+CV_Assets_DynamicAI.md

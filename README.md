@@ -266,7 +266,11 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 *   **Goal:** Higher Recall & Context Quality
 *   **Key Features:**
     *   **Hybrid Search:** Combine Vector Search + Keyword Search for exact matches (improves recall by ~20%).
-    *   **Smart Chunking:** Implement document-aware splitting in `SchemaReaderService`.
+    *   **Semantic Column Chunking:** Split large tables by semantic column groups in `SchemaReaderService.ChunkTableScript()`:
+        *   **Financial Columns:** `ContractAmount`, `Tax`, `TotalWithTax` → One Document
+        *   **Temporal Columns:** `ContractDate`, `ExpireDate`, `DeliveryDate` → One Document
+        *   **Identity Columns:** `ContractId`, `ClientId`, `ContractNumber` → One Document
+        *   Inspired by LangChain's `SQLDatabase` component for schema-aware splitting.
     *   **Confidence Scoring:** Expose AI confidence levels to the user.
 
 #### 3️⃣ Phase 4: Advanced Observability (Months 4-5) 🟡
@@ -299,7 +303,7 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 | **Doc Parsing** | ✅ | 6/10 | SMO-based SQL parsing is accurate but limited to SQL. |
 | **RAG Scaling** | ⚠️ | 6/10 | Needs validation for larger datasets. |
 | **Latency** | ⚠️ | 6/10 | High (20s+) but mitigated by Caching. Streaming deemed unnecessary for SQL. |
-| **Chunking** | ⚠️ | 5/10 | Needs "Smart Chunking" for better context. |
+| **Chunking** | ⚠️ | 5/10 | Needs "Semantic Column Chunking" (Phase 3) for large tables. |
 | **Hybrid Search** | ❌ | 2/10 | **Missing:** Pure vector search misses exact keywords. |
 | **Reranking** | ❌ | 0/10 | **Critical:** Major cause of hallucinations (retrieving wrong tables). |
 
