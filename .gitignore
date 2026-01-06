@@ -371,7 +371,7 @@ logs/*
 # Docker environment files (contains secrets!)
 .env
 !.env.example
-docker-compose.team.yml
+
 
 # CV Assets
 FULL_RESUME_TEMPLATE.md
@@ -379,4 +379,4 @@ GENAI_INTERVIEW_QA_FROM_PROJECT.md
 CV_Assets_DynamicAI.md
 FINAL_OPTIMIZED_CV.md
 FINAL_COMBINED_CV.md
-DOCKER_TEAM_GUIDE.md
+

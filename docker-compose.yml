@@ -1,18 +1,11 @@
-# ============================================================================
-# DynamicAI - Docker Compose Configuration
-# For team testing and development
-# ============================================================================
-# Usage:
-#   1. Copy .env.example to .env and fill in your secrets
-#   2. Run: docker-compose up -d
-#   3. Access: http://localhost:8080
-# ============================================================================
+version: '3.8'
 
 services:
   # --------------------------------------------------------------------------
   # DynamicAI Application (Backend + Frontend)
   # --------------------------------------------------------------------------
   dynamicai-app:
+    image: mazendarweesh/dynamicai:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -21,26 +14,24 @@ services:
       - "8080:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
       # ============================================
-      # DATABASE 1: App Database (QueryLogs, Feedback)
-      # → Docker SQL Server (internal)
+      # Local Development Database Configuration
       # ============================================
+      # Uses the local SA_PASSWORD from .env
       - ConnectionStrings__AppDbContextConnection=Server=sqlserver;Database=DynamicAi_AppDb;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;
-      # ============================================
-      # DATABASE 2: Production Data (AI executes SQL here)
-      # → External Production Server
-      # ============================================
+
+      # For dev, defaults to the env var PRODUCTION_DB_CONNECTION_STRING
+      # If not set, you must provide it in your .env file
       - ConnectionStrings__DefaultConnection=${PRODUCTION_DB_CONNECTION_STRING}
-      # Gemini AI configuration
+
+      # Secrets (Set these in .env)
       - Gemini__ApiKey=${GEMINI_API_KEY}
-      - Gemini__ChatModel=gemini-2.5-flash
-      - Gemini__EmbeddingModel=gemini-embedding-001
-      # Qdrant Cloud configuration
       - Qdrant__Host=${QDRANT_HOST}
       - Qdrant__ApiKey=${QDRANT_API_KEY}
-      - Qdrant__CollectionName=erp_knowledge_base_v3_indexed
-      # Database name for dynamic queries
-      - Database__Name=${PRODUCTION_DB_NAME}
+      - Qdrant__CollectionName=${QDRANT_COLLECTION_NAME:-erp_knowledge_base_v3_indexed}
+      - Database__Name=${PRODUCTION_DB_NAME:-QualityControl}
+
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -49,8 +40,7 @@ services:
     restart: unless-stopped
 
   # --------------------------------------------------------------------------
-  # SQL Server 2022 Database (for App Logs & Feedback ONLY)
-  # Production data comes from external server
+  # MOCK SQL Server for Local Development
   # --------------------------------------------------------------------------
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
@@ -58,14 +48,14 @@ services:
     environment:
       - ACCEPT_EULA=Y
       - SA_PASSWORD=${SA_PASSWORD}
-      - MSSQL_PID=Developer
     ports:
-      - "1434:1433"  # Using 1434 to avoid conflict with local SQL Server
+      - "1434:1433"
     volumes:
       - sqlvolume:/var/opt/mssql
     networks:
       - dynamicai-network
     healthcheck:
+      # Using variable for password in healthcheck
       test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$${SA_PASSWORD}" -C -Q "SELECT 1" || exit 1
       interval: 10s
       timeout: 5s
@@ -73,16 +63,10 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-# ----------------------------------------------------------------------------
-# Networks
-# ----------------------------------------------------------------------------
 networks:
   dynamicai-network:
     driver: bridge
 
-# ----------------------------------------------------------------------------
-# Volumes (Persistent Storage)
-# ----------------------------------------------------------------------------
 volumes:
   sqlvolume:
     driver: local
