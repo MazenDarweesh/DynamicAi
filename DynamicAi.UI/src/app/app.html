@@ -144,6 +144,29 @@
                     </svg>
                   </ng-template>
                 </button>
+                <!-- Show SQL Button -->
+                <button *ngIf="msg.sql" class="show-sql-btn" 
+                  (click)="msg.showSql = !msg.showSql"
+                  [class.active]="msg.showSql"
+                  title="Show executed SQL query">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" 
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" 
+                    stroke-linejoin="round">
+                    <polyline points="16 18 22 12 16 6"></polyline>
+                    <polyline points="8 6 2 12 8 18"></polyline>
+                  </svg>
+                </button>
+              </div>
+
+              <!-- SQL Display Panel -->
+              <div *ngIf="msg.sql && msg.showSql" class="sql-display">
+                <div class="sql-header">
+                  <span class="sql-icon">⚙️</span> Executed SQL
+                  <button class="copy-sql-btn" (click)="copySql(msg.sql)" title="Copy SQL">
+                    📋
+                  </button>
+                </div>
+                <pre class="sql-code">{{ msg.sql }}</pre>
               </div>
 
               <!-- Suggestion Tips (from Dislike Response) -->

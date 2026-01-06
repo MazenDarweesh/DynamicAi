@@ -16,6 +16,7 @@ export interface ChatMessage {
     // Golden Dataset fields
     queryLogId?: string;
     isLiked?: boolean;
+    showSql?: boolean; // Toggle state for SQL display
     suggestionTips?: string[];
 }
 

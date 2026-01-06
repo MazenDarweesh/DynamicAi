@@ -351,5 +351,13 @@ export class App implements OnInit, AfterViewChecked {
       }
     });
   }
+
+  copySql(sql: string) {
+    navigator.clipboard.writeText(sql).then(() => {
+      console.log('✅ SQL copied to clipboard');
+    }).catch(err => {
+      console.error('❌ Failed to copy SQL:', err);
+    });
+  }
 }
 

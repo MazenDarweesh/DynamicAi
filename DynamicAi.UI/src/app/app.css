@@ -612,3 +612,78 @@ tr:hover td {
 .tips-list li {
     margin-bottom: 4px;
 }
+
+/* Show SQL Button */
+.show-sql-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 4px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    opacity: 0.5;
+}
+
+.show-sql-btn:hover {
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--primary);
+    opacity: 1;
+}
+
+.show-sql-btn.active {
+    opacity: 1;
+    color: var(--primary);
+}
+
+/* SQL Display Panel */
+.sql-display {
+    margin-top: 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.sql-header {
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--glass-border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.sql-icon {
+    font-size: 1rem;
+}
+
+.copy-sql-btn {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.copy-sql-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.sql-code {
+    margin: 0;
+    padding: 12px;
+    font-family: 'Fira Code', 'Consolas', monospace;
+    font-size: 0.8rem;
+    color: #a5d6ff;
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.5;
+}

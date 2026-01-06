@@ -1,161 +1,166 @@
-# � DynamicAI - Docker Quick Start Guide
+# 🚀 DynamicAI Docker Deployment Guide
 
-> **للزملاء: هذا الدليل يشرح كيفية تشغيل DynamicAI باستخدام Docker**
-
----
-
-## 📋 المتطلبات
-
-| المتطلب | الوصف |
-|:--------|:------|
-| **Docker Desktop** | [تحميل من هنا](https://www.docker.com/products/docker-desktop) |
-| **ملف docker-compose.team.yml** | ستحصل عليه من قائد الفريق |
-| **اتصال إنترنت** | لتحميل الـ Docker images |
+> **آخر تحديث:** 2026-01-05  
+> **السيرفر:** 5.189.150.146  
+> **Port:** 9090
 
 ---
 
-## 🚀 خطوات التشغيل
+## 📋 النسخة النهائية من Docker Compose
 
-### **الخطوة 1: تثبيت Docker Desktop**
+```yaml
+services:
+  dynamicai-app:
+    image: mazendarweesh/dynamicai:latest
+    container_name: dynamicai-app
+    ports:
+      - "9090:8080"
+    environment:
+      # ASP.NET Core Settings
+      - ASPNETCORE_ENVIRONMENT=Development
+      # ✅ Port 8080 required for non-root user 'appuser'
+      - ASPNETCORE_URLS=http://+:8080
 
-1. حمّل [Docker Desktop](https://www.docker.com/products/docker-desktop)
-2. ثبّته واقبل الـ License Agreement
-3. أعد تشغيل الجهاز إذا طُلب منك
-4. شغّل Docker Desktop وانتظر حتى يظهر "Docker is running"
+      - ConnectionStrings__AppDbContextConnection=Server=sqlserver;Database=DynamicAi_AppDb;User Id=sa;Password=YourStr0ngP@ssw0rd123!;TrustServerCertificate=True;
 
----
+      # External Production Database (where AI queries run)
+      - ConnectionStrings__DefaultConnection=Server=66.94.98.79;Database=QualityControl;User Id=SchemaPipelineUser;Password=P@ssw0rdStr0ng!;MultipleActiveResultSets=True;TrustServerCertificate=True;Encrypt=False;
+      - Database__Name=QualityControl
+      - Gemini__ApiKey=AIzaSyA4dPq_dSwR3afMp-JpXivjZaWyKefLJTA
+      - Qdrant__Host=https://776996c7-2269-49ec-83eb-b88ba99d13a8.us-east4-0.gcp.cloud.qdrant.io
+      - Qdrant__ApiKey=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.ot1PhqlKlYKNw1UqNd2-qKCuuzZlWj9IU9XGoI0JHE0
+      - Qdrant__CollectionName=quality_control_schema
+    healthcheck:
+      test: [ "NONE" ]
+    networks:
+      - egdynamics-network
+    restart: unless-stopped
 
-### **الخطوة 2: تحضير الملفات**
-
-1. **أنشئ مجلد جديد:**
-```powershell
-mkdir C:\DynamicAI
-cd C:\DynamicAI
-```
-
-2. **احفظ ملف `docker-compose.team.yml`** في هذا المجلد
-   - (ستحصل عليه من قائد الفريق عبر رسالة خاصة)
-
----
-
-### **الخطوة 3: تشغيل التطبيق**
-
-```powershell
-# انتقل لمجلد المشروع
-cd C:\DynamicAI
-
-# شغّل Docker Compose
-docker-compose -f docker-compose.team.yml up -d
-```
-
-**انتظر 1-2 دقيقة** حتى يتم تحميل وتشغيل كل الـ containers.
-
----
-
-### **الخطوة 4: افتح التطبيق**
-
-🌐 **افتح المتصفح على:** [http://localhost:8080](http://localhost:8080)
-
----
-
-## 📊 أوامر مفيدة
-
-```powershell
-# ─────────────────────────────────────────────────────────────────
-# تشغيل التطبيق
-# ─────────────────────────────────────────────────────────────────
-docker-compose -f docker-compose.team.yml up -d
-
-# ─────────────────────────────────────────────────────────────────
-# إيقاف التطبيق
-# ─────────────────────────────────────────────────────────────────
-docker-compose -f docker-compose.team.yml down
-
-# ─────────────────────────────────────────────────────────────────
-# مشاهدة الـ Logs (للتشخيص)
-# ─────────────────────────────────────────────────────────────────
-docker-compose -f docker-compose.team.yml logs -f dynamicai-app
-
-# ─────────────────────────────────────────────────────────────────
-# إعادة تشغيل التطبيق
-# ─────────────────────────────────────────────────────────────────
-docker-compose -f docker-compose.team.yml restart
-
-# ─────────────────────────────────────────────────────────────────
-# التحقق من حالة الـ Containers
-# ─────────────────────────────────────────────────────────────────
-docker ps
+networks:
+  egdynamics-network:
+    external: true
+    name: 5189150146_egdynamics-network
 ```
 
 ---
 
-## ❓ حل المشاكل الشائعة
+## ⚠️ المشاكل التي واجهتنا والحلول
 
-### 🔴 المشكلة: Port 8080 مستخدم
-**الحل:** عدّل الـ port في `docker-compose.team.yml`:
+### 1️⃣ مشكلة الـ Network
+
+| المشكلة | الحل |
+|---------|------|
+| كل docker-compose file يُنشئ network منفصل حتى لو نفس الاسم | استخدام `external: true` مع `name` الكامل للـ network |
+
+```yaml
+networks:
+  egdynamics-network:
+    external: true
+    name: 5189150146_egdynamics-network  # ← الاسم الفعلي
+```
+
+**للتحقق من اسم الـ network:**
+```bash
+docker network ls | grep egdynamics
+```
+
+---
+
+### 2️⃣ مشكلة الـ Port 80
+
+| المشكلة | الحل |
+|---------|------|
+| الـ Docker image يستخدم non-root user (`appuser`) لا يمكنه bind على port 80 | استخدام port 8080 داخلياً |
+
+```yaml
+- ASPNETCORE_URLS=http://+:8080  # ✅ صحيح
+# - ASPNETCORE_URLS=http://+:80  # ❌ لن يعمل
+```
+
+---
+
+### 3️⃣ مشكلة تعارض المنافذ
+
+| المشكلة | الحل |
+|---------|------|
+| Port 8080 محجوز بواسطة `portal` container | استخدام port مختلف (9090) |
+
 ```yaml
 ports:
-  - "8081:8080"  # غيّر 8080 لـ 8081
+  - "9090:8080"  # external:internal
 ```
-ثم افتح: `http://localhost:8081`
 
----
-
-### 🔴 المشكلة: Docker Desktop مش شغال
-**الحل:**
-1. تأكد إن Docker Desktop مفتوح
-2. انتظر حتى يظهر "Docker is running" في الـ system tray
-3. لو فيه مشكلة، أعد تشغيل Docker Desktop
-
----
-
-### 🔴 المشكلة: "Cannot connect to the Docker daemon"
-**الحل:**
-1. شغّل Docker Desktop
-2. انتظر 30 ثانية
-3. حاول تاني
-
----
-
-### 🔴 المشكلة: خطأ في الاتصال بقاعدة البيانات
-**الحل:** تأكد إنك متصل بنفس الشبكة المحلية (VPN إذا لزم الأمر)
-
----
-
-## 📞 الدعم
-
-لو واجهت مشكلة:
-1. **اجمع الـ Logs:**
-```powershell
-docker-compose -f docker-compose.team.yml logs > logs.txt
+**للتحقق من المنافذ المستخدمة:**
+```bash
+ss -tuln | grep -E '8080|9090'
 ```
-2. **ابعث ملف `logs.txt`** لقائد الفريق
 
 ---
 
-## 📌 ملاحظات مهمة
+### 4️⃣ مشكلة الـ Healthcheck
 
-| ⚠️ تحذير |
-|:---------|
-| **لا تشارك ملف `docker-compose.team.yml` خارج الفريق!** |
-| يحتوي على API Keys وكلمات مرور حقيقية |
+| المشكلة | الحل |
+|---------|------|
+| الـ Docker image لا يحتوي على `curl` فيظهر Container كـ `unhealthy` | تعطيل الـ healthcheck |
+
+```yaml
+healthcheck:
+  test: [ "NONE" ]
+```
 
 ---
 
-## 🔧 البنية التقنية
+### 5️⃣ مشكلة Static Files مع Nginx
+
+| المشكلة | الحل |
+|---------|------|
+| ملفات JS/CSS تُطلب من root path بدلاً من `/dynamicai-app/` | تشغيل مباشر على port 9090 بدون nginx |
+
+**عند استخدام nginx:**
+- يجب build الـ Angular app بـ `--base-href=/dynamicai-app/`
+- أو إضافة location blocks لإعادة توجيه الـ static files
+
+---
+
+## 🔧 أوامر مفيدة
+
+### إعادة تشغيل التطبيق
+```bash
+cd /root/ServersConfigration/servers/5.189.150.146
+docker rm -f dynamicai-app
+docker-compose -f ai-docker-compose.yml up -d
+```
+
+### عرض الـ Logs
+```bash
+docker logs dynamicai-app --tail 100 -f
+```
+
+### فتح port في Firewall
+```bash
+ufw allow 9090/tcp
+```
+
+### التحقق من حالة الـ Container
+```bash
+docker ps --filter name=dynamicai
+```
+
+---
+
+## ✅ Checklist قبل الـ Deployment
+
+- [ ] التأكد من وجود الـ network: `docker network ls | grep egdynamics`
+- [ ] التأكد من عدم تعارض المنافذ: `ss -tuln | grep 9090`
+- [ ] فتح الـ port في Firewall: `ufw allow 9090/tcp`
+- [ ] تحديث API Keys في الملف
+- [ ] تشغيل الـ container: `docker-compose -f ai-docker-compose.yml up -d`
+- [ ] التحقق من الـ logs: `docker logs dynamicai-app --tail 20`
+
+---
+
+## 🌐 الوصول للتطبيق
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  🌐 http://localhost:8080                                       │
-│  ├── Frontend (Angular)                                        │
-│  └── Backend API (.NET 8)                                      │
-├─────────────────────────────────────────────────────────────────┤
-│  🗄️ SQL Server (localhost:1434)                                 │
-│  └── App Logs & Feedback Database                              │
-├─────────────────────────────────────────────────────────────────┤
-│  ☁️ External Services                                           │
-│  ├── Production Database (QualityControl)                      │
-│  ├── Google Gemini AI                                          │
-│  └── Qdrant Vector Database (Cloud)                            │
-└─────────────────────────────────────────────────────────────────┘
+http://5.189.150.146:9090/
 ```
