@@ -214,14 +214,18 @@ namespace DynamicAi.Application.Services
             {
                 // WRAP MODE: Force subquery wrapping
                 _logger.LogInformation("[SqlGeneration] ✓ WRAP Mode: Will wrap previous SQL in subquery.");
-                promptBuilder.AppendLine("\n--- ⚠️ MANDATORY: PREVIOUS SQL TO WRAP ---");
-                promptBuilder.AppendLine("The user is requesting a SIMPLE MODIFICATION (sort, filter, limit) on the PREVIOUS results.");
-                promptBuilder.AppendLine("You MUST wrap the following SQL in a subquery and apply the modification:");
+                promptBuilder.AppendLine("\n--- ⚠️ MANDATORY: WRAP PREVIOUS SQL ---");
+                promptBuilder.AppendLine("User requests MODIFICATION on PREVIOUS results. WRAP this SQL:");
                 promptBuilder.AppendLine("```sql");
                 promptBuilder.AppendLine(previousSql);
                 promptBuilder.AppendLine("```");
-                promptBuilder.AppendLine("EXAMPLE: SELECT * FROM (previous_sql) AS sub ORDER BY [column] DESC;");
-                promptBuilder.AppendLine("DO NOT regenerate the query from scratch. Only wrap and modify.");
+                promptBuilder.AppendLine("⚠️ SQL SERVER SUBQUERY RULES:");
+                promptBuilder.AppendLine("1. ORDER BY in subquery REQUIRES TOP or OFFSET!");
+                promptBuilder.AppendLine("2. If prev SQL has TOP+ORDER BY, keep them TOGETHER inside subquery.");
+                promptBuilder.AppendLine("3. Apply NEW sort/filter in OUTER query only.");
+                promptBuilder.AppendLine("CORRECT PATTERN:");
+                promptBuilder.AppendLine("SELECT sub.* FROM (SELECT TOP N ... ORDER BY [orig_col]) AS sub ORDER BY sub.[new_col];");
+                promptBuilder.AppendLine("DO NOT move TOP outside. DO NOT remove original ORDER BY. Only wrap and add new operation.");
             }
             else if (actionType == QueryActionType.Regenerate && !string.IsNullOrWhiteSpace(previousSql))
             {
