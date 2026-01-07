@@ -1,6 +1,6 @@
 # Dynamic AI 🧠
 
-> **Natural Language to SQL Generation with Semantic Context & Caching**
+> **Natural Language to SQL Generation with Semantic Context, Smart Query Condensing & Caching**
 
 Dynamic AI is an intelligent system designed to bridge the gap between natural language questions and complex database queries. It leverages **Google Gemini** for LLM capabilities and **Qdrant** for vector-based semantic search, allowing users to query their data using everyday language while ensuring high performance through intelligent caching.
 
@@ -8,7 +8,7 @@ Dynamic AI is an intelligent system designed to bridge the gap between natural l
 
 ## 🏗️ Architecture Overview
 
-The system follows **Clean Architecture** principles and is divided into distinct layers to ensure maintainability and scalability.
+The system follows **Clean Architecture** principles with a **7-Layer Query Pipeline** for maximum accuracy and context awareness.
 
 ```text
      User 
@@ -19,13 +19,41 @@ The system follows **Clean Architecture** principles and is divided into distinc
                              │                 │
             ┌────────────────▼────────────────┐│
             │       Query Orchestrator        ││
-            └───────┬────────┬────────┬───────┘│
-                    │        │        │        │
-          ┌─────────▼─┐  ┌───▼──┐  ┌──▼─────┐  │
-          │Query Cache│  │SQLGen│  │Schema  │  │
-          └─────┬─────┘  └──┬───┘  └──┬─────┘  │
-                ↕           ↕         │        │
-         [(Qdrant DB)]   [Gemini]  [(SQL DB)]  │
+            │    (7-Layer Pipeline)           ││
+            └───────┬────────────────────────-┘│
+                    │                          │
+        ┌───────────▼───────────┐              │
+        │  🆕 Layer 0.5:        │              │
+        │  Query Condenser      │              │
+        │  (ActionType Logic)   │              │
+        └───────────┬───────────┘              │
+                    │                          │
+        ┌───────────▼───────────┐              │
+        │  Layer 1: Query Cache │              │
+        │  (Semantic Similarity)│              │
+        └───────────┬───────────┘              │
+                    │                          │
+        ┌───────────▼───────────┐              │
+        │  Layer 2: RAG Context │              │
+        │  (Qdrant + Schema)    │              │
+        └───────────┬───────────┘              │
+                    │                          │
+        ┌───────────▼───────────┐              │
+        │  Layer 3: SQL Gen     │              │
+        │  (Gemini + Prompt)    │              │
+        └───────────┬───────────┘              │
+                    │                          │
+        ┌───────────▼───────────┐              │
+        │  Layer 4: Validation  │              │
+        │  (Security + Rewrite) │              │
+        └───────────┬───────────┘              │
+                    │                          │
+        ┌───────────▼───────────┐              │
+        │  Layer 5: Execution   │              │
+        │  (SQL Server)         │              │
+        └───────────┬───────────┘              │
+                    ↕                          │
+             [(SQL DB)]                        │
                                                │
                          ┌─────────────────────▼──┐
                          │   Feedback Service     │
@@ -41,7 +69,7 @@ The system follows **Clean Architecture** principles and is divided into distinc
 *   **Backend:** .NET 8 (C#)
 *   **Frontend:** Angular 17+ (TypeScript, SCSS)
 *   **Vector Database:** Qdrant (for schema embeddings & query caching)
-*   **LLM:** Google Gemini (via AI API)
+*   **LLM:** Google Gemini (via Semantic Kernel)
 *   **Database:** SQL Server + EF Core (QueryLogs, TrainingExamples)
 *   **Containerization:** Docker (Qdrant, API, UI)
 
@@ -73,27 +101,104 @@ A standalone **6-Phase Checkpointed Knowledge Ingestion Pipeline** that bootstra
 *   `CdcChangeStrategy.cs` - SQL Server CDC integration (built, not wired)
 *   `QdrantVectorDbService.cs` - Gemini embedding + Tier 1 rate limiting
 
-### 2. Dynamic AI Core (`DynamicAi.Application`)
-The brain of the operation, containing the business logic.
-*   **`QueryOrchestrator`:** Manages the flow of a user request.
-*   **`SqlGenerationService`:** Constructs precise SQL queries based on user prompts and retrieved schema context.
-*   **`QueryCacheService`:** *[MVP Feature]* Checks Qdrant for semantically similar past questions to return cached SQL instantly, bypassing the LLM for faster responses.
-*   **`GeminiCostTracker`:** *[New]* Centralized service that tracks token usage and calculates costs for Chat and Embedding models in real-time.
+---
 
-### 3. Dynamic AI UI (`DynamicAi.UI`)
+### 2. 🆕 Query Condenser Layer 0.5 (`QueryCondenserService`)
+
+A **pre-processing layer** that intelligently handles follow-up questions and determines the optimal SQL generation strategy.
+
+**The Problem Solved:**
+```text
+User: "هات آخر 5 فواتير"                  → SQL: SELECT TOP 5 ... ORDER BY Date DESC
+User: "رتبهم تنازلياً"                    → ???
+
+Without Layer 0.5: LLM doesn't know what "them" refers to!
+With Layer 0.5: Condenses to "هات آخر 5 فواتير ورتبهم تنازلياً" + ActionType=WrapPrevious
+```
+
+**ActionType System:**
+| ActionType | When Used | SQL Strategy |
+|:---|:---|:---|
+| **New** | Completely new/unrelated question | Generate fresh SQL from scratch |
+| **WrapPrevious** | Simple modification (sort, filter, limit) | Wrap previous SQL in subquery |
+| **Regenerate** | Related context but needs new logic | Use context, generate new SQL |
+
+**Key Files:**
+| File | Purpose |
+|:---|:---|
+| `CondenserResult.cs` | Model + QueryActionType enum |
+| `IQueryCondenserService.cs` | Interface definition |
+| `QueryCondenserService.cs` | LLM-based implementation |
+| `QueryCondenserServiceTests.cs` | 20+ unit tests |
+
+**Flow Diagram:**
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│         Query Condenser Service (Layer 0.5)                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  INPUT:                                                         │
+│  ├── currentQuestion: "رتبهم تنازلياً"                          │
+│  ├── previousQuestion: "هات آخر 5 فواتير"                       │
+│  └── previousSql: "SELECT TOP 5 ... ORDER BY Date DESC"        │
+│                                                                 │
+│  PROCESS:                                                       │
+│  ├── 1. If no previous → Return ActionType.New (skip LLM)      │
+│  ├── 2. Build smart prompt with WRAP/REGENERATE/NEW rules      │
+│  ├── 3. Call LLM (Gemini)                                       │
+│  └── 4. Parse response: "ACTION: WRAP\nQUESTION: ..."          │
+│                                                                 │
+│  OUTPUT: CondenserResult                                        │
+│  ├── ActionType: WrapPrevious                                   │
+│  └── CondensedQuestion: "هات آخر 5 فواتير ورتبهم تنازلياً"      │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 3. Dynamic AI Core (`DynamicAi.Application`)
+The brain of the operation, containing the business logic.
+
+*   **`QueryOrchestrator`:** Manages the 7-layer flow of a user request. 🆕 Now integrates Query Condenser (Layer 0.5) before caching.
+*   **`SqlGenerationService`:** Constructs precise SQL queries based on user prompts and retrieved schema context. 🆕 Now accepts `ActionType` to handle WRAP vs REGENERATE modes.
+*   **`QueryCacheService`:** *[MVP Feature]* Checks Qdrant for semantically similar past questions to return cached SQL instantly, bypassing the LLM for faster responses.
+*   **`GeminiCostTracker`:** Centralized service that tracks token usage and calculates costs for Chat and Embedding models in real-time.
+
+---
+
+### 4. Dynamic AI UI (`DynamicAi.UI`)
 A modern, responsive web interface built with **Angular (Latest)**.
+
 *   **Chat Interface:** A ChatGPT-like experience for interacting with the data.
 *   **Data Visualization:** Displays query results in clean, formatted tables.
 *   **Feedback System:** Like/Dislike buttons with user comments for Golden Dataset collection.
 *   **SQL Display:** Copy-to-clipboard functionality for viewing generated SQL.
+*   🆕 **Dislike Context Rollback:** When user clicks "Dislike", the conversational context reverts to the last confirmed (non-disliked) state for seamless retry.
 
-### 4. Feedback & Golden Dataset Pipeline (`FeedbackService`) 🆕
+**🆕 Context Management (Two-Tier State):**
+```typescript
+// Current state (may be disliked)
+lastQuestion: string | undefined
+lastSql: string | undefined
+
+// Rollback point (last confirmed good state)
+confirmedQuestion: string | undefined
+confirmedSql: string | undefined
+
+// On successful response: confirmed = last
+// On dislike: last = confirmed (rollback!)
+```
+
+---
+
+### 5. Feedback & Golden Dataset Pipeline (`FeedbackService`)
 A system for collecting user feedback to build a fine-tuning dataset.
 
 | Feature | Description |
 |:---|:---|
 | **Like 👍** | Saves successful query to `TrainingExamples` table |
-| **Dislike 👎** | Saves failed query + ErrorMessage + User comment for review |
+| **Dislike 👎** | 🆕 Saves failed query + Rolls back context for retry |
 | **QueryLog** | Stores `SchemaContext`, `TenantId`, `CompanyId` for traceability |
 | **TrainingExamples** | Full feedback record: NaturalQuery, GeneratedSql, SchemaContext, ErrorMessage |
 | **Golden Dataset Export** | Verified examples can be exported to JSONL for fine-tuning |
@@ -194,36 +299,47 @@ docker-compose up
 
 ---
 
-## 🌟 Current Phase: Smart Context & Prompt Optimization
+## 🌟 Current Phase: Smart Query Condensing & Context Awareness
 
-We are currently in the **MVP Caching** phase (Branch: `Dy_AI_PreProducitionTest) with **Observability Layer** integrated.
+We are currently implementing **Query Condensing (Layer 0.5)** with **Smart ActionType** and **Dislike Context Rollback** features.
 
 ### ✅ Implemented Features
 
-#### 1. Core Logic & Caching
+#### 1. 🆕 Query Condensing (Layer 0.5)
+*   **Smart Follow-up Handling:** Understands "رتبهم" refers to previous results.
+*   **ActionType System:** NEW / WRAP_PREVIOUS / REGENERATE modes for optimal SQL generation.
+*   **Subquery Wrapping:** For WRAP mode, previous SQL is wrapped in subquery for modifications.
+*   **SQL Server Compliance:** Handles ORDER BY in subqueries correctly (requires TOP/OFFSET).
+
+#### 2. 🆕 Dislike Context Rollback  
+*   **Two-Tier State:** Tracks both current and confirmed (rollback) context.
+*   **Seamless Retry:** Clicking Dislike reverts to last successful state for clean retry.
+*   **Frontend Integration:** Implemented in `app.ts` with `confirmedQuestion`/`confirmedSql`.
+
+#### 3. Core Logic & Caching
 *   **Semantic Caching:** Queries are hashed and compared using vector similarity (Qdrant).
-*   **Context-Aware SQL Generation:** Retrieves irrelevant tables/views to reduce token usage.
+*   **Context-Aware SQL Generation:** Retrieves relevant tables/views to reduce token usage.
 *   **Clean Architecture:** Strict separation of concerns (Domain, Application, Infrastructure, API).
 
-#### 2. Reliability & Safety
+#### 4. Reliability & Safety
 *   **Clarification Loop:** AI now asks "Clarification Needed" questions for ambiguous queries instead of hallucinating answers.
 *   **Prompt Diet & Smart Context:**
     *   **Prompt Compression:** Reduced system prompt by **60%** (from ~10k to ~4k tokens) using specialized aliasing and syntax removal.
     *   **Explicit Gemini Caching:** Leverages semantic caching on the LLM side for identical prompts.
-*   **SQL Validation Layer:** `SecurityVisitor` & `Rewriter` ensure generated SQL is safe and optimized. **(Verified by 62 Unit Tests ✅)**.
+*   **SQL Validation Layer:** `SecurityVisitor` & `Rewriter` ensure generated SQL is safe and optimized. **(Verified by 82 Unit Tests ✅)**.
 *   **Retry Policies:** Polly integration for resilient API calls.
 
-#### 3. Observability & Cost Tracking
+#### 5. Observability & Cost Tracking
 *   **Cost Tracker (`GeminiCostTracker`):** Real-time tracking of input/output tokens and cost calculation for every request.
 *   **Structured Logging (`Serilog`):** Unified JSON-ready logs across all services for seamless monitoring.
 *   **Request Metrics:** Tracks latency (`TotalDuration`) and Status Codes.
 
-#### 4. Testing Strategy
-*   **Unit Tests:** Extensive coverage for `SqlValidatorService`, `SqlRewriterService`, and `SqlGenerationService`.
+#### 6. Testing Strategy
+*   **Unit Tests:** **82 tests** covering `SqlValidatorService`, `SqlRewriterService`, `SqlGenerationService`, `QueryCondenserService`, and `CondenserResult`.
 *   **Integration Tests:** Verifies the full pipeline from `QueryOrchestrator` to `Gemini`.
 *   **Mocking:** Uses `FakeItEasy` for reliable dependency simulation.
 
-#### 5. Feedback & Training Data Collection 🆕
+#### 7. Feedback & Training Data Collection
 *   **Like/Dislike System:** Frontend buttons trigger `FeedbackController` endpoints.
 *   **QueryLog Tracking:** Every query execution is logged with:
     *   `SchemaContext` - JSON of the page/view context used
@@ -240,6 +356,37 @@ We are currently in the **MVP Caching** phase (Branch: `Dy_AI_PreProducitionTest
 
 ---
 
+## 📁 Project Structure
+
+```text
+DynamicAi/
+├── DynamicAi.Application/          # Business Logic Layer
+│   ├── Interfaces/
+│   │   ├── IQueryOrchestrator.cs
+│   │   ├── ISqlGenerationService.cs
+│   │   └── IQueryCondenserService.cs    # 🆕 Layer 0.5
+│   ├── Models/
+│   │   ├── AskRequest.cs                # 🆕 previousQuestion/previousSql
+│   │   └── CondenserResult.cs           # 🆕 ActionType enum + result
+│   └── Services/
+│       ├── QueryOrchestrator.cs         # 🆕 Integrates Layer 0.5
+│       ├── SqlGenerationService.cs      # 🆕 WRAP/REGENERATE modes
+│       └── QueryCondenserService.cs     # 🆕 LLM-based condensing
+├── DynamicAi.Infrastructure/       # Data Access Layer
+├── DynamicAi.Api/                  # API Layer (Controllers)
+├── DynamicAi.UI/                   # Angular Frontend
+│   └── src/app/
+│       └── app.ts                       # 🆕 Context rollback logic
+└── DynamicAI.Tests/                # Unit Tests
+    ├── Services/
+    │   ├── QueryCondenserServiceTests.cs  # 🆕 13 tests
+    │   └── SqlGenerationServiceTests.cs
+    └── Models/
+        └── CondenserResultTests.cs        # 🆕 7 tests
+```
+
+---
+
 ## 🔮 Future Roadmap
 
 Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the prioritized roadmap to move from **MVP (Current)** to **Scale**.
@@ -248,6 +395,9 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 
 | Feature | Status | Impact |
 |:---|:---:|:---|
+| **🆕 Query Condenser Layer 0.5** | ✅ Done | Smart follow-up handling + ActionType system |
+| **🆕 Dislike Context Rollback** | ✅ Done | Seamless retry after dislike |
+| **🆕 Subquery Wrapping (WRAP mode)** | ✅ Done | Efficient modifications on previous results |
 | **Golden Dataset Pipeline** | ✅ Done | Like/Dislike → TrainingExamples → Fine-tuning ready |
 | **QueryLog Tracking** | ✅ Done | SchemaContext, TenantId, CompanyId, ErrorMessage |
 | **Docker Support** | ✅ Done | CORS for localhost:8080, static file serving |
@@ -291,15 +441,16 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 
 | Axis | Status | Score | Notes |
 |:---|:---:|:---:|:---|
+| **Query Condensing** | ✅✅✅ | 10/10 | 🆕 **Complete:** Layer 0.5 with ActionType system. |
 | **Silent Failures** | ✅✅✅ | 10/10 | **Solved:** "Clarification Loop" + Validation Layer prevents almost all guessing. |
 | **Prompt Engineering** | ✅✅✅ | 9/10 | **Optimized:** "Prompt Diet" + ListName fix. Strict Static Rules. |
-| **Feedback System** | ✅✅✅ | 9/10 | 🆕 **Complete:** Like/Dislike → TrainingExamples with full context. |
+| **Feedback System** | ✅✅✅ | 9/10 | **Complete:** Like/Dislike → TrainingExamples + Context Rollback. |
 | **Vector DB** | ✅✅✅ | 9/10 | Qdrant with proper payload indexing is solid. |
 | **Architecture** | ✅✅✅ | 9/10 | Clean Arch + Semantic Kernel + Explicit Caching Support. |
 | **Observability** | ✅✅ | 8/10 | Cost tracking & Structured logging + QueryLog tracking. |
 | **Cost Control** | ✅✅ | 8/10 | **Improved:** 60% less input tokens per request + Caching. |
 | **Embedding** | ✅✅ | 8/10 | Gemini models are performing well. |
-| **Containerization** | ✅✅ | 8/10 | 🆕 Docker support with CORS and static files. |
+| **Containerization** | ✅✅ | 8/10 | Docker support with CORS and static files. |
 | **Doc Parsing** | ✅ | 6/10 | SMO-based SQL parsing is accurate but limited to SQL. |
 | **RAG Scaling** | ⚠️ | 6/10 | Needs validation for larger datasets. |
 | **Latency** | ⚠️ | 6/10 | High (20s+) but mitigated by Caching. Streaming deemed unnecessary for SQL. |
@@ -307,3 +458,37 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 | **Hybrid Search** | ❌ | 2/10 | **Missing:** Pure vector search misses exact keywords. |
 | **Reranking** | ❌ | 0/10 | **Critical:** Major cause of hallucinations (retrieving wrong tables). |
 
+---
+
+## 📝 Changelog
+
+### v1.2.0 (2026-01-07) - Query Condensing Release 🆕
+
+**New Features:**
+- ✅ **Query Condenser (Layer 0.5):** Smart follow-up question handling with LLM-based ActionType determination.
+- ✅ **ActionType System:** NEW / WRAP_PREVIOUS / REGENERATE modes for optimal SQL generation strategy.
+- ✅ **Subquery Wrapping:** WRAP mode wraps previous SQL in subquery for sort/filter/limit operations.
+- ✅ **Dislike Context Rollback:** Clicking Dislike reverts conversational context to last confirmed state.
+- ✅ **SQL Server Subquery Fix:** Correct handling of ORDER BY in subqueries (TOP + ORDER BY kept together).
+
+**New Files:**
+- `CondenserResult.cs` - Model with QueryActionType enum
+- `IQueryCondenserService.cs` - Interface for Layer 0.5
+- `QueryCondenserService.cs` - LLM-based implementation
+- `QueryCondenserServiceTests.cs` - 13 unit tests
+- `CondenserResultTests.cs` - 7 unit tests
+
+**Modified Files:**
+- `AskRequest.cs` - Added previousQuestion/previousSql
+- `QueryOrchestrator.cs` - Integrates Layer 0.5 before caching
+- `SqlGenerationService.cs` - WRAP/REGENERATE prompt modes
+- `app.ts` - Two-tier context management (confirmed/last)
+
+**Test Coverage:**
+- Total tests: 82 (up from 62)
+
+---
+
+## 📄 License
+
+This project is proprietary software developed by **EGY Dynamic**.
