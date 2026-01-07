@@ -26,9 +26,13 @@ export class App implements OnInit, AfterViewChecked {
 
   // ============================================================================
   // Conversation Context (For Query Condensing - Layer 0.5)
+  // Two-tier: "confirmed" = last good state, "last" = current state
+  // On Dislike: rollback to confirmed state
   // ============================================================================
   lastQuestion: string | undefined = undefined;
   lastSql: string | undefined = undefined;
+  confirmedQuestion: string | undefined = undefined; // Rollback point
+  confirmedSql: string | undefined = undefined;       // Rollback point
 
   constructor(private apiService: ApiService, private cdr: ChangeDetectorRef) { }
 
@@ -168,7 +172,10 @@ export class App implements OnInit, AfterViewChecked {
 
         // ============================================================================
         // Update Conversation Context for next query (Query Condensing)
+        // Save previous as "confirmed" backup before updating
         // ============================================================================
+        this.confirmedQuestion = this.lastQuestion;
+        this.confirmedSql = this.lastSql;
         this.lastQuestion = currentQ;
         this.lastSql = sql;
 
@@ -217,6 +224,14 @@ export class App implements OnInit, AfterViewChecked {
 
     this.loading = true;
     const retryCount = (msg.retryCount || 0) + 1;
+
+    // ============================================================================
+    // ROLLBACK: Revert conversation context to confirmed state
+    // This ensures next question doesn't use the disliked response's context
+    // ============================================================================
+    console.log('🔴 [Dislike] Rolling back context: confirmed=', this.confirmedQuestion, ', current=', this.lastQuestion);
+    this.lastQuestion = this.confirmedQuestion;
+    this.lastSql = this.confirmedSql;
 
     // Prompt user for correction notes (optional)
     // Use prompt to get feedback. If user cancels (null), treat as empty string.
