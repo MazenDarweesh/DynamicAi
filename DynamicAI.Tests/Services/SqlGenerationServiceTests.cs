@@ -25,7 +25,8 @@ public class SqlGenerationServiceTests
         _chatService = A.Fake<IChatCompletionService>();
         var logger = A.Fake<ILogger<SqlGenerationService>>();
         var costTracker = A.Fake<IGeminiCostTracker>();
-        _sut = new SqlGenerationService(_chatService, logger, costTracker);
+        var cacheManager = A.Fake<IGeminiCacheManager>();
+        _sut = new SqlGenerationService(_chatService, logger, costTracker, cacheManager);
     }
 
     [Fact]
@@ -56,7 +57,7 @@ public class SqlGenerationServiceTests
             .Returns(Task.FromResult((IReadOnlyList<ChatMessageContent>)new[] { fakeResult }));
 
         // Act
-        var result = await _sut.GenerateSqlAsync(userQuestion, contextBundle);
+        var result = await _sut.GenerateSqlAsync(userQuestion, contextBundle, null);
 
         // Assert
         result.Should().Be(expectedSql);
@@ -84,7 +85,7 @@ public class SqlGenerationServiceTests
              .Returns(Task.FromResult((IReadOnlyList<ChatMessageContent>)new[] { fakeResult }));
 
         // Act
-        var result = await _sut.GenerateSqlAsync(userQuestion, contextBundle);
+        var result = await _sut.GenerateSqlAsync(userQuestion, contextBundle, null);
 
         // Assert
         result.Should().BeEmpty();
@@ -107,7 +108,7 @@ public class SqlGenerationServiceTests
              .Returns(Task.FromResult((IReadOnlyList<ChatMessageContent>)new[] { fakeResult }));
 
         // Act
-        await _sut.GenerateSqlAsync("query", contextBundle);
+        await _sut.GenerateSqlAsync("query", contextBundle, null);
 
         // Assert
         A.CallTo(() => _chatService.GetChatMessageContentsAsync(

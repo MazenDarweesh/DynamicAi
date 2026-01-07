@@ -1,8 +1,13 @@
 /**
  * Request payload for asking a question
+ * (Updated) Supports Conversation Context for Query Condensing (Layer 0.5)
  */
 export interface AskRequest {
     question: string;
     tenantId: string;
     comID: number;
+    /** السؤال السابق في المحادثة (Optional) - for Query Condensing */
+    previousQuestion?: string;
+    /** كود SQL السابق (Optional) - for Subquery wrapping */
+    previousSql?: string;
 }

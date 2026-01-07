@@ -16,11 +16,13 @@ export class ApiService {
         return this.http.get(`${this.apiUrl}/Test/ping`);
     }
 
-    ask(question: string): Observable<any> {
+    ask(question: string, previousQuestion?: string, previousSql?: string): Observable<any> {
         return this.http.post(`${this.apiUrl}/Test/ask`, {
             question: question,
             tenantId: 'default',
-            comID: 1
+            comID: 1,
+            previousQuestion: previousQuestion,
+            previousSql: previousSql
         });
     }
 

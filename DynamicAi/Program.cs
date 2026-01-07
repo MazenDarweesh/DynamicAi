@@ -123,12 +123,14 @@ finally
 static void ConfigureServices(IServiceCollection services, IConfiguration configuration)
 {
     // --- تسجيل خدمات التطبيق ---
+    services.AddTransient<IQueryCondenserService, QueryCondenserService>(); // Layer 0.5 - Query Condensing
     services.AddTransient<IQueryOrchestrator, QueryOrchestrator>();
     services.AddTransient<ISqlGenerationService, SqlGenerationService>();
     services.AddTransient<ISqlValidatorService, SqlValidatorService>();
     services.AddTransient<ISqlRewriterService, SqlRewriterService>();
     services.AddTransient<ISandboxedSqlExecutor, SandboxedSqlExecutor>();
     services.AddTransient<IRagRetrievalService, QdrantRetrievalService>();
+
 
     // --- Repositories ---
     services.AddScoped<ITrainingExampleRepository, TrainingExampleRepository>();

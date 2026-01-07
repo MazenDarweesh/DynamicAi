@@ -58,8 +58,13 @@ namespace DynamicAi.Api.Controllers
 
             try
             {
-                // تشغيل Pipeline بالكامل مع إرسال ComID
-                var result = await _queryOrchestrator.HandleQueryAsync(request.Question, request.TenantId, request.ComID);
+                // تشغيل Pipeline بالكامل مع إرسال ComID و Conversation Context
+                var result = await _queryOrchestrator.HandleQueryAsync(
+                    request.Question,
+                    request.TenantId,
+                    request.ComID,
+                    request.PreviousQuestion,  // Layer 0.5: للـ Query Condensing
+                    request.PreviousSql);      // Layer 2: للـ Subquery Wrapping
 
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
 

@@ -6,7 +6,7 @@ namespace DynamicAi.Application.Interfaces
 {
     /// <summary>
     /// "العقل المدبر" (The Orchestrator) لخط أنابيب الاستعلام (RAG Pipeline).
-    /// مسؤول عن تنسيق جميع الطبقات (Layers 1-5)
+    /// مسؤول عن تنسيق جميع الطبقات (Layers 0.5-5)
     /// لتحويل سؤال المستخدم إلى بيانات آمنة.
     /// </summary>
     public interface IQueryOrchestrator
@@ -17,7 +17,14 @@ namespace DynamicAi.Application.Interfaces
         /// <param name="userQuestion">السؤال الأصلي للمستخدم (e.g., "ما هي مبيعاتي؟")</param>
         /// <param name="tenantId">معرف "الشركة" (لعزل البيانات)</param>
         /// <param name="comID">معرف إضافي اختياري (اختياري)</param>
+        /// <param name="previousQuestion">السؤال السابق (Optional, for Query Condensing)</param>
+        /// <param name="previousSql">كود SQL السابق (Optional, for Subquery Wrapping)</param>
         /// <returns>نتيجة الاستعلام (البيانات + Metadata).</returns>
-        Task<QueryExecutionResult> HandleQueryAsync(string userQuestion, string tenantId, int? comID = null);
+        Task<QueryExecutionResult> HandleQueryAsync(
+            string userQuestion,
+            string tenantId,
+            int? comID = null,
+            string? previousQuestion = null,
+            string? previousSql = null);
     }
 }

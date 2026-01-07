@@ -24,6 +24,12 @@ export class App implements OnInit, AfterViewChecked {
   loading = false;
   isSidebarOpen = true; // Sidebar state
 
+  // ============================================================================
+  // Conversation Context (For Query Condensing - Layer 0.5)
+  // ============================================================================
+  lastQuestion: string | undefined = undefined;
+  lastSql: string | undefined = undefined;
+
   constructor(private apiService: ApiService, private cdr: ChangeDetectorRef) { }
 
   ngOnInit() {
@@ -87,6 +93,9 @@ export class App implements OnInit, AfterViewChecked {
 
   resetChat() {
     this.messages = [];
+    // Clear conversation context
+    this.lastQuestion = undefined;
+    this.lastSql = undefined;
   }
 
   getKeys(obj: any): string[] {
@@ -103,7 +112,7 @@ export class App implements OnInit, AfterViewChecked {
     this.loading = true;
     this.cdr.detectChanges();
 
-    this.apiService.ask(currentQ).subscribe({
+    this.apiService.ask(currentQ, this.lastQuestion, this.lastSql).subscribe({
       next: (res) => {
         this.loading = false;
         console.log('API Response:', res);
@@ -156,6 +165,13 @@ export class App implements OnInit, AfterViewChecked {
         newMessage.queryLogId = res.queryLogId || res.QueryLogId;
 
         this.messages.push(newMessage);
+
+        // ============================================================================
+        // Update Conversation Context for next query (Query Condensing)
+        // ============================================================================
+        this.lastQuestion = currentQ;
+        this.lastSql = sql;
+
         this.cdr.detectChanges();
       },
       error: (err) => {

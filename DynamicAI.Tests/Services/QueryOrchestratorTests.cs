@@ -19,6 +19,7 @@ namespace DynamicAI.Tests.Services;
 public class QueryOrchestratorTests
 {
     private readonly QueryOrchestrator _sut;
+    private readonly IQueryCondenserService _condenserService;
     private readonly IRagRetrievalService _retrievalService;
     private readonly ISqlGenerationService _generationService;
     private readonly ISqlValidatorService _validatorService;
@@ -26,10 +27,12 @@ public class QueryOrchestratorTests
     private readonly ISandboxedSqlExecutor _executorService;
     private readonly IQueryCacheService _queryCacheService;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
+    private readonly IQueryLogRepository _queryLogRepo;
     private readonly IConfiguration _configuration;
 
     public QueryOrchestratorTests()
     {
+        _condenserService = A.Fake<IQueryCondenserService>();
         _retrievalService = A.Fake<IRagRetrievalService>();
         _generationService = A.Fake<ISqlGenerationService>();
         _validatorService = A.Fake<ISqlValidatorService>();
@@ -37,10 +40,15 @@ public class QueryOrchestratorTests
         _executorService = A.Fake<ISandboxedSqlExecutor>();
         _queryCacheService = A.Fake<IQueryCacheService>();
         _embeddingService = A.Fake<IEmbeddingGenerator<string, Embedding<float>>>();
+        _queryLogRepo = A.Fake<IQueryLogRepository>();
         _configuration = A.Fake<IConfiguration>();
 
         // Default Configuration
         A.CallTo(() => _configuration["Caching:QueryCache:Enabled"]).Returns("true");
+
+        // Mock Condenser (Identity Fallback - returns input as-is)
+        A.CallTo(() => _condenserService.CondenseQuestionAsync(A<string>._, A<string>._))
+            .ReturnsLazily((string q, string? prev) => Task.FromResult(q));
 
         // Mock Embedding Generation (Underlying method for extension)
         var fakeEmbedding = new GeneratedEmbeddings<Embedding<float>>(
@@ -55,6 +63,7 @@ public class QueryOrchestratorTests
         var logger = A.Fake<ILogger<QueryOrchestrator>>();
 
         _sut = new QueryOrchestrator(
+            _condenserService,
             _retrievalService,
             _generationService,
             _validatorService,
@@ -62,6 +71,7 @@ public class QueryOrchestratorTests
             _executorService,
             _queryCacheService,
             _embeddingService,
+            _queryLogRepo,
             logger,
             _configuration
         );
@@ -87,7 +97,7 @@ public class QueryOrchestratorTests
             .Returns(Task.FromResult(contextBundle));
 
         // 3. Generation
-        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle))
+        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._))
             .Returns(Task.FromResult(rawSql));
 
         // 4. Validation (Success - void)
@@ -117,7 +127,7 @@ public class QueryOrchestratorTests
 
         // Verify calls
         A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, tenantId)).MustHaveHappened();
-        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle)).MustHaveHappened();
+        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._)).MustHaveHappened();
         A.CallTo(() => _validatorService.ValidateSqlAsync(rawSql, tenantId)).MustHaveHappened();
         A.CallTo(() => _rewriterService.RewriteAsync(rawSql, tenantId, A<int?>._)).MustHaveHappened();
         A.CallTo(() => _executorService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters)).MustHaveHappened();
@@ -167,7 +177,7 @@ public class QueryOrchestratorTests
         // Verify Skipped Layers
         A.CallTo(() => _retrievalService.RetrieveContextAsync(A<string>._, A<string>._))
             .MustNotHaveHappened();
-        A.CallTo(() => _generationService.GenerateSqlAsync(A<string>._, A<RetrievalContextBundle>._))
+        A.CallTo(() => _generationService.GenerateSqlAsync(A<string>._, A<RetrievalContextBundle>._, A<string?>._))
             .MustNotHaveHappened();
 
         // Verify Executed Layers
@@ -190,7 +200,7 @@ public class QueryOrchestratorTests
         A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, tenantId))
             .Returns(Task.FromResult(contextBundle));
 
-        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle))
+        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._))
             .Returns(Task.FromResult(generatedSql));
 
         // Fail Validation

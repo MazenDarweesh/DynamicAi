@@ -16,6 +16,7 @@ namespace DynamicAi.Application.Services
     /// </summary>
     public class QueryOrchestrator : IQueryOrchestrator
     {
+        private readonly IQueryCondenserService _condenserService;        // (Layer 0.5)
         private readonly IRagRetrievalService _retrievalService;         // (Layer 1)
         private readonly ISqlGenerationService _generationService;       // (Layer 2)
         private readonly ISqlValidatorService _validatorService;         // (Layer 3)
@@ -28,6 +29,7 @@ namespace DynamicAi.Application.Services
         private readonly bool _queryCacheEnabled;
 
         public QueryOrchestrator(
+            IQueryCondenserService condenserService,
             IRagRetrievalService retrievalService,
             ISqlGenerationService generationService,
             ISqlValidatorService validatorService,
@@ -39,6 +41,7 @@ namespace DynamicAi.Application.Services
             ILogger<QueryOrchestrator> logger,
             IConfiguration configuration)
         {
+            _condenserService = condenserService;
             _retrievalService = retrievalService;
             _generationService = generationService;
             _validatorService = validatorService;
@@ -54,7 +57,12 @@ namespace DynamicAi.Application.Services
         /// <summary>
         /// يعالج سؤال المستخدم بالكامل، مروراً بجميع طبقات الأمان والتوليد.
         /// </summary>
-        public async Task<QueryExecutionResult> HandleQueryAsync(string userQuestion, string tenantId, int? comID = null)
+        public async Task<QueryExecutionResult> HandleQueryAsync(
+            string userQuestion,
+            string tenantId,
+            int? comID = null,
+            string? previousQuestion = null,
+            string? previousSql = null)
         {
             // ============================================================================
             // بداية Pipeline - عرض معلومات الطلب
@@ -65,9 +73,10 @@ namespace DynamicAi.Application.Services
             _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
             _logger.LogInformation("[Orchestrator] User Question: \"{UserQuestion}\"", userQuestion);
+            _logger.LogInformation("[Orchestrator] Previous Question: \"{PreviousQuestion}\"", previousQuestion ?? "(none)");
             _logger.LogInformation("[Orchestrator] Tenant ID: {TenantId}", tenantId);
             _logger.LogInformation("[Orchestrator] Company ID: {CompanyId}", comID.HasValue ? comID.Value.ToString() : "null");
-            _logger.LogInformation("[Orchestrator] Pipeline has 5 layers to execute...");
+            _logger.LogInformation("[Orchestrator] Pipeline has 6 layers to execute (0.5-5)...");
 
             var startTime = DateTime.UtcNow;
             string rawSql = string.Empty;
@@ -77,13 +86,27 @@ namespace DynamicAi.Application.Services
             string? cacheId = null;
             Guid queryLogId = Guid.NewGuid(); // Generate tracking ID for this execution
             bool isCached = false;
-            double layer1Duration = 0, layer2Duration = 0; // Initialized for cache HIT path
+            double layer05Duration = 0, layer1Duration = 0, layer2Duration = 0; // Initialized for cache HIT path
             RetrievalContextBundle? contextSnippets = null; // Store for logging
+            string condensedQuestion = userQuestion; // Default to original if no condensing needed
 
             try
             {
                 // ============================================================================
-                // Layer 0: Query Cache Check - البحث عن نتيجة مخزنة
+                // Layer 0.5: Query Condensing - تكثيف السؤال إذا كان معتمداً على سياق سابق
+                // ============================================================================
+                _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+                _logger.LogInformation("║            [Layer 0.5: QUERY CONDENSING] - STARTING                    ║");
+                _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+
+                var layer05Start = DateTime.UtcNow;
+                condensedQuestion = await _condenserService.CondenseQuestionAsync(userQuestion, previousQuestion);
+                layer05Duration = (DateTime.UtcNow - layer05Start).TotalMilliseconds;
+
+                _logger.LogInformation("[Orchestrator] ✓ Layer 0.5 completed in {Duration:F0}ms", layer05Duration);
+                _logger.LogInformation("[Orchestrator] Condensed Question: \"{CondensedQuestion}\"", condensedQuestion);
+                // ============================================================================
+                // Layer 0: Query Cache Check - البحث عن نتيجة مخزنة (using CONDENSED question)
                 // ============================================================================
                 if (_queryCacheEnabled)
                 {
@@ -92,7 +115,8 @@ namespace DynamicAi.Application.Services
                     _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
                     var cacheCheckStart = DateTime.UtcNow;
-                    var embedding = await _embeddingService.GenerateAsync(userQuestion);
+                    // CRITICAL: Use CONDENSED question for embedding (Fixes Problem 5)
+                    var embedding = await _embeddingService.GenerateAsync(condensedQuestion);
                     questionEmbedding = embedding.Vector.ToArray();
 
                     var cachedResult = await _queryCacheService.TryGetCachedSqlAsync(
@@ -120,14 +144,15 @@ namespace DynamicAi.Application.Services
                 }
 
                 // ============================================================================
-                // Layer 1: RAG - استرجاع السياق من قاعدة المعرفة
+                // Layer 1: RAG - استرجاع السياق من قاعدة المعرفة (using CONDENSED question)
                 // ============================================================================
                 _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
                 _logger.LogInformation("║                [Layer 1: RAG RETRIEVAL] - STARTING                     ║");
                 _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
                 var layer1Start = DateTime.UtcNow;
-                contextSnippets = await _retrievalService.RetrieveContextAsync(userQuestion, tenantId);
+                // CRITICAL: Use CONDENSED question for RAG retrieval
+                contextSnippets = await _retrievalService.RetrieveContextAsync(condensedQuestion, tenantId);
                 layer1Duration = (DateTime.UtcNow - layer1Start).TotalMilliseconds;
 
                 _logger.LogInformation("[Orchestrator] ✓ Layer 1 completed in {Duration:F0}ms", layer1Duration);
@@ -147,7 +172,8 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
                 var layer2Start = DateTime.UtcNow;
-                rawSql = await _generationService.GenerateSqlAsync(userQuestion, contextSnippets);
+                // CRITICAL: Use CONDENSED question and pass previousSql (Fixes Problem 4)
+                rawSql = await _generationService.GenerateSqlAsync(condensedQuestion, contextSnippets, previousSql);
                 layer2Duration = (DateTime.UtcNow - layer2Start).TotalMilliseconds;
 
                 _logger.LogInformation("[Orchestrator] ✓ Layer 2 completed in {Duration:F0}ms", layer2Duration);

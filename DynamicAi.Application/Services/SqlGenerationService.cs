@@ -54,7 +54,10 @@ namespace DynamicAi.Application.Services
         /// <summary>
         /// (مُعدل) يولد كود SQL خام بناءً على سؤال المستخدم والسياق "الغني".
         /// </summary>
-        public async Task<string> GenerateSqlAsync(string userQuestion, RetrievalContextBundle contextBundle)
+        /// <param name="userQuestion">السؤال (يفضل الـ Condensed Question)</param>
+        /// <param name="contextBundle">سلة السياق الغنية</param>
+        /// <param name="previousSql">كود SQL السابق للـ Subquery (Optional)</param>
+        public async Task<string> GenerateSqlAsync(string userQuestion, RetrievalContextBundle contextBundle, string? previousSql = null)
         {
             _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
             _logger.LogInformation("║              [Layer 2: SQL GENERATION] - STARTING                      ║");
@@ -202,6 +205,20 @@ namespace DynamicAi.Application.Services
             else
             {
                 promptBuilder.AppendLine("(No business rules available)");
+            }
+
+            // ============================================================================
+            // PREVIOUS SQL CONTEXT (For Subquery Wrapping when user asks for refinement)
+            // ============================================================================
+            if (!string.IsNullOrWhiteSpace(previousSql))
+            {
+                _logger.LogInformation("[SqlGeneration] ✓ Previous SQL provided for refinement context.");
+                promptBuilder.AppendLine("\n--- PREVIOUS SQL CONTEXT (The user may be refining this query) ---");
+                promptBuilder.AppendLine("The user's previous question generated the following SQL. If the NEW question is a refinement (e.g., 'sort by X', 'filter by Y'), you SHOULD wrap this SQL in a Subquery and apply the new operation.");
+                promptBuilder.AppendLine("```sql");
+                promptBuilder.AppendLine(previousSql);
+                promptBuilder.AppendLine("```");
+                promptBuilder.AppendLine("If the new question is UNRELATED to the previous SQL, ignore this section.");
             }
 
             promptBuilder.AppendLine("\n--- TASK ---");

@@ -14,9 +14,10 @@ namespace DynamicAi.Application.Interfaces
         /// <summary>
         /// (مُعدل) يولد كود SQL خام بناءً على سؤال المستخدم والسياق "الغني".
         /// </summary>
-        /// <param name="userQuestion">السؤال الأصلي للمستخدم</param>
+        /// <param name="userQuestion">السؤال الأصلي للمستخدم (أو السؤال المكثف من Condenser)</param>
         /// <param name="contextBundle">"سلة السياق" الغنية (Schema, Data, Rules) من Layer 1</param>
+        /// <param name="previousSql">كود SQL السابق (Optional). Used for wrapping in Subqueries.</param>
         /// <returns>كود SQL "خام" (غير موثوق به) تم توليده بواسطة الـ AI.</returns>
-        Task<string> GenerateSqlAsync(string userQuestion, RetrievalContextBundle contextBundle);
+        Task<string> GenerateSqlAsync(string userQuestion, RetrievalContextBundle contextBundle, string? previousSql = null);
     }
 }
