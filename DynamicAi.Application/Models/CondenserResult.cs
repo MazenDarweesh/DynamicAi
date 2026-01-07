@@ -50,4 +50,22 @@ public class CondenserResult
         CondensedQuestion = question,
         ActionType = QueryActionType.New
     };
+
+    /// <summary>
+    /// Helper for creating a "WrapPrevious" result (simple modification).
+    /// </summary>
+    public static CondenserResult AsWrapPrevious(string question) => new()
+    {
+        CondensedQuestion = question,
+        ActionType = QueryActionType.WrapPrevious
+    };
+
+    /// <summary>
+    /// Helper for creating a "Regenerate" result (related but needs new SQL).
+    /// </summary>
+    public static CondenserResult AsRegenerate(string question) => new()
+    {
+        CondensedQuestion = question,
+        ActionType = QueryActionType.Regenerate
+    };
 }
