@@ -1,3 +1,30 @@
+// =============================================================================
+// FILE: QueryCondenserServiceTests.cs
+// PURPOSE: Unit tests for QueryCondenserService (Layer 0.5 implementation)
+//
+// TESTS COVERAGE:
+//   1. Identity Fallback Tests:
+//      - When no previous question → return New without calling LLM
+//      - Empty/whitespace previous → same behavior
+//
+//   2. ParseResponse Tests:
+//      - ACTION: WRAP → ActionType.WrapPrevious
+//      - ACTION: REGENERATE → ActionType.Regenerate
+//      - ACTION: NEW → ActionType.New
+//      - Case-insensitive parsing (wrap, WRAP, Wrap all work)
+//
+//   3. Error Handling Tests:
+//      - Empty LLM response → graceful fallback to Regenerate
+//      - Invalid format → fallback to Regenerate
+//      - LLM exception → fallback with original question
+//
+// TESTS:
+//   - QueryCondenserService.cs → The service being tested
+//
+// MOCKS:
+//   - IChatCompletionService (Semantic Kernel) → Faked with FakeItEasy
+// =============================================================================
+
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Services;
 using DynamicAi.Application.Models;

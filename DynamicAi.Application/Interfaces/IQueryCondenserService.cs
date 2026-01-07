@@ -1,3 +1,22 @@
+// =============================================================================
+// FILE: IQueryCondenserService.cs
+// PURPOSE: Interface for Query Condensing service (Layer 0.5 in the pipeline)
+//
+// RESPONSIBILITY:
+//   - Define contract for condensing ambiguous follow-up questions
+//   - Transform "رتبهم" + previous="هات الفواتير" → "هات الفواتير ورتبهم"
+//   - Determine ActionType (New/WrapPrevious/Regenerate) for SQL generation
+//
+// IMPLEMENTED BY:
+//   - QueryCondenserService.cs → Uses LLM to analyze and condense questions
+//
+// CONSUMED BY:
+//   - QueryOrchestrator.cs → Injects and calls before cache/RAG/SQL layers
+//
+// RETURNS:
+//   - CondenserResult → Contains CondensedQuestion + ActionType
+// =============================================================================
+
 using System.Threading.Tasks;
 using DynamicAi.Application.Models;
 

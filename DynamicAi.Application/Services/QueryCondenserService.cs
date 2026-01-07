@@ -1,3 +1,27 @@
+// =============================================================================
+// FILE: QueryCondenserService.cs
+// PURPOSE: Implementation of Query Condensing (Layer 0.5 in the pipeline)
+//
+// HOW IT WORKS:
+//   1. Takes current question + previous question + previous SQL
+//   2. Sends smart prompt to LLM (Gemini via Semantic Kernel)
+//   3. LLM returns: ACTION (WRAP/REGENERATE/NEW) + QUESTION (condensed)
+//   4. ParseResponse() extracts structured result using regex
+//
+// KEY METHODS:
+//   - CondenseQuestionAsync() → Main entry point
+//   - ParseResponse() → Parses LLM response into CondenserResult
+//
+// IMPLEMENTS:
+//   - IQueryCondenserService (interface in Interfaces folder)
+//
+// RETURNS:
+//   - CondenserResult with ActionType + CondensedQuestion
+//
+// TESTED BY:
+//   - QueryCondenserServiceTests.cs → Tests ParseResponse and error handling
+// =============================================================================
+
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using Microsoft.Extensions.Logging;

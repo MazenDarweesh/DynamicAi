@@ -1,3 +1,23 @@
+// =============================================================================
+// FILE: CondenserResult.cs
+// PURPOSE: Data model for Query Condensing results (Layer 0.5)
+// 
+// CONTAINS:
+//   - QueryActionType enum: Tells SqlGenerationService HOW to handle the query
+//     • New = Generate fresh SQL (no previous context)
+//     • WrapPrevious = Wrap previous SQL in subquery (for sort/filter/limit)
+//     • Regenerate = Use previous context but generate new SQL
+//   - CondenserResult class: Holds the condensed question + action type
+//
+// USED BY:
+//   - QueryCondenserService.cs → Returns this as result
+//   - QueryOrchestrator.cs → Passes ActionType to SqlGenerationService
+//   - SqlGenerationService.cs → Uses ActionType to build appropriate prompt
+//
+// TESTED BY:
+//   - CondenserResultTests.cs → Tests factory methods and default values
+// =============================================================================
+
 namespace DynamicAi.Application.Models;
 
 /// <summary>

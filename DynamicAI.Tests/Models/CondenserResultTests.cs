@@ -1,3 +1,25 @@
+// =============================================================================
+// FILE: CondenserResultTests.cs
+// PURPOSE: Unit tests for CondenserResult model and QueryActionType enum
+//
+// TESTS COVERAGE:
+//   1. Factory Method Tests:
+//      - AsNew() creates result with ActionType.New
+//      - AsWrapPrevious() creates result with ActionType.WrapPrevious
+//      - AsRegenerate() creates result with ActionType.Regenerate
+//
+//   2. Property Tests:
+//      - Default constructor sets ActionType.New + empty string
+//      - Properties can be set via object initializer
+//
+//   3. Enum Tests:
+//      - All three enum values are defined
+//      - New = 0 (important for default behavior)
+//
+// TESTS:
+//   - CondenserResult.cs → The model being tested
+// =============================================================================
+
 using DynamicAi.Application.Models;
 using FluentAssertions;
 using Xunit;
