@@ -48,41 +48,23 @@ public class QueryCondenserService : IQueryCondenserService
         // ============================================================================
         var hasPreviousSql = !string.IsNullOrWhiteSpace(previousSql);
 
-        var condensingPrompt = $@"أنت محلل استعلامات ذكي في نظام Text-to-SQL.
-
-مهمتك: تحليل السؤال الجديد بالنسبة للسؤال السابق وتحديد:
-1. صياغة السؤال كسؤال مستقل (Standalone)
-2. نوع الإجراء المطلوب
-
-## أنواع الإجراءات:
-- **WRAP**: السؤال تعديل بسيط على النتائج السابقة (ترتيب، فلترة، تحديد عدد). 
-  مثال: ""رتبهم تنازليا"" بعد ""هات الفواتير"" → نلف الـ SQL السابق في subquery ونضيف ORDER BY.
-  يُستخدم فقط عندما يكون التعديل على النتائج النهائية وليس على الشروط الأساسية.
-
-- **REGENERATE**: السؤال مرتبط بالسابق للسياق لكن يحتاج SQL جديد.
-  مثال: ""هات الغير مدفوعة منهم"" بعد ""هات الفواتير"" → يحتاج WHERE جديد.
-  يُستخدم عندما يكون التعديل على الشروط أو الأعمدة الأساسية.
-
-- **NEW**: السؤال غير مرتبط نهائياً بالسابق.
-  مثال: ""هات العملاء"" بعد ""هات الفواتير"" → موضوع جديد تماماً.
-
-## القواعد:
-1. إذا السؤال الجديد يحتوي على كلمات مثل (رتب، ترتيب، تنازلي، تصاعدي، أول، آخر، فقط، أعلى، أقل) وهي تطبق على نتائج السؤال السابق → **WRAP**
-2. إذا السؤال يضيف شروط جديدة (فلترة بقيم، تواريخ معينة، حالات) → **REGENERATE**
-3. إذا السؤال عن موضوع مختلف تماماً → **NEW**
-4. لا تجب على السؤال، فقط حلله.
-5. حافظ على لغة السؤال الأصلية.
-
+        // Compressed prompt to minimize tokens
+        var condensingPrompt = $@"ROLE:Query Analyzer for Text-to-SQL.
+TASK:Analyze New Question vs Previous Question and determine:1)Standalone rephrased question 2)Action type
+ACTIONS:
+-WRAP:Simple result modification(sort,filter,limit).Wrap prev SQL in subquery.Use when modifying output only.
+-REGENERATE:Related context but needs new SQL.Use when adding WHERE/columns.
+-NEW:Completely unrelated topic.
+RULES:1)Sort/order/top/limit keywords on prev results→WRAP 2)New conditions(values,dates,states)→REGENERATE 3)Different topic→NEW 4)Keep original language 5)Be concise
 ---
-السؤال السابق: {previousQuestion}
-{(hasPreviousSql ? $"الـ SQL السابق متوفر: نعم" : "الـ SQL السابق: غير متوفر")}
-
-السؤال الجديد: {currentQuestion}
-
+Prev:{previousQuestion}
+HasPrevSQL:{(hasPreviousSql ? "Yes" : "No")}
+New:{currentQuestion}
 ---
-أجب بالتنسيق التالي بالضبط (سطرين فقط):
-ACTION: [WRAP أو REGENERATE أو NEW]
-QUESTION: [السؤال المستقل المعاد صياغته]";
+Reply exactly(2 lines):
+ACTION:[WRAP|REGENERATE|NEW]
+QUESTION:[standalone rephrased question]";
+
 
         try
         {
