@@ -11,6 +11,7 @@ public class CondenserResultTests
 {
     #region Factory Method Tests
 
+    // TEST: AsNew() factory creates result with ActionType=New
     [Fact]
     public void AsNew_SetsCorrectActionType()
     {
@@ -22,6 +23,7 @@ public class CondenserResultTests
         result.CondensedQuestion.Should().Be("Test question");
     }
 
+    // TEST: AsWrapPrevious() factory creates result with ActionType=WrapPrevious
     [Fact]
     public void AsWrapPrevious_SetsCorrectActionType()
     {
@@ -33,6 +35,7 @@ public class CondenserResultTests
         result.CondensedQuestion.Should().Be("Wrapped question");
     }
 
+    // TEST: AsRegenerate() factory creates result with ActionType=Regenerate
     [Fact]
     public void AsRegenerate_SetsCorrectActionType()
     {
@@ -48,6 +51,7 @@ public class CondenserResultTests
 
     #region Property Tests
 
+    // TEST: Default constructor initializes with ActionType=New and empty string
     [Fact]
     public void DefaultConstructor_SetsNewAsDefault()
     {
@@ -59,6 +63,7 @@ public class CondenserResultTests
         result.CondensedQuestion.Should().BeEmpty();
     }
 
+    // TEST: Properties can be set manually via object initializer
     [Fact]
     public void CondensedQuestion_CanBeSetManually()
     {
@@ -78,6 +83,7 @@ public class CondenserResultTests
 
     #region QueryActionType Enum Tests
 
+    // TEST: All three enum values (New, WrapPrevious, Regenerate) are defined
     [Fact]
     public void QueryActionType_HasCorrectValues()
     {
@@ -87,6 +93,7 @@ public class CondenserResultTests
         QueryActionType.Regenerate.Should().BeDefined();
     }
 
+    // TEST: Enum value New=0 (important for default behavior)
     [Fact]
     public void QueryActionType_New_IsZero()
     {

@@ -29,6 +29,7 @@ public class QueryCondenserServiceTests
 
     #region Identity Fallback Tests
 
+    // TEST: When no previous question exists, return ActionType=New without calling LLM
     [Fact]
     public async Task CondenseQuestionAsync_NoPreviousQuestion_ReturnsNew()
     {
@@ -48,6 +49,7 @@ public class QueryCondenserServiceTests
             .MustNotHaveHappened();
     }
 
+    // TEST: Empty string previous question should also return ActionType=New
     [Fact]
     public async Task CondenseQuestionAsync_EmptyPreviousQuestion_ReturnsNew()
     {
@@ -61,6 +63,7 @@ public class QueryCondenserServiceTests
         result.ActionType.Should().Be(QueryActionType.New);
     }
 
+    // TEST: Whitespace-only previous question should return ActionType=New
     [Fact]
     public async Task CondenseQuestionAsync_WhitespacePreviousQuestion_ReturnsNew()
     {
@@ -78,6 +81,7 @@ public class QueryCondenserServiceTests
 
     #region ParseResponse Tests (via LLM mock)
 
+    // TEST: LLM returns "ACTION: WRAP" → ParseResponse extracts WrapPrevious correctly
     [Fact]
     public async Task CondenseQuestionAsync_WrapAction_ParsesCorrectly()
     {
@@ -92,6 +96,7 @@ public class QueryCondenserServiceTests
         result.CondensedQuestion.Should().Contain("فواتير");
     }
 
+    // TEST: LLM returns "ACTION: REGENERATE" → ParseResponse extracts Regenerate correctly
     [Fact]
     public async Task CondenseQuestionAsync_RegenerateAction_ParsesCorrectly()
     {
@@ -106,6 +111,7 @@ public class QueryCondenserServiceTests
         result.CondensedQuestion.Should().Contain("الغير مدفوعة");
     }
 
+    // TEST: LLM returns "ACTION: NEW" → ParseResponse extracts New correctly
     [Fact]
     public async Task CondenseQuestionAsync_NewAction_ParsesCorrectly()
     {
@@ -120,6 +126,7 @@ public class QueryCondenserServiceTests
         result.CondensedQuestion.Should().Be("هات العملاء");
     }
 
+    // TEST: Regex should handle lowercase action keywords (case-insensitive)
     [Fact]
     public async Task CondenseQuestionAsync_LowercaseAction_ParsesCorrectly()
     {
@@ -133,6 +140,7 @@ public class QueryCondenserServiceTests
         result.ActionType.Should().Be(QueryActionType.WrapPrevious);
     }
 
+    // TEST: Regex should handle mixed-case action keywords (case-insensitive)
     [Fact]
     public async Task CondenseQuestionAsync_MixedCaseAction_ParsesCorrectly()
     {
@@ -150,6 +158,7 @@ public class QueryCondenserServiceTests
 
     #region Error Handling Tests
 
+    // TEST: Empty LLM response → Fallback to Regenerate with original question
     [Fact]
     public async Task CondenseQuestionAsync_EmptyLlmResponse_FallsBackToRegenerate()
     {
@@ -164,6 +173,7 @@ public class QueryCondenserServiceTests
         result.CondensedQuestion.Should().Be("test question"); // Falls back to current
     }
 
+    // TEST: Invalid/garbage LLM response → Fallback to Regenerate with original question
     [Fact]
     public async Task CondenseQuestionAsync_InvalidFormat_FallsBackToRegenerate()
     {
@@ -178,6 +188,7 @@ public class QueryCondenserServiceTests
         result.CondensedQuestion.Should().Be("current");
     }
 
+    // TEST: LLM throws exception → Graceful degradation to Regenerate
     [Fact]
     public async Task CondenseQuestionAsync_LlmException_FallsBackToRegenerate()
     {
@@ -194,6 +205,7 @@ public class QueryCondenserServiceTests
         result.CondensedQuestion.Should().Be("test");
     }
 
+    // TEST: LLM returns ACTION only (no QUESTION) → Use original question as fallback
     [Fact]
     public async Task CondenseQuestionAsync_PartialResponse_ActionOnly_UsesCurrentQuestion()
     {
@@ -208,6 +220,7 @@ public class QueryCondenserServiceTests
         result.CondensedQuestion.Should().Be("current question"); // Fallback
     }
 
+    // TEST: LLM returns very short question (<3 chars) → Ignore and use original question
     [Fact]
     public async Task CondenseQuestionAsync_ShortQuestion_IgnoresAndUsesFallback()
     {
