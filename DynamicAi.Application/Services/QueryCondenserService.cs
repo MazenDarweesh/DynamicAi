@@ -1,13 +1,16 @@
 using DynamicAi.Application.Interfaces;
+using DynamicAi.Application.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel.ChatCompletion;
+using System.Text.RegularExpressions;
 
 namespace DynamicAi.Application.Services;
 
 /// <summary>
 /// (Layer 0.5 - Query Condensing)
 /// Implementation of the Query Condenser using Semantic Kernel's Chat Completion.
-/// Rephrases ambiguous follow-up questions into standalone queries.
+/// Rephrases ambiguous follow-up questions into standalone queries
+/// AND determines the appropriate action type for SQL generation.
 /// </summary>
 public class QueryCondenserService : IQueryCondenserService
 {
@@ -23,60 +26,129 @@ public class QueryCondenserService : IQueryCondenserService
     }
 
     /// <inheritdoc/>
-    public async Task<string> CondenseQuestionAsync(string currentQuestion, string? previousQuestion)
+    public async Task<CondenserResult> CondenseQuestionAsync(
+        string currentQuestion,
+        string? previousQuestion,
+        string? previousSql = null)
     {
         // ============================================================================
-        // IDENTITY FALLBACK: If no history, return the question as-is
+        // IDENTITY FALLBACK: If no history, return as NEW
         // ============================================================================
         if (string.IsNullOrWhiteSpace(previousQuestion))
         {
-            _logger.LogInformation("[Condenser] No previous question. Returning input as-is.");
-            return currentQuestion;
+            _logger.LogInformation("[Condenser] No previous question. Returning as NEW.");
+            return CondenserResult.AsNew(currentQuestion);
         }
 
-        _logger.LogInformation("[Condenser] Condensing: Current=\"{Current}\", Previous=\"{Previous}\"",
+        _logger.LogInformation("[Condenser] Analyzing: Current=\"{Current}\", Previous=\"{Previous}\"",
             currentQuestion, previousQuestion);
 
         // ============================================================================
-        // BUILD THE CONDENSING PROMPT
+        // BUILD THE SMART CONDENSING PROMPT
         // ============================================================================
-        var condensingPrompt = $@"You are a Query Rephraser for a Text-to-SQL system.
+        var hasPreviousSql = !string.IsNullOrWhiteSpace(previousSql);
 
-TASK: Given the Previous Question and the New Question, rephrase the New Question to be a STANDALONE question that can be understood without context.
+        var condensingPrompt = $@"أنت محلل استعلامات ذكي في نظام Text-to-SQL.
 
-RULES:
-1. If the New Question references something from the Previous Question (e.g., 'sort them', 'filter by name', 'what about 2024?'), merge them into ONE clear, standalone question.
-2. If the New Question is COMPLETELY UNRELATED to the Previous Question (e.g., a new topic), return the New Question EXACTLY as provided. DO NOT add anything.
-3. Do NOT answer the question. Only rephrase it.
-4. Keep the language (Arabic/English) of the original question.
-5. Be concise.
+مهمتك: تحليل السؤال الجديد بالنسبة للسؤال السابق وتحديد:
+1. صياغة السؤال كسؤال مستقل (Standalone)
+2. نوع الإجراء المطلوب
+
+## أنواع الإجراءات:
+- **WRAP**: السؤال تعديل بسيط على النتائج السابقة (ترتيب، فلترة، تحديد عدد). 
+  مثال: ""رتبهم تنازليا"" بعد ""هات الفواتير"" → نلف الـ SQL السابق في subquery ونضيف ORDER BY.
+  يُستخدم فقط عندما يكون التعديل على النتائج النهائية وليس على الشروط الأساسية.
+
+- **REGENERATE**: السؤال مرتبط بالسابق للسياق لكن يحتاج SQL جديد.
+  مثال: ""هات الغير مدفوعة منهم"" بعد ""هات الفواتير"" → يحتاج WHERE جديد.
+  يُستخدم عندما يكون التعديل على الشروط أو الأعمدة الأساسية.
+
+- **NEW**: السؤال غير مرتبط نهائياً بالسابق.
+  مثال: ""هات العملاء"" بعد ""هات الفواتير"" → موضوع جديد تماماً.
+
+## القواعد:
+1. إذا السؤال الجديد يحتوي على كلمات مثل (رتب، ترتيب، تنازلي، تصاعدي، أول، آخر، فقط، أعلى، أقل) وهي تطبق على نتائج السؤال السابق → **WRAP**
+2. إذا السؤال يضيف شروط جديدة (فلترة بقيم، تواريخ معينة، حالات) → **REGENERATE**
+3. إذا السؤال عن موضوع مختلف تماماً → **NEW**
+4. لا تجب على السؤال، فقط حلله.
+5. حافظ على لغة السؤال الأصلية.
 
 ---
-Previous Question: {previousQuestion}
+السؤال السابق: {previousQuestion}
+{(hasPreviousSql ? $"الـ SQL السابق متوفر: نعم" : "الـ SQL السابق: غير متوفر")}
 
-New Question: {currentQuestion}
+السؤال الجديد: {currentQuestion}
 
-Standalone Rephrased Question:";
+---
+أجب بالتنسيق التالي بالضبط (سطرين فقط):
+ACTION: [WRAP أو REGENERATE أو NEW]
+QUESTION: [السؤال المستقل المعاد صياغته]";
 
         try
         {
             var result = await _chatService.GetChatMessageContentAsync(condensingPrompt);
-            var condensedQuestion = result?.Content?.Trim() ?? currentQuestion;
+            var response = result?.Content?.Trim() ?? string.Empty;
 
-            // Sanity check: If the result is empty or too short, fallback to original
-            if (string.IsNullOrWhiteSpace(condensedQuestion) || condensedQuestion.Length < 3)
-            {
-                _logger.LogWarning("[Condenser] LLM returned empty/short result. Falling back to original.");
-                return currentQuestion;
-            }
+            _logger.LogDebug("[Condenser] Raw LLM Response: {Response}", response);
 
-            _logger.LogInformation("[Condenser] ✓ Condensed: \"{Condensed}\"", condensedQuestion);
-            return condensedQuestion;
+            // Parse the structured response
+            var parsed = ParseResponse(response, currentQuestion);
+
+            _logger.LogInformation("[Condenser] ✓ Result: Action={Action}, Question=\"{Question}\"",
+                parsed.ActionType, parsed.CondensedQuestion);
+
+            return parsed;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[Condenser] Error during condensing. Falling back to original question.");
-            return currentQuestion;
+            _logger.LogError(ex, "[Condenser] Error during analysis. Falling back to REGENERATE.");
+            return new CondenserResult
+            {
+                CondensedQuestion = currentQuestion,
+                ActionType = QueryActionType.Regenerate // Safe fallback
+            };
         }
+    }
+
+    /// <summary>
+    /// Parses the structured LLM response into a CondenserResult.
+    /// </summary>
+    private CondenserResult ParseResponse(string response, string fallbackQuestion)
+    {
+        var result = new CondenserResult
+        {
+            CondensedQuestion = fallbackQuestion,
+            ActionType = QueryActionType.Regenerate // Default to safe option
+        };
+
+        if (string.IsNullOrWhiteSpace(response))
+            return result;
+
+        // Parse ACTION line
+        var actionMatch = Regex.Match(response, @"ACTION:\s*(WRAP|REGENERATE|NEW)", RegexOptions.IgnoreCase);
+        if (actionMatch.Success)
+        {
+            var actionStr = actionMatch.Groups[1].Value.ToUpperInvariant();
+            result.ActionType = actionStr switch
+            {
+                "WRAP" => QueryActionType.WrapPrevious,
+                "REGENERATE" => QueryActionType.Regenerate,
+                "NEW" => QueryActionType.New,
+                _ => QueryActionType.Regenerate
+            };
+        }
+
+        // Parse QUESTION line
+        var questionMatch = Regex.Match(response, @"QUESTION:\s*(.+)", RegexOptions.IgnoreCase);
+        if (questionMatch.Success)
+        {
+            var question = questionMatch.Groups[1].Value.Trim();
+            if (!string.IsNullOrWhiteSpace(question) && question.Length >= 3)
+            {
+                result.CondensedQuestion = question;
+            }
+        }
+
+        return result;
     }
 }

@@ -51,19 +51,19 @@ namespace DynamicAi.Application.Services
         /// </summary>
         public static int StaticRulesTokenCount => _staticRulesTokenCount;
 
-        /// <summary>
-        /// (مُعدل) يولد كود SQL خام بناءً على سؤال المستخدم والسياق "الغني".
-        /// </summary>
-        /// <param name="userQuestion">السؤال (يفضل الـ Condensed Question)</param>
-        /// <param name="contextBundle">سلة السياق الغنية</param>
-        /// <param name="previousSql">كود SQL السابق للـ Subquery (Optional)</param>
-        public async Task<string> GenerateSqlAsync(string userQuestion, RetrievalContextBundle contextBundle, string? previousSql = null)
+        /// <param name="actionType">نوع الإجراء المقرر من Condenser (New/WrapPrevious/Regenerate)</param>
+        public async Task<string> GenerateSqlAsync(
+            string userQuestion,
+            RetrievalContextBundle contextBundle,
+            string? previousSql = null,
+            QueryActionType actionType = QueryActionType.Regenerate)
         {
             _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
             _logger.LogInformation("║              [Layer 2: SQL GENERATION] - STARTING                      ║");
             _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
             _logger.LogInformation("[SqlGeneration] User Question: \"{UserQuestion}\"", userQuestion);
+            _logger.LogInformation("[SqlGeneration] Action Type: {ActionType}", actionType);
             _logger.LogDebug("[SqlGeneration] Context Bundle Received: UnifiedContext={UnifiedContext}, DictEntries={DictCount}, BusinessRules={RulesCount}",
                 !string.IsNullOrEmpty(contextBundle.UnifiedPageContext),
                 contextBundle.DictionaryEntries?.Count ?? 0,
@@ -208,18 +208,33 @@ namespace DynamicAi.Application.Services
             }
 
             // ============================================================================
-            // PREVIOUS SQL CONTEXT (For Subquery Wrapping when user asks for refinement)
+            // ACTION TYPE DIRECTIVE (From Query Condenser Layer 0.5)
             // ============================================================================
-            if (!string.IsNullOrWhiteSpace(previousSql))
+            if (actionType == QueryActionType.WrapPrevious && !string.IsNullOrWhiteSpace(previousSql))
             {
-                _logger.LogInformation("[SqlGeneration] ✓ Previous SQL provided for refinement context.");
-                promptBuilder.AppendLine("\n--- PREVIOUS SQL CONTEXT (The user may be refining this query) ---");
-                promptBuilder.AppendLine("The user's previous question generated the following SQL. If the NEW question is a refinement (e.g., 'sort by X', 'filter by Y'), you SHOULD wrap this SQL in a Subquery and apply the new operation.");
+                // WRAP MODE: Force subquery wrapping
+                _logger.LogInformation("[SqlGeneration] ✓ WRAP Mode: Will wrap previous SQL in subquery.");
+                promptBuilder.AppendLine("\n--- ⚠️ MANDATORY: PREVIOUS SQL TO WRAP ---");
+                promptBuilder.AppendLine("The user is requesting a SIMPLE MODIFICATION (sort, filter, limit) on the PREVIOUS results.");
+                promptBuilder.AppendLine("You MUST wrap the following SQL in a subquery and apply the modification:");
                 promptBuilder.AppendLine("```sql");
                 promptBuilder.AppendLine(previousSql);
                 promptBuilder.AppendLine("```");
-                promptBuilder.AppendLine("If the new question is UNRELATED to the previous SQL, ignore this section.");
+                promptBuilder.AppendLine("EXAMPLE: SELECT * FROM (previous_sql) AS sub ORDER BY [column] DESC;");
+                promptBuilder.AppendLine("DO NOT regenerate the query from scratch. Only wrap and modify.");
             }
+            else if (actionType == QueryActionType.Regenerate && !string.IsNullOrWhiteSpace(previousSql))
+            {
+                // REGENERATE MODE: Use previous SQL for context only
+                _logger.LogInformation("[SqlGeneration] ✓ REGENERATE Mode: Using previous SQL as context reference.");
+                promptBuilder.AppendLine("\n--- CONTEXT REFERENCE: PREVIOUS SQL ---");
+                promptBuilder.AppendLine("This is the SQL from the previous question. The new question is related but requires a NEW query.");
+                promptBuilder.AppendLine("Use it for context understanding only. Generate a fresh SQL for the new requirements.");
+                promptBuilder.AppendLine("```sql");
+                promptBuilder.AppendLine(previousSql);
+                promptBuilder.AppendLine("```");
+            }
+            // NEW mode: No previous SQL context needed
 
             promptBuilder.AppendLine("\n--- TASK ---");
             promptBuilder.AppendLine($"Q: {userQuestion}");

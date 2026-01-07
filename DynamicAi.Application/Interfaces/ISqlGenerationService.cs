@@ -1,5 +1,4 @@
-﻿using DynamicAi.Application.Models; // (جديد)
-using System.Collections.Generic;
+﻿using DynamicAi.Application.Models;
 using System.Threading.Tasks;
 
 namespace DynamicAi.Application.Interfaces
@@ -17,7 +16,17 @@ namespace DynamicAi.Application.Interfaces
         /// <param name="userQuestion">السؤال الأصلي للمستخدم (أو السؤال المكثف من Condenser)</param>
         /// <param name="contextBundle">"سلة السياق" الغنية (Schema, Data, Rules) من Layer 1</param>
         /// <param name="previousSql">كود SQL السابق (Optional). Used for wrapping in Subqueries.</param>
+        /// <param name="actionType">
+        /// نوع الإجراء المطلوب:
+        /// - WrapPrevious: لف الـ SQL السابق في subquery وتطبيق التعديلات عليه.
+        /// - Regenerate: توليد SQL جديد مع استخدام السياق السابق للفهم.
+        /// - New: توليد SQL جديد تماماً.
+        /// </param>
         /// <returns>كود SQL "خام" (غير موثوق به) تم توليده بواسطة الـ AI.</returns>
-        Task<string> GenerateSqlAsync(string userQuestion, RetrievalContextBundle contextBundle, string? previousSql = null);
+        Task<string> GenerateSqlAsync(
+            string userQuestion,
+            RetrievalContextBundle contextBundle,
+            string? previousSql = null,
+            QueryActionType actionType = QueryActionType.Regenerate);
     }
 }

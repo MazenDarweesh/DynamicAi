@@ -57,7 +57,7 @@ public class SqlGenerationServiceTests
             .Returns(Task.FromResult((IReadOnlyList<ChatMessageContent>)new[] { fakeResult }));
 
         // Act
-        var result = await _sut.GenerateSqlAsync(userQuestion, contextBundle, null);
+        var result = await _sut.GenerateSqlAsync(userQuestion, contextBundle, null, QueryActionType.New);
 
         // Assert
         result.Should().Be(expectedSql);
@@ -85,7 +85,7 @@ public class SqlGenerationServiceTests
              .Returns(Task.FromResult((IReadOnlyList<ChatMessageContent>)new[] { fakeResult }));
 
         // Act
-        var result = await _sut.GenerateSqlAsync(userQuestion, contextBundle, null);
+        var result = await _sut.GenerateSqlAsync(userQuestion, contextBundle, null, QueryActionType.New);
 
         // Assert
         result.Should().BeEmpty();
@@ -108,7 +108,7 @@ public class SqlGenerationServiceTests
              .Returns(Task.FromResult((IReadOnlyList<ChatMessageContent>)new[] { fakeResult }));
 
         // Act
-        await _sut.GenerateSqlAsync("query", contextBundle, null);
+        await _sut.GenerateSqlAsync("query", contextBundle, null, QueryActionType.New);
 
         // Assert
         A.CallTo(() => _chatService.GetChatMessageContentsAsync(

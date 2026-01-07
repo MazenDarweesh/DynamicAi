@@ -89,6 +89,7 @@ namespace DynamicAi.Application.Services
             double layer05Duration = 0, layer1Duration = 0, layer2Duration = 0; // Initialized for cache HIT path
             RetrievalContextBundle? contextSnippets = null; // Store for logging
             string condensedQuestion = userQuestion; // Default to original if no condensing needed
+            QueryActionType actionType = QueryActionType.New; // Default action type
 
             try
             {
@@ -100,11 +101,14 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
                 var layer05Start = DateTime.UtcNow;
-                condensedQuestion = await _condenserService.CondenseQuestionAsync(userQuestion, previousQuestion);
+                var condenserResult = await _condenserService.CondenseQuestionAsync(userQuestion, previousQuestion, previousSql);
+                condensedQuestion = condenserResult.CondensedQuestion;
+                actionType = condenserResult.ActionType;
                 layer05Duration = (DateTime.UtcNow - layer05Start).TotalMilliseconds;
 
                 _logger.LogInformation("[Orchestrator] ✓ Layer 0.5 completed in {Duration:F0}ms", layer05Duration);
                 _logger.LogInformation("[Orchestrator] Condensed Question: \"{CondensedQuestion}\"", condensedQuestion);
+                _logger.LogInformation("[Orchestrator] Action Type: {ActionType}", actionType);
                 // ============================================================================
                 // Layer 0: Query Cache Check - البحث عن نتيجة مخزنة (using CONDENSED question)
                 // ============================================================================
@@ -172,8 +176,8 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
                 var layer2Start = DateTime.UtcNow;
-                // CRITICAL: Use CONDENSED question and pass previousSql (Fixes Problem 4)
-                rawSql = await _generationService.GenerateSqlAsync(condensedQuestion, contextSnippets, previousSql);
+                // CRITICAL: Use CONDENSED question and pass actionType (From Condenser Layer 0.5)
+                rawSql = await _generationService.GenerateSqlAsync(condensedQuestion, contextSnippets, previousSql, actionType);
                 layer2Duration = (DateTime.UtcNow - layer2Start).TotalMilliseconds;
 
                 _logger.LogInformation("[Orchestrator] ✓ Layer 2 completed in {Duration:F0}ms", layer2Duration);

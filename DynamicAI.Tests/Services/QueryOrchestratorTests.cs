@@ -47,8 +47,8 @@ public class QueryOrchestratorTests
         A.CallTo(() => _configuration["Caching:QueryCache:Enabled"]).Returns("true");
 
         // Mock Condenser (Identity Fallback - returns input as-is)
-        A.CallTo(() => _condenserService.CondenseQuestionAsync(A<string>._, A<string>._))
-            .ReturnsLazily((string q, string? prev) => Task.FromResult(q));
+        A.CallTo(() => _condenserService.CondenseQuestionAsync(A<string>._, A<string?>._, A<string?>._))
+            .ReturnsLazily((string q, string? prev, string? sql) => Task.FromResult(CondenserResult.AsNew(q)));
 
         // Mock Embedding Generation (Underlying method for extension)
         var fakeEmbedding = new GeneratedEmbeddings<Embedding<float>>(
@@ -97,7 +97,7 @@ public class QueryOrchestratorTests
             .Returns(Task.FromResult(contextBundle));
 
         // 3. Generation
-        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._))
+        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._, A<QueryActionType>._))
             .Returns(Task.FromResult(rawSql));
 
         // 4. Validation (Success - void)
@@ -127,7 +127,7 @@ public class QueryOrchestratorTests
 
         // Verify calls
         A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, tenantId)).MustHaveHappened();
-        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._)).MustHaveHappened();
+        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._, A<QueryActionType>._)).MustHaveHappened();
         A.CallTo(() => _validatorService.ValidateSqlAsync(rawSql, tenantId)).MustHaveHappened();
         A.CallTo(() => _rewriterService.RewriteAsync(rawSql, tenantId, A<int?>._)).MustHaveHappened();
         A.CallTo(() => _executorService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters)).MustHaveHappened();
@@ -177,7 +177,7 @@ public class QueryOrchestratorTests
         // Verify Skipped Layers
         A.CallTo(() => _retrievalService.RetrieveContextAsync(A<string>._, A<string>._))
             .MustNotHaveHappened();
-        A.CallTo(() => _generationService.GenerateSqlAsync(A<string>._, A<RetrievalContextBundle>._, A<string?>._))
+        A.CallTo(() => _generationService.GenerateSqlAsync(A<string>._, A<RetrievalContextBundle>._, A<string?>._, A<QueryActionType>._))
             .MustNotHaveHappened();
 
         // Verify Executed Layers
@@ -200,7 +200,7 @@ public class QueryOrchestratorTests
         A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, tenantId))
             .Returns(Task.FromResult(contextBundle));
 
-        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._))
+        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._, A<QueryActionType>._))
             .Returns(Task.FromResult(generatedSql));
 
         // Fail Validation
