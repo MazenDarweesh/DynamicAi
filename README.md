@@ -75,6 +75,39 @@ The system follows **Clean Architecture** principles with a **7-Layer Query Pipe
 
 ---
 
+## 🛡️ Multi-Layered Defense System (Anti-Hallucination)
+
+> **"You can't 'fix' hallucinations; you must engineer around them."**
+
+Dynamic AI treats the LLM as a probabilistic component wrapped in a deterministic "Iron Dome" defense system. We employ a **4-Layer Defense-in-Depth Strategy** to ensure enterprise-grade reliability:
+
+### 1. Context Grounding (The RAG Layer)
+*   **Goal:** Restrict the model's "world view" to reality.
+*   **Mechanism:** Instead of dumping the entire schema, `QdrantRetrievalService` performs a multi-step semantic search.
+*   **Result:** The LLM *cannot* hallucinate tables that don't exist because it never sees them. It only sees the specific Pages/Attributes relevant to the user's question.
+
+### 2. Strict Schema Mapping (The Constraint Layer)
+*   **Goal:** Enforce a "Contract of Reality".
+*   **Mechanism:** `SqlGenerationService` uses a static, cached system prompt with strict rules:
+    *   **Rule 3:** "ALLOWED TABLES ONLY... Any other table/view=FORBIDDEN."
+    *   **Rule 4:** "Resolve columns ONLY via ListSetups... NEVER GUESS."
+*   **Outcome:** The model is legally bound by the prompt to output `CLARIFICATION_NEEDED` rather than guessing.
+
+### 3. Post-Generation Validation (The Guard Layer)
+*   **Goal:** Trust, but verify with a compiler.
+*   **Mechanism:** Before execution, `SqlValidatorService` parses the raw SQL using Microsoft's **ScriptDom** (AST Parser).
+    *   **SecurityVisitor:** A custom C# visitor traverses the syntax tree to strictly block `DELETE`, `UPDATE`, `DROP`, and other DDL/DML vectors.
+*   **Benefit:** Catches malicious injections or hallucinated syntax *before* they touch the database.
+
+### 4. Safety & Feedback Loop (The Execution Layer)
+*   **Goal:** Fail gracefully and learn.
+*   **Mechanism:**
+    *   **Sandboxed Execution:** `ISandboxedSqlExecutor` runs the query with read-only permissions.
+    *   **Trap & Log:** Any failure is trapped by `QueryOrchestrator` and logged to `QueryLog` with `WasSuccessful=false`.
+*   **Self-Correction:** These logs fuel the **Golden Dataset**, turning every failure into a future training example.
+
+---
+
 ## 🧩 Key Components
 
 ### 1. Schema Generator Pipeline (`SchemaGenerator` & `SchemaBootstrapper`)
@@ -162,6 +195,7 @@ The brain of the operation, containing the business logic.
 
 *   **`QueryOrchestrator`:** Manages the 7-layer flow of a user request. 🆕 Now integrates Query Condenser (Layer 0.5) before caching.
 *   **`SqlGenerationService`:** Constructs precise SQL queries based on user prompts and retrieved schema context. 🆕 Now accepts `ActionType` to handle WRAP vs REGENERATE modes.
+*   **`SqlValidatorService`:** Parses generated SQL with `ScriptDom` to strictly enforce security policies (No DML/DDL) and syntactic correctness before execution.
 *   **`QueryCacheService`:** *[MVP Feature]* Checks Qdrant for semantically similar past questions to return cached SQL instantly, bypassing the LLM for faster responses.
 *   **`GeminiCostTracker`:** Centralized service that tracks token usage and calculates costs for Chat and Embedding models in real-time.
 
@@ -406,7 +440,7 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 ### 🗺️ Development Phases
 
 #### 1️⃣ Phase 2: Hardening (Months 2-3) 🔴 [High Priority]
-*   **Goal:** Reliability & Safety (Fixing "Silent Failures" & "Hallucinations")
+*   **Goal:** Reliability & Safety (Edge Case Hardening)
 *   **Key Features:**
     *   **Reranking Layer:** Implement `IRerankingService` to re-score top-K documents (Reduces hallucinations by ~30%).
     *   **User Quotas:** Implement rate limiting and cost controls per tenant ("Cost Explosion").
@@ -491,4 +525,4 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 
 ## 📄 License
 
-This project is proprietary software developed by **EGY Dynamic**.
+This project is proprietary software developed by **Dynamic Pro**.
