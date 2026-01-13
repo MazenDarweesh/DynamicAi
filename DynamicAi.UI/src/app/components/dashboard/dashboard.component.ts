@@ -1,7 +1,15 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { BaseChartDirective } from 'ng2-charts';
-import { MetricsService, PerformanceMetrics, IntentDistribution, CostBreakdown, UserExperienceMetrics, ProblematicQuery } from '../../services/metrics.service';
+import { forkJoin } from 'rxjs';
+import { MetricsService } from '../../services/metrics.service';
+import {
+    PerformanceMetrics,
+    IntentDistribution,
+    CostBreakdown,
+    UserExperienceMetrics,
+    ProblematicQuery
+} from '../../models';
 import { ChartConfiguration, ChartOptions, ChartType } from 'chart.js';
 
 @Component({
@@ -39,23 +47,31 @@ export class DashboardComponent implements OnInit {
     loadData() {
         this.loading = true;
 
-        // ForkJoin would be better, but doing sequential for simplicity of debugging
-        this.metricsService.getPerformanceMetrics().subscribe(data => {
-            this.performance = data;
-            this.updatePerformanceChart(data);
-        });
+        // Use forkJoin to wait for all requests to complete
+        forkJoin({
+            performance: this.metricsService.getPerformanceMetrics(),
+            experience: this.metricsService.getUserExperience(),
+            costs: this.metricsService.getCostBreakdown(),
+            intents: this.metricsService.getIntentDistribution(),
+            queries: this.metricsService.getProblematicQueries()
+        }).subscribe({
+            next: (results) => {
+                this.performance = results.performance;
+                this.updatePerformanceChart(results.performance);
 
-        this.metricsService.getUserExperience().subscribe(data => this.experience = data);
-        this.metricsService.getCostBreakdown().subscribe(data => this.costs = data);
+                this.experience = results.experience;
+                this.costs = results.costs;
 
-        this.metricsService.getIntentDistribution().subscribe(data => {
-            this.intents = data;
-            this.updateIntentChart(data);
-        });
+                this.intents = results.intents;
+                this.updateIntentChart(results.intents);
 
-        this.metricsService.getProblematicQueries().subscribe(data => {
-            this.problematicQueries = data;
-            this.loading = false;
+                this.problematicQueries = results.queries;
+                this.loading = false;
+            },
+            error: (err) => {
+                console.error('Failed to load metrics', err);
+                this.loading = false; // Ensure loading stops even on error
+            }
         });
     }
 
