@@ -28,4 +28,36 @@ public class QueryLogRepository : IQueryLogRepository
         await _context.SaveChangesAsync(cancellationToken);
         return log;
     }
+
+    public async Task<List<QueryLog>> GetLogsAfterAsync(DateTime cutoff, string? tenantId = null, CancellationToken cancellationToken = default)
+    {
+        var query = _context.QueryLogs.Where(q => q.CreatedAt >= cutoff);
+
+        if (!string.IsNullOrEmpty(tenantId))
+            query = query.Where(q => q.TenantId == tenantId);
+
+        return await query.ToListAsync(cancellationToken);
+    }
+
+    public async Task<List<QueryLog>> GetProblematicLogsAsync(string? tenantId, int count = 10, CancellationToken cancellationToken = default)
+    {
+        var query = _context.QueryLogs
+            .Where(q => !q.WasSuccessful || q.FeedbackStatus == "Dislike" || q.IsAmbiguous)
+            .OrderByDescending(q => q.CreatedAt);
+
+        if (!string.IsNullOrEmpty(tenantId))
+            query = (IOrderedQueryable<QueryLog>)query.Where(q => q.TenantId == tenantId);
+
+        return await query.Take(count).ToListAsync(cancellationToken);
+    }
+
+    public async Task UpdateFeedbackStatusAsync(Guid id, string status, CancellationToken cancellationToken = default)
+    {
+        var log = await _context.QueryLogs.FindAsync(new object[] { id }, cancellationToken);
+        if (log != null)
+        {
+            log.FeedbackStatus = status;
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+    }
 }

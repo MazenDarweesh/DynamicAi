@@ -31,14 +31,38 @@ namespace Infrastructure.Migrations
                     b.Property<int?>("CompanyId")
                         .HasColumnType("int");
 
+                    b.Property<float?>("ConfidenceScore")
+                        .HasColumnType("real");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("FeedbackStatus")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal?>("GeminiCost")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("GeneratedSql")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("HandlerType")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("InputTokens")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsAmbiguous")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("LatencyMs")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("OutputTokens")
+                        .HasColumnType("int");
 
                     b.Property<string>("RawQuestion")
                         .IsRequired()
@@ -49,6 +73,9 @@ namespace Infrastructure.Migrations
 
                     b.Property<string>("TenantId")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("WasFallback")
+                        .HasColumnType("bit");
 
                     b.Property<bool>("WasSuccessful")
                         .HasColumnType("bit");

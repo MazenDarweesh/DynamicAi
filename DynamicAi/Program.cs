@@ -139,6 +139,9 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     // --- Feedback Service (Golden Dataset) ---
     services.AddScoped<IFeedbackService, FeedbackService>();
 
+    // --- Metrics Service (Observability Dashboard) ---
+    services.AddScoped<IMetricsService, MetricsService>();
+
     // --- Caching Services ---
     services.AddMemoryCache(); // For RAG and Session caching
     services.AddSingleton<IQueryCacheService, QueryCacheService>();
