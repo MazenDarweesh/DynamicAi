@@ -1,0 +1,191 @@
+<div class="chat-container">
+    <!-- Header / Status -->
+    <header>
+        <!-- Menu Toggle Button (Triggers sidebar in Parent App via Service/Event, but for now assuming Sidebar is always visible/managed by App) -->
+        <!-- We can emit event if needed, but App handles the Sidebar content. 
+           Wait, the Menu Toggle WAS in the header inside main-content. 
+           We should expose an Output or use a Service to toggle sidebar. -->
+        <button class="menu-toggle" (click)="toggleSidebar()" title="Toggle Sidebar">
+            ☰
+        </button>
+
+        <div class="status-badge"
+            [ngClass]="{'connected': status === 'Connected! ✅', 'error': status.includes('Failed')}">
+            <span class="dot"></span> {{ status }}
+        </div>
+        <div *ngIf="status.includes('Failed')" class="quick-actions">
+            <button (click)="checkConnection()">Retry</button>
+        </div>
+    </header>
+
+    <!-- Welcome Screen -->
+    <div *ngIf="messages.length === 0" class="welcome-screen">
+        <div class="hero-text">
+            <h1>How can I help you today?</h1>
+        </div>
+        <div class="suggestions">
+            <div class="suggestion-card" (click)="setQuestion('Show me sales for last month')">
+                <span class="icon">📊</span>
+                <span class="text">Show me sales for last month</span>
+            </div>
+            <div class="suggestion-card" (click)="setQuestion('List all active users')">
+                <span class="icon">👥</span>
+                <span class="text">List all active users</span>
+            </div>
+            <div class="suggestion-card" (click)="setQuestion('Analyze the latest trends')">
+                <span class="icon">📈</span>
+                <span class="text">Analyze the latest trends</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat History -->
+    <div class="chat-scroll-area" #scrollContainer>
+        <div *ngFor="let msg of messages" class="message-row" [ngClass]="{'ai': msg.isAi, 'user': !msg.isAi}">
+            <div class="message-content">
+                <div class="avatar">
+                    {{ msg.isAi ? '🤖' : '👤' }}
+                </div>
+                <div class="bubble">
+                    <div *ngIf="msg.text" class="text-content">{{ msg.text }}</div>
+                    <div *ngIf="msg.data" class="json-content">
+                        <div class="json-label">Data Response:</div>
+                        <pre>{{ msg.data | json }}</pre>
+                    </div>
+
+                    <!-- Table Response -->
+                    <div *ngIf="msg.tableData" class="table-response">
+                        <div class="table-header">
+                            <span class="icon">📊</span> Data Result
+                            <span class="count-badge">{{ msg.tableData.length }} rows</span>
+                        </div>
+                        <div class="table-scroll">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th *ngFor="let key of getKeys(msg.tableData[0])">{{ key }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr *ngFor="let row of msg.tableData">
+                                        <td *ngFor="let key of getKeys(msg.tableData[0])">{{ row[key] }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <!-- Feedback Actions (Moved Inside Bubble) -->
+                    <div *ngIf="msg.isAi && !msg.isLogged" class="feedback-actions">
+                        <!-- Like Button -->
+                        <button class="like-btn" (click)="likeResponse(msg)" [disabled]="loading || msg.isLiked"
+                            [class.liked]="msg.isLiked" title="Like this response">
+                            <ng-container *ngIf="msg.isLiked; else likeIcon">
+                                <!-- Filled Heart Icon -->
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"
+                                    stroke="currentColor" stroke-width="2">
+                                    <path
+                                        d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z">
+                                    </path>
+                                </svg>
+                            </ng-container>
+                            <ng-template #likeIcon>
+                                <!-- Thumbs Up Icon -->
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path
+                                        d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3">
+                                    </path>
+                                </svg>
+                            </ng-template>
+                        </button>
+                        <!-- Dislike Button -->
+                        <button class="dislike-btn" (click)="dislikeResponse(msg)"
+                            [disabled]="loading || (msg.retryCount ?? 0) >= 2 || msg.isLogged"
+                            [class.disabled-btn]="msg.isLogged"
+                            [title]="((msg.retryCount ?? 0) >= 2 || msg.isLogged) ? 'Reported' : 'Dislike and Report'">
+                            <ng-container *ngIf="(msg.retryCount ?? 0) >= 2; else dislikeIcon">
+                                <!-- Check Icon -->
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg>
+                            </ng-container>
+                            <ng-template #dislikeIcon>
+                                <!-- Thumbs Down Icon -->
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path
+                                        d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17">
+                                    </path>
+                                </svg>
+                            </ng-template>
+                        </button>
+                        <!-- Show SQL Button -->
+                        <button *ngIf="msg.sql" class="show-sql-btn" (click)="msg.showSql = !msg.showSql"
+                            [class.active]="msg.showSql" title="Show executed SQL query">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="16 18 22 12 16 6"></polyline>
+                                <polyline points="8 6 2 12 8 18"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- SQL Display Panel -->
+                    <div *ngIf="msg.sql && msg.showSql" class="sql-display">
+                        <div class="sql-header">
+                            <span class="sql-icon">⚙️</span> Executed SQL
+                            <button class="copy-sql-btn" (click)="copySql(msg.sql)" title="Copy SQL">
+                                📋
+                            </button>
+                        </div>
+                        <pre class="sql-code">{{ msg.sql }}</pre>
+                    </div>
+
+                    <!-- Suggestion Tips (from Dislike Response) -->
+                    <div *ngIf="msg.suggestionTips && msg.suggestionTips.length > 0" class="suggestion-tips">
+                        <div class="tips-header">💡 نصائح لتحسين السؤال:</div>
+                        <ul class="tips-list">
+                            <li *ngFor="let tip of msg.suggestionTips">{{ tip }}</li>
+                        </ul>
+                    </div>
+                </div>
+                <!-- Feedback Actions (only for AI messages) -->
+
+                <!-- Retry Action (Smart Dislike) -->
+                <div *ngIf="msg.askRetry" class="retry-actions" style="margin-top: 8px; text-align: right;">
+                    <button (click)="setQuestion(msg.originalQuestion || '', msg.retryCount)"
+                        style="background: #2196F3; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9em; display: inline-flex; align-items: center; gap: 5px;">
+                        🔄 Try Again
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div *ngIf="loading" class="message-row ai">
+            <div class="message-content">
+                <div class="avatar">🤖</div>
+                <div class="bubble loading">
+                    <span class="typing-dot"></span>
+                    <span class="typing-dot"></span>
+                    <span class="typing-dot"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Input Area -->
+    <div class="input-area">
+        <div class="input-wrapper">
+            <textarea [(ngModel)]="question" (keydown.enter)="onEnter($event)" placeholder="Message DynamicAi..."
+                rows="1" [disabled]="loading"></textarea>
+            <button (click)="sendQuestion()" [disabled]="loading || !question.trim()" class="send-btn">
+                ➤
+            </button>
+        </div>
+        <div class="footer-text">
+            DynamicAI can make mistakes. Consider checking important information.
+        </div>
+    </div>
+</div>

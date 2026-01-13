@@ -1,0 +1,81 @@
+<div class="dashboard-container fade-in">
+    <div class="header">
+        <h1>📊 Observability Dashboard</h1>
+        <span class="refresh-badge" (click)="loadData()">🔄 Refresh</span>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="kpi-grid" *ngIf="!loading; else loadingState">
+        <div class="kpi-card glass">
+            <div class="icon">🚀</div>
+            <div class="value">{{ performance?.averageLatencyMs | number:'1.0-0' }}ms</div>
+            <div class="label">Avg Latency</div>
+        </div>
+        <div class="kpi-card glass">
+            <div class="icon">⚡</div>
+            <div class="value">{{ performance?.p95LatencyMs | number:'1.0-0' }}ms</div>
+            <div class="label">P95 Latency</div>
+        </div>
+        <div class="kpi-card glass">
+            <div class="icon">😊</div>
+            <div class="value">{{ experience?.averageSatisfactionScore | number:'1.1-1' }}/5</div>
+            <div class="label">User Satisfaction</div>
+        </div>
+        <div class="kpi-card glass">
+            <div class="icon">💰</div>
+            <div class="value">${{ costs?.totalCostUsd | number:'1.4-4' }}</div>
+            <div class="label">Total Cost (24h)</div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="charts-grid">
+        <div class="chart-card glass">
+            <h3>Intent Distribution</h3>
+            <div class="canvas-wrapper">
+                <canvas baseChart [data]="pieChartData" [type]="'pie'" [options]="pieChartOptions">
+                </canvas>
+            </div>
+        </div>
+
+        <div class="chart-card glass">
+            <h3>Latency Snapshot</h3>
+            <div class="canvas-wrapper">
+                <canvas baseChart [data]="lineChartData" [type]="'line'" [options]="lineChartOptions">
+                </canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Problematic Queries Table -->
+    <div class="table-card glass">
+        <h3>🚨 Problematic Queries (Slow / Errors)</h3>
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Question</th>
+                        <th>Error</th>
+                        <th>Latency</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr *ngFor="let q of problematicQueries">
+                        <td>{{ q.occurredAt | date:'shortTime' }}</td>
+                        <td class="question-text" title="{{q.rawQuestion}}">{{ q.rawQuestion }}</td>
+                        <td class="error-text">{{ q.errorMessage || 'N/A' }}</td>
+                        <td [class.slow]="q.latencyMs > 2000">{{ q.latencyMs }}ms</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<ng-template #loadingState>
+    <div class="loading-container">
+        <div class="spinner"></div>
+        <p>Loading Metrics...</p>
+    </div>
+</ng-template>
