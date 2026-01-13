@@ -57,6 +57,9 @@ public class FeedbackService : IFeedbackService
 
             await _trainingRepo.AddAsync(example, cancellationToken);
 
+            // Update QueryLog with feedback status (Phase F: Observability)
+            await _queryLogRepo.UpdateFeedbackStatusAsync(queryLogId, "Like", cancellationToken);
+
             var count = await _trainingRepo.GetVerifiedCountAsync(cancellationToken);
             _logger.LogInformation("✅ [Feedback] Golden Example Added! Query: \"{Query}\". Total Verified: {Count}/500",
                 queryLog.RawQuestion.Length > 50 ? queryLog.RawQuestion[..50] + "..." : queryLog.RawQuestion,
@@ -98,6 +101,9 @@ public class FeedbackService : IFeedbackService
             };
 
             await _trainingRepo.AddAsync(example, cancellationToken);
+
+            // Update QueryLog with feedback status (Phase F: Observability)
+            await _queryLogRepo.UpdateFeedbackStatusAsync(queryLogId, "Dislike", cancellationToken);
 
             _logger.LogWarning("⚠️ [Feedback] Negative Feedback Recorded. Query: \"{Query}\", WrongSQL: {HasSQL}. Needs Manual Review.",
                 queryLog.RawQuestion.Length > 50 ? queryLog.RawQuestion[..50] + "..." : queryLog.RawQuestion,

@@ -267,10 +267,13 @@ namespace DynamicAi.Application.Services
                             RawQuestion = userQuestion,
                             GeneratedSql = rewrittenResult?.RewrittenSql ?? rawSql,
                             WasSuccessful = true,
-                            SchemaContext = contextSnippets?.UnifiedPageContext, // ✅ Now capturing context
+                            SchemaContext = contextSnippets?.UnifiedPageContext,
                             TenantId = tenantId,
                             CompanyId = comID,
-                            CreatedAt = DateTime.UtcNow
+                            CreatedAt = DateTime.UtcNow,
+                            // Observability fields (Phase D)
+                            LatencyMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                            HandlerType = "SQL"
                         };
                         await _queryLogRepo.AddAsync(queryLog);
                         _logger.LogInformation("[Orchestrator] ✓ Query Logged to SQL DB (ID: {Id})", queryLogId);
@@ -339,10 +342,13 @@ namespace DynamicAi.Application.Services
                         GeneratedSql = rewrittenResult?.RewrittenSql ?? rawSql,
                         WasSuccessful = false,
                         ErrorMessage = ex.Message,
-                        SchemaContext = contextSnippets?.UnifiedPageContext, // ✅ Now capturing context
+                        SchemaContext = contextSnippets?.UnifiedPageContext,
                         TenantId = tenantId,
                         CompanyId = comID,
-                        CreatedAt = DateTime.UtcNow
+                        CreatedAt = DateTime.UtcNow,
+                        // Observability fields (Phase D)
+                        LatencyMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                        HandlerType = "SQL"
                     };
                     await _queryLogRepo.AddAsync(errorLog);
                     _logger.LogInformation("[Orchestrator] ✗ Failed Query Logged to SQL DB (ID: {Id})", queryLogId);
