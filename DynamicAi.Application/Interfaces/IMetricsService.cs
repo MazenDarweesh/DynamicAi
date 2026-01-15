@@ -12,7 +12,7 @@ public interface IMetricsService
     Task<PerformanceMetrics> GetPerformanceMetricsAsync(string? tenantId, TimeSpan window, CancellationToken cancellationToken = default);
 
     /// <summary>توزيع الـ Intent Types</summary>
-    Task<IntentDistribution> GetIntentDistributionAsync(string? tenantId, TimeSpan window, CancellationToken cancellationToken = default);
+    Task<List<IntentDistributionItem>> GetIntentDistributionAsync(string? tenantId, TimeSpan window, CancellationToken cancellationToken = default);
 
     /// <summary>تفاصيل التكلفة</summary>
     Task<CostBreakdown> GetCostBreakdownAsync(string? tenantId, TimeSpan window, CancellationToken cancellationToken = default);

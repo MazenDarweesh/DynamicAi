@@ -50,24 +50,26 @@ public class MetricsService : IMetricsService
         };
     }
 
-    public async Task<IntentDistribution> GetIntentDistributionAsync(
+    public async Task<List<IntentDistributionItem>> GetIntentDistributionAsync(
         string? tenantId, TimeSpan window, CancellationToken cancellationToken = default)
     {
         var cutoff = DateTime.UtcNow - window;
         var logs = await _queryLogRepo.GetLogsAfterAsync(cutoff, tenantId, cancellationToken);
+
+        var total = logs.Count;
+        if (total == 0) return new List<IntentDistributionItem>();
 
         var sql = logs.Count(l => l.HandlerType == "SQL");
         var predict = logs.Count(l => l.HandlerType == "Predict");
         var chat = logs.Count(l => l.HandlerType == "Chat");
         var unknown = logs.Count(l => l.HandlerType != "SQL" && l.HandlerType != "Predict" && l.HandlerType != "Chat");
 
-        return new IntentDistribution
+        return new List<IntentDistributionItem>
         {
-            SqlCount = sql,
-            PredictCount = predict,
-            ChatCount = chat,
-            UnknownCount = unknown,
-            TotalCount = logs.Count
+            new IntentDistributionItem { Intent = "SQL", Count = sql, Percentage = (double)sql / total * 100 },
+            new IntentDistributionItem { Intent = "Predict", Count = predict, Percentage = (double)predict / total * 100 },
+            new IntentDistributionItem { Intent = "Chat", Count = chat, Percentage = (double)chat / total * 100 },
+            new IntentDistributionItem { Intent = "Unknown", Count = unknown, Percentage = (double)unknown / total * 100 }
         };
     }
 
@@ -134,7 +136,8 @@ public class MetricsService : IMetricsService
             RawQuestion = l.RawQuestion,
             ErrorMessage = l.ErrorMessage,
             FeedbackStatus = l.FeedbackStatus,
-            CreatedAt = l.CreatedAt
+            CreatedAt = l.CreatedAt,
+            LatencyMs = l.LatencyMs
         }).ToList();
     }
 }

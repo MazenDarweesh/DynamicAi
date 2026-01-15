@@ -33,7 +33,7 @@ public class MetricsController : ControllerBase
     /// الحصول على توزيع أنواع الاستعلامات (Tier 2: Intelligence)
     /// </summary>
     [HttpGet("intent-distribution")]
-    public async Task<ActionResult<IntentDistribution>> GetIntentDistribution(
+    public async Task<ActionResult<List<IntentDistributionItem>>> GetIntentDistribution(
         [FromQuery] string? tenantId,
         [FromQuery] int days = 7)
     {

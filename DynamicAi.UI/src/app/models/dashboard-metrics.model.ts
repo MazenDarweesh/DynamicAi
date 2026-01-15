@@ -1,36 +1,45 @@
+// Modified to match Backend DTOs exactly (ASP.NET uses camelCase in JSON by default)
+
 export interface PerformanceMetrics {
-    averageLatencyMs: number;
+    // Backend: AvgLatencyMs -> avgLatencyMs
+    avgLatencyMs: number;
     p95LatencyMs: number;
-    tokenThroughputPerSecond: number;
-    totalRequests: number;
-    successRate: number;
+    p99LatencyMs: number;
     errorRate: number;
-    cacheHitRate: number;
+    totalQueries: number;
 }
 
 export interface IntentDistribution {
+    // Backend: IntentDistributionItem -> intent, count, percentage
     intent: string;
     count: number;
     percentage: number;
 }
 
 export interface CostBreakdown {
-    totalCostUsd: number;
-    costPerQueryAvg: number;
-    totalInputTokens: number;
-    totalOutputTokens: number;
+    // Backend: TotalCost, AvgCostPerQuery, TotalTokens, TotalQueries
+    totalCost: number;
+    avgCostPerQuery: number;
+    totalTokens: number;
+    totalQueries: number;
 }
 
 export interface UserExperienceMetrics {
-    averageSatisfactionScore: number;
+    // Backend: LikeCount, DislikeCount, SatisfactionRate, AmbiguousCount, ClarificationRate
+    likeCount: number;
+    dislikeCount: number;
+    satisfactionRate: number;
+    ambiguousCount: number;
     clarificationRate: number;
-    ambiguityRate: number;
-    zeroResultRate: number;
 }
 
 export interface ProblematicQuery {
+    // Backend: Id, RawQuestion, ErrorMessage, FeedbackStatus, CreatedAt, LatencyMs
+    id: string;
     rawQuestion: string;
     errorMessage: string;
+    feedbackStatus: string;
+    createdAt: string;
     latencyMs: number;
-    occurredAt: string;
 }
+

@@ -1,7 +1,9 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, inject, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { BaseChartDirective } from 'ng2-charts';
-import { forkJoin } from 'rxjs';
+import { forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
+import { Chart, ChartConfiguration, ChartOptions, registerables } from 'chart.js';
 import { MetricsService } from '../../services/metrics.service';
 import {
     PerformanceMetrics,
@@ -10,7 +12,9 @@ import {
     UserExperienceMetrics,
     ProblematicQuery
 } from '../../models';
-import { ChartConfiguration, ChartOptions, ChartType } from 'chart.js';
+
+// Register Chart.js components
+Chart.register(...registerables);
 
 @Component({
     selector: 'app-dashboard',
@@ -21,6 +25,7 @@ import { ChartConfiguration, ChartOptions, ChartType } from 'chart.js';
 })
 export class DashboardComponent implements OnInit {
     private metricsService = inject(MetricsService);
+    private cdr = inject(ChangeDetectorRef);
 
     performance: PerformanceMetrics | null = null;
     experience: UserExperienceMetrics | null = null;
@@ -46,43 +51,63 @@ export class DashboardComponent implements OnInit {
 
     loadData() {
         this.loading = true;
+        console.log('[Dashboard] Loading data...');
 
-        // Use forkJoin to wait for all requests to complete
+        // Use forkJoin with catchError per observable to prevent silent failures
+        // Using 30d period to show historical data
         forkJoin({
-            performance: this.metricsService.getPerformanceMetrics(),
-            experience: this.metricsService.getUserExperience(),
-            costs: this.metricsService.getCostBreakdown(),
-            intents: this.metricsService.getIntentDistribution(),
-            queries: this.metricsService.getProblematicQueries()
+            performance: this.metricsService.getPerformanceMetrics('30d').pipe(
+                catchError((err: any) => { console.error('[Dashboard] Performance error:', err); return of(null); })
+            ),
+            experience: this.metricsService.getUserExperience('30d').pipe(
+                catchError((err: any) => { console.error('[Dashboard] Experience error:', err); return of(null); })
+            ),
+            costs: this.metricsService.getCostBreakdown('30d').pipe(
+                catchError((err: any) => { console.error('[Dashboard] Costs error:', err); return of(null); })
+            ),
+            intents: this.metricsService.getIntentDistribution('30d').pipe(
+                catchError((err: any) => { console.error('[Dashboard] Intents error:', err); return of([] as IntentDistribution[]); })
+            ),
+            queries: this.metricsService.getProblematicQueries().pipe(
+                catchError((err: any) => { console.error('[Dashboard] Queries error:', err); return of([] as ProblematicQuery[]); })
+            )
         }).subscribe({
             next: (results) => {
+                console.log('[Dashboard] Data received:', results);
+
                 this.performance = results.performance;
-                this.updatePerformanceChart(results.performance);
+                if (results.performance) {
+                    this.updatePerformanceChart(results.performance);
+                }
 
                 this.experience = results.experience;
                 this.costs = results.costs;
 
-                this.intents = results.intents;
-                this.updateIntentChart(results.intents);
+                this.intents = results.intents || [];
+                this.updateIntentChart(this.intents);
 
-                this.problematicQueries = results.queries;
+                this.problematicQueries = results.queries || [];
                 this.loading = false;
+                console.log('[Dashboard] Loading complete. loading =', this.loading);
+
+                // Force Angular to detect changes
+                this.cdr.detectChanges();
             },
-            error: (err) => {
-                console.error('Failed to load metrics', err);
-                this.loading = false; // Ensure loading stops even on error
+            error: (err: any) => {
+                console.error('[Dashboard] Failed to load metrics', err);
+                this.loading = false;
             }
         });
     }
 
     updatePerformanceChart(data: PerformanceMetrics) {
-        // Mocking trend data since API returns single point (Aggregation)
-        // In real scenario, we'd need historical data API
+        if (!data) return;
+
         this.lineChartData = {
             labels: ['P95 Latency', 'Avg Latency'],
             datasets: [
                 {
-                    data: [data.p95LatencyMs, data.averageLatencyMs],
+                    data: [data.p95LatencyMs || 0, data.avgLatencyMs || 0],
                     label: 'Latency (ms)',
                     fill: true,
                     tension: 0.5,
@@ -94,6 +119,17 @@ export class DashboardComponent implements OnInit {
     }
 
     updateIntentChart(data: IntentDistribution[]) {
+        if (!data || data.length === 0) {
+            this.pieChartData = {
+                labels: ['No Data'],
+                datasets: [{
+                    data: [1],
+                    backgroundColor: ['#E0E0E0']
+                }]
+            };
+            return;
+        }
+
         this.pieChartData = {
             labels: data.map(d => d.intent),
             datasets: [{

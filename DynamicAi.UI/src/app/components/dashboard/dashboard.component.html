@@ -8,7 +8,7 @@
     <div class="kpi-grid" *ngIf="!loading; else loadingState">
         <div class="kpi-card glass">
             <div class="icon">🚀</div>
-            <div class="value">{{ performance?.averageLatencyMs | number:'1.0-0' }}ms</div>
+            <div class="value">{{ performance?.avgLatencyMs | number:'1.0-0' }}ms</div>
             <div class="label">Avg Latency</div>
         </div>
         <div class="kpi-card glass">
@@ -18,12 +18,12 @@
         </div>
         <div class="kpi-card glass">
             <div class="icon">😊</div>
-            <div class="value">{{ experience?.averageSatisfactionScore | number:'1.1-1' }}/5</div>
-            <div class="label">User Satisfaction</div>
+            <div class="value">{{ experience?.satisfactionRate | number:'1.0-0' }}%</div>
+            <div class="label">Satisfaction Rate</div>
         </div>
         <div class="kpi-card glass">
             <div class="icon">💰</div>
-            <div class="value">${{ costs?.totalCostUsd | number:'1.4-4' }}</div>
+            <div class="value">${{ costs?.totalCost | number:'1.4-4' }}</div>
             <div class="label">Total Cost (24h)</div>
         </div>
     </div>
@@ -62,7 +62,7 @@
                 </thead>
                 <tbody>
                     <tr *ngFor="let q of problematicQueries">
-                        <td>{{ q.occurredAt | date:'shortTime' }}</td>
+                        <td>{{ q.createdAt | date:'shortTime' }}</td>
                         <td class="question-text" title="{{q.rawQuestion}}">{{ q.rawQuestion }}</td>
                         <td class="error-text">{{ q.errorMessage || 'N/A' }}</td>
                         <td [class.slow]="q.latencyMs > 2000">{{ q.latencyMs }}ms</td>

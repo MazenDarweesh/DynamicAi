@@ -19,4 +19,7 @@ public class ProblematicQuery
 
     /// <summary>تاريخ الإنشاء</summary>
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>زمن الاستجابة</summary>
+    public double LatencyMs { get; set; }
 }
