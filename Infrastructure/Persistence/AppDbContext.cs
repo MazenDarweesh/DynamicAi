@@ -14,6 +14,12 @@ namespace DynamicAi.Infrastructure.Persistence
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            // Configure GeminiCost to use decimal(18,8) for high precision cost tracking
+            // This allows storing costs like $0.00125000 without truncation
+            modelBuilder.Entity<QueryLog>()
+                .Property(q => q.GeminiCost)
+                .HasPrecision(18, 8);
         }
     }
 }
