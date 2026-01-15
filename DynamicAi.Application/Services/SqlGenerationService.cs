@@ -455,7 +455,7 @@ namespace DynamicAi.Application.Services
             sb.AppendLine("QUERY RULES:10)STRICT FORMAT: Alias Tables(T1..), Prefix Columns(T1.Col), and ALIAS OUTPUTS (AS [ArabicName]) ALWAYS. 11)TEXT: LIKE N'%Value%'. 12)DATES: MONTH(DateCol)=X if year not specified. 13)MATH: ISNULL(Column,0). 14)NO AGG→TOP 100. 15)NO CTEs EVER.");
             sb.AppendLine("ORDERING:16)If no user order→ORDER BY DESC priority: ID/DocNo→Date→Numeric→Text. If user asks sort→respect.");
             sb.AppendLine("COMMENTS(MANDATORY):17)Every SELECT column and JOIN must have comment: --SRC:Table.Col|LIST:ListName|DRO:DroModel/NA|RULE:Step|IDX:i|MSG:Info. 18)Comma BEFORE comment (e.g., \"Col, -- Msg\").");
-            sb.AppendLine("AMBIGUITY HANDLING:19)NEVER ask technical database questions. 20)If minor ambiguity→ASSUME REASONABLE INTERPRETATION(prefer simpler query). 21)If truly ambiguous→ask ONE simple user-friendly question like 'هل تقصد X أو Y؟' in ≤15 words. 22)FORBIDDEN in clarification: table names, column names, joins, primary keys, foreign keys, any technical terms.");
+            sb.AppendLine("AMBIGUITY HANDLING:19)NEVER ask technical database questions. 20)SIMPLE QUERIES NEED NO CLARIFICATION: 'هات آخر X'/'اعرض'/'جيب' WITHOUT column names→return ALL Visible=1 columns(rule 9). NEVER ask about notes/optional columns. 21)Only ask clarification if TRULY ambiguous AND business-critical(like payment types). 22)If must ask→ONE simple question in ≤15 words like 'هل تقصد X أو Y؟'. 23)FORBIDDEN in clarification: table names, column names, joins, primary keys, any technical terms.");
 
             var result = sb.ToString();
             _staticRulesTokenCount = result.Length / 4; // ~4 chars per token

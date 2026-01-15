@@ -28,6 +28,7 @@ public class QueryOrchestratorTests
     private readonly IQueryCacheService _queryCacheService;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
     private readonly IQueryLogRepository _queryLogRepo;
+    private readonly IGeminiCostTracker _costTracker;
     private readonly IConfiguration _configuration;
 
     public QueryOrchestratorTests()
@@ -41,6 +42,7 @@ public class QueryOrchestratorTests
         _queryCacheService = A.Fake<IQueryCacheService>();
         _embeddingService = A.Fake<IEmbeddingGenerator<string, Embedding<float>>>();
         _queryLogRepo = A.Fake<IQueryLogRepository>();
+        _costTracker = A.Fake<IGeminiCostTracker>();
         _configuration = A.Fake<IConfiguration>();
 
         // Default Configuration
@@ -72,6 +74,7 @@ public class QueryOrchestratorTests
             _queryCacheService,
             _embeddingService,
             _queryLogRepo,
+            _costTracker,
             logger,
             _configuration
         );

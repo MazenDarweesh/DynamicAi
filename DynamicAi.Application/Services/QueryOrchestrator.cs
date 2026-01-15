@@ -26,6 +26,7 @@ namespace DynamicAi.Application.Services
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
         private readonly ILogger<QueryOrchestrator> _logger;
         private readonly IQueryLogRepository _queryLogRepo;              // (Logging)
+        private readonly IGeminiCostTracker _costTracker;                 // (Cost Tracking)
         private readonly bool _queryCacheEnabled;
 
         public QueryOrchestrator(
@@ -38,6 +39,7 @@ namespace DynamicAi.Application.Services
             IQueryCacheService queryCacheService,
             IEmbeddingGenerator<string, Embedding<float>> embeddingService,
             IQueryLogRepository queryLogRepo,
+            IGeminiCostTracker costTracker,
             ILogger<QueryOrchestrator> logger,
             IConfiguration configuration)
         {
@@ -50,6 +52,7 @@ namespace DynamicAi.Application.Services
             _queryCacheService = queryCacheService;
             _embeddingService = embeddingService;
             _queryLogRepo = queryLogRepo;
+            _costTracker = costTracker;
             _logger = logger;
             _queryCacheEnabled = bool.Parse(configuration["Caching:QueryCache:Enabled"] ?? "true");
         }
@@ -273,7 +276,11 @@ namespace DynamicAi.Application.Services
                             CreatedAt = DateTime.UtcNow,
                             // Observability fields (Phase D)
                             LatencyMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds,
-                            HandlerType = "SQL"
+                            HandlerType = "SQL",
+                            // Cost tracking fields
+                            InputTokens = (int)_costTracker.GetSessionSummary().TotalInputTokens,
+                            OutputTokens = (int)_costTracker.GetSessionSummary().TotalOutputTokens,
+                            GeminiCost = (decimal)_costTracker.GetSessionSummary().TotalCostUsd
                         };
                         await _queryLogRepo.AddAsync(queryLog);
                         _logger.LogInformation("[Orchestrator] ✓ Query Logged to SQL DB (ID: {Id})", queryLogId);

@@ -72,9 +72,27 @@
 
 .kpi-card .label {
     color: #888;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     text-transform: uppercase;
-    letter-spacing: 1px;
+    letter-spacing: 0.5px;
+    line-height: 1.3;
+}
+
+/* Success and Danger KPI variants */
+.kpi-card.success {
+    border-color: rgba(46, 213, 115, 0.3);
+}
+
+.kpi-card.success .value {
+    color: #2ed573;
+}
+
+.kpi-card.danger {
+    border-color: rgba(255, 107, 107, 0.3);
+}
+
+.kpi-card.danger .value {
+    color: #ff6b6b;
 }
 
 .charts-grid {

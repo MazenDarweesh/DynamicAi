@@ -9,22 +9,27 @@
         <div class="kpi-card glass">
             <div class="icon">🚀</div>
             <div class="value">{{ performance?.avgLatencyMs | number:'1.0-0' }}ms</div>
-            <div class="label">Avg Latency</div>
+            <div class="label">Avg Latency (30 Days)</div>
         </div>
         <div class="kpi-card glass">
             <div class="icon">⚡</div>
             <div class="value">{{ performance?.p95LatencyMs | number:'1.0-0' }}ms</div>
-            <div class="label">P95 Latency</div>
+            <div class="label">95% of Requests Faster Than (P95 Latency)</div>
         </div>
-        <div class="kpi-card glass">
+        <div class="kpi-card glass success">
             <div class="icon">😊</div>
             <div class="value">{{ experience?.satisfactionRate | number:'1.0-0' }}%</div>
-            <div class="label">Satisfaction Rate</div>
+            <div class="label">Satisfaction Rate (30 Days)</div>
+        </div>
+        <div class="kpi-card glass danger">
+            <div class="icon">👎</div>
+            <div class="value">{{ getDislikeRate() | number:'1.0-0' }}%</div>
+            <div class="label">Dislike Rate (30 Days)</div>
         </div>
         <div class="kpi-card glass">
             <div class="icon">💰</div>
             <div class="value">${{ costs?.totalCost | number:'1.4-4' }}</div>
-            <div class="label">Total Cost (24h)</div>
+            <div class="label">Total Cost (30 Days)</div>
         </div>
     </div>
 

@@ -138,4 +138,14 @@ export class DashboardComponent implements OnInit {
             }]
         };
     }
+
+    /**
+     * Calculate dislike rate as percentage of total feedback
+     */
+    getDislikeRate(): number {
+        if (!this.experience) return 0;
+        const total = this.experience.likeCount + this.experience.dislikeCount;
+        if (total === 0) return 0;
+        return (this.experience.dislikeCount / total) * 100;
+    }
 }
