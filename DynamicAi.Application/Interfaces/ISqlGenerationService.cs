@@ -22,8 +22,8 @@ namespace DynamicAi.Application.Interfaces
         /// - Regenerate: توليد SQL جديد مع استخدام السياق السابق للفهم.
         /// - New: توليد SQL جديد تماماً.
         /// </param>
-        /// <returns>كود SQL "خام" (غير موثوق به) تم توليده بواسطة الـ AI.</returns>
-        Task<string> GenerateSqlAsync(
+        /// <returns>Result containing SQL, confidence score, and optional clarification.</returns>
+        Task<SqlGenerationResult> GenerateSqlAsync(
             string userQuestion,
             RetrievalContextBundle contextBundle,
             string? previousSql = null,

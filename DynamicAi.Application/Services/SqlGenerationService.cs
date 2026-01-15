@@ -6,6 +6,7 @@ using Microsoft.SemanticKernel;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace DynamicAi.Application.Services
 {
@@ -52,7 +53,7 @@ namespace DynamicAi.Application.Services
         public static int StaticRulesTokenCount => _staticRulesTokenCount;
 
         /// <param name="actionType">نوع الإجراء المقرر من Condenser (New/WrapPrevious/Regenerate)</param>
-        public async Task<string> GenerateSqlAsync(
+        public async Task<SqlGenerationResult> GenerateSqlAsync(
             string userQuestion,
             RetrievalContextBundle contextBundle,
             string? previousSql = null,
@@ -380,12 +381,13 @@ namespace DynamicAi.Application.Services
             _logger.LogInformation("[SqlGeneration] STEP 4: Extracting and cleaning SQL...");
 
             var extractStart = DateTime.UtcNow;
-            var extractedSql = ExtractSql(response.Content);
+            var result = ExtractSqlResult(response.Content);
             var extractDuration = (DateTime.UtcNow - extractStart).TotalMilliseconds;
 
             _logger.LogInformation("[SqlGeneration] ✓ SQL extracted and cleaned in {Duration:F0}ms", extractDuration);
-            _logger.LogInformation("[SqlGeneration] Final SQL length: {Length} characters", extractedSql.Length);
-            _logger.LogDebug("[SqlGeneration] Final SQL: {Sql}", extractedSql);
+            _logger.LogInformation("[SqlGeneration] Final SQL length: {Length} characters", result.Sql.Length);
+            _logger.LogInformation("[SqlGeneration] LLM Confidence: {Confidence:P0}", result.Confidence);
+            _logger.LogDebug("[SqlGeneration] Final SQL: {Sql}", result.Sql);
 
             // ============================================================================ 
             // [LOGGING] نهاية عملية SQL Generation
@@ -395,42 +397,95 @@ namespace DynamicAi.Application.Services
             _logger.LogInformation("║            Total Time: {TotalTime:F0}ms                                               ║", (DateTime.UtcNow - (aiStart - TimeSpan.FromMilliseconds(aiDuration + promptDuration))).TotalMilliseconds);
             _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
-            return extractedSql;
+            return result;
         }
 
-        private string ExtractSql(string? content)
+        /// <summary>
+        /// Extracts SQL and confidence from LLM response (supports both JSON and plain SQL formats)
+        /// </summary>
+        private SqlGenerationResult ExtractSqlResult(string? content)
         {
             _logger.LogDebug("[SqlGeneration] Cleaning: Starting SQL extraction... Input length: {InputLength}", content?.Length ?? 0);
 
+            if (string.IsNullOrWhiteSpace(content))
+                return new SqlGenerationResult { Sql = string.Empty, Confidence = 0.5f };
+
+            content = content.Trim();
+
+            // Try to parse as JSON first (new format with confidence)
+            if (content.StartsWith("{") || content.Contains("\"sql\""))
+            {
+                try
+                {
+                    // Extract JSON from possible markdown wrapper
+                    var jsonMatch = Regex.Match(content, @"```json\s*([\s\S]*?)```", RegexOptions.IgnoreCase);
+                    var jsonContent = jsonMatch.Success ? jsonMatch.Groups[1].Value.Trim() : content;
+
+                    // Try direct JSON parse
+                    if (jsonContent.StartsWith("{"))
+                    {
+                        using var doc = JsonDocument.Parse(jsonContent);
+                        var root = doc.RootElement;
+
+                        var sql = root.TryGetProperty("sql", out var sqlProp) ? sqlProp.GetString() ?? "" : "";
+                        var confidence = root.TryGetProperty("confidence", out var confProp) ? (float)confProp.GetDouble() : 0.8f;
+                        var reasoning = root.TryGetProperty("reasoning", out var reasonProp) ? reasonProp.GetString() : null;
+                        var needsClarification = root.TryGetProperty("needs_clarification", out var clarProp) && clarProp.GetBoolean();
+                        var clarificationQuestion = root.TryGetProperty("clarification_question", out var qProp) ? qProp.GetString() : null;
+
+                        _logger.LogDebug("[SqlGeneration] Parsed JSON response. Confidence: {Confidence}", confidence);
+
+                        return new SqlGenerationResult
+                        {
+                            Sql = CleanSql(sql),
+                            Confidence = confidence,
+                            Reasoning = reasoning,
+                            NeedsClarification = needsClarification,
+                            ClarificationQuestion = clarificationQuestion
+                        };
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning("[SqlGeneration] Failed to parse JSON response, falling back to plain SQL: {Error}", ex.Message);
+                }
+            }
+
+            // Fallback: Plain SQL extraction (backward compatibility)
+            return new SqlGenerationResult
+            {
+                Sql = CleanSql(content),
+                Confidence = 0.7f, // Default confidence for non-JSON responses
+                Reasoning = "Legacy response format (no self-evaluation)"
+            };
+        }
+
+        /// <summary>
+        /// Cleans SQL from markdown fences and whitespace
+        /// </summary>
+        private string CleanSql(string content)
+        {
             if (string.IsNullOrWhiteSpace(content)) return string.Empty;
 
             content = content.Trim();
 
             // Regex to match markdown code blocks with optional language identifier
-            // Matches ``` followed by optional text (like 'sql', 'tsql'), then whitespace/newline
-            var match = System.Text.RegularExpressions.Regex.Match(content, @"^```\w*\s+");
+            var match = Regex.Match(content, @"^```\w*\s+");
             if (match.Success)
             {
-                _logger.LogDebug("[SqlGeneration] Cleaning: Removing markdown start fence '{Fence}'", match.Value.Trim());
                 content = content.Substring(match.Length);
             }
             else if (content.StartsWith("```"))
             {
-                _logger.LogDebug("[SqlGeneration] Cleaning: Removing '```' prefix");
                 content = content.Substring(3);
             }
 
             if (content.EndsWith("```"))
             {
-                _logger.LogDebug("[SqlGeneration] Cleaning: Removing '```' suffix");
                 content = content.Substring(0, content.Length - 3);
             }
 
-            var cleaned = content.Trim();
-
-            _logger.LogDebug("[SqlGeneration] Cleaning: Output length: {OutputLength}", cleaned.Length);
-
-            return cleaned;
+            return content.Trim();
         }
 
         /// <summary>
@@ -447,15 +502,19 @@ namespace DynamicAi.Application.Services
             var sb = new StringBuilder();
 
             // 1. Compressed Rules (Prompt Diet)
-            sb.AppendLine("ROLE: Expert ERP Database Architect. GOAL: Convert user requests into SAFE T-SQL SELECT queries with MANDATORY ARABIC ALIASES. OUTPUT: T-SQL (markdown) OR CLARIFICATION_NEEDED. Never both.");
-            sb.AppendLine("SECURITY(ABSOLUTE):1)SELECT ONLY. FORBIDDEN: INSERT,UPDATE,DELETE,MERGE,DROP,ALTER,CREATE,TRUNCATE,EXEC,sp_,xp_,GRANT,REVOKE. If requested→Output ONLY: REFUSED: عذراً، هذا النظام مخصص للاستعلامات فقط (SELECT). يرجى التواصل مع مسؤول النظام. 2)MULTI-TENANT: EVERY query MUST include AND ComID=@CurrentCompanyId. No exceptions.");
-            sb.AppendLine("DATA SOURCES(NO HALLUCINATION):3)ALLOWED TABLES ONLY: Master=PageAttribute.TableName, Detail=PageDetail.TableName, Lookup=ListSetups.DroModel ONLY if InsertType='dropdown'. Any other table/view=FORBIDDEN. 4)COLUMN SOURCE OF TRUTH: Resolve columns ONLY via ListSetups. Match arColumnLabel/enColumnLabel. If not found→CLARIFICATION_NEEDED. NEVER GUESS.");
+            sb.AppendLine("ROLE: Expert ERP Database Architect. GOAL: Convert user requests into JSON response containing SAFE T-SQL SELECT queries or Clarification requests.");
+            sb.AppendLine("OUTPUT FORMAT: You must return a SINGLE JSON object. Markdown code fences ```json ... ``` are optional but preferred.");
+            sb.AppendLine("JSON SCHEMA: { \"sql\": \"SELECT...\", \"confidence\": 0.0-1.0, \"reasoning\": \"Brief logic\", \"needs_clarification\": boolean, \"clarification_question\": \"Arabic Question or null\" }");
+
+            sb.AppendLine("SECURITY(ABSOLUTE):1)SELECT ONLY. FORBIDDEN: INSERT,UPDATE,DELETE,MERGE,DROP,ALTER,CREATE,TRUNCATE,EXEC,sp_,xp_,GRANT,REVOKE. If requested→Output SQL='' and reasoning='REFUSED: Security Violation'. 2)MULTI-TENANT: EVERY query MUST include AND ComID=@CurrentCompanyId. No exceptions.");
+            sb.AppendLine("DATA SOURCES(NO HALLUCINATION):3)ALLOWED TABLES ONLY: Master=PageAttribute.TableName, Detail=PageDetail.TableName, Lookup=ListSetups.DroModel ONLY if InsertType='dropdown'. Any other table/view=FORBIDDEN. 4)COLUMN SOURCE OF TRUTH: Resolve columns ONLY via ListSetups. Match arColumnLabel/enColumnLabel. If not found→needs_clarification=true. NEVER GUESS.");
             sb.AppendLine("SYSTEM CYCLE:5)Identify Page from HIERARCHY. 6)FROM=Master. 7)If details requested→JOIN Detail ON PageAttribute.Primary=PageDetail.ForeignKey.");
             sb.AppendLine("COLUMN RESOLUTION(ALGORITHM):8)For EVERY column: A)find ListSetups entry. B)read ColumnName,SearchName,InsertType,DroModel,DroValue,DroText. C)Logic: InsertType!=dropdown→select ColumnName(NO JOIN). InsertType=dropdown: if SearchName!=ColumnName→select ColumnName(NO JOIN). if SearchName==ColumnName: if DroText exists in current view→select it(NO JOIN) else JOIN DroModel ON SearchName=DroValue select DroText. D)CRITICAL: ALIAS with [arColumnLabel] (AS [العربية]). 9)All columns/show table→NEVER SELECT *. Select ONLY Visible=1 and resolve EACH column using rule(8).");
             sb.AppendLine("QUERY RULES:10)STRICT FORMAT: Alias Tables(T1..), Prefix Columns(T1.Col), and ALIAS OUTPUTS (AS [ArabicName]) ALWAYS. 11)TEXT: LIKE N'%Value%'. 12)DATES: MONTH(DateCol)=X if year not specified. 13)MATH: ISNULL(Column,0). 14)NO AGG→TOP 100. 15)NO CTEs EVER.");
             sb.AppendLine("ORDERING:16)If no user order→ORDER BY DESC priority: ID/DocNo→Date→Numeric→Text. If user asks sort→respect.");
             sb.AppendLine("COMMENTS(MANDATORY):17)Every SELECT column and JOIN must have comment: --SRC:Table.Col|LIST:ListName|DRO:DroModel/NA|RULE:Step|IDX:i|MSG:Info. 18)Comma BEFORE comment (e.g., \"Col, -- Msg\").");
-            sb.AppendLine("AMBIGUITY HANDLING:19)NEVER ask technical database questions. 20)SIMPLE QUERIES NEED NO CLARIFICATION: 'هات آخر X'/'اعرض'/'جيب' WITHOUT column names→return ALL Visible=1 columns(rule 9). NEVER ask about notes/optional columns. 21)Only ask clarification if TRULY ambiguous AND business-critical(like payment types). 22)If must ask→ONE simple question in ≤15 words like 'هل تقصد X أو Y؟'. 23)FORBIDDEN in clarification: table names, column names, joins, primary keys, any technical terms.");
+            sb.AppendLine("AMBIGUITY HANDLING:19)NEVER ask technical database questions. 20)SIMPLE QUERIES NEED NO CLARIFICATION: 'هات آخر X'/'اعرض'/'جيب' WITHOUT column names→return ALL Visible=1 columns(rule 9) and confidence=1.0. NEVER ask about notes/optional columns. 21)Only ask clarification if TRULY ambiguous AND business-critical. 22)If must ask→needs_clarification=true, clarification_question='one simple Arabic question'. 23)FORBIDDEN in clarification: technical terms.");
+            sb.AppendLine("CONFIDENCE RULES: High(0.9-1.0)=Exact schema match+standard query. Med(0.7-0.9)=Inferred standard logic. Low(<0.7)=Ambiguous or missing columns (triggers clarification).");
 
             var result = sb.ToString();
             _staticRulesTokenCount = result.Length / 4; // ~4 chars per token

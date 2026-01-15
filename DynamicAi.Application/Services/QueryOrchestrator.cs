@@ -182,17 +182,21 @@ namespace DynamicAi.Application.Services
 
                 var layer2Start = DateTime.UtcNow;
                 // CRITICAL: Use CONDENSED question and pass actionType (From Condenser Layer 0.5)
-                rawSql = await _generationService.GenerateSqlAsync(condensedQuestion, contextSnippets, previousSql, actionType);
+                var sqlResult = await _generationService.GenerateSqlAsync(condensedQuestion, contextSnippets, previousSql, actionType);
+                rawSql = sqlResult.Sql;
+                confidenceScore = sqlResult.Confidence; // Capture LLM confidence
                 layer2Duration = (DateTime.UtcNow - layer2Start).TotalMilliseconds;
 
                 _logger.LogInformation("[Orchestrator] ✓ Layer 2 completed in {Duration:F0}ms", layer2Duration);
+                _logger.LogInformation("[Orchestrator] LLM Confidence: {Confidence:P0}", confidenceScore);
 
                 // ============================================================================
                 // Interactivity Check: Handle CLARIFICATION_NEEDED
                 // ============================================================================
-                if (rawSql.Trim().StartsWith("CLARIFICATION_NEEDED:", StringComparison.OrdinalIgnoreCase))
+                if (sqlResult.NeedsClarification || rawSql.Trim().StartsWith("CLARIFICATION_NEEDED:", StringComparison.OrdinalIgnoreCase))
                 {
-                    var clarificationMessage = rawSql.Replace("CLARIFICATION_NEEDED:", "", StringComparison.OrdinalIgnoreCase).Trim();
+                    var clarificationMessage = sqlResult.ClarificationQuestion
+                        ?? rawSql.Replace("CLARIFICATION_NEEDED:", "", StringComparison.OrdinalIgnoreCase).Trim();
 
                     _logger.LogWarning("[Orchestrator] ✋ Interactivity Triggered: AI requesting clarification from user.");
                     _logger.LogInformation("[Orchestrator] Clarification Message: \"{ClarificationMessage}\"", clarificationMessage);
