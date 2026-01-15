@@ -93,6 +93,7 @@ namespace DynamicAi.Application.Services
             RetrievalContextBundle? contextSnippets = null; // Store for logging
             string condensedQuestion = userQuestion; // Default to original if no condensing needed
             QueryActionType actionType = QueryActionType.New; // Default action type
+            float? confidenceScore = null; // Track similarity score from cache or retrieval
 
             try
             {
@@ -143,6 +144,7 @@ namespace DynamicAi.Application.Services
                             queryLogId = existingGuid;
                         }
                         isCached = true;
+                        confidenceScore = cachedResult.Score; // Capture similarity score for logging
                         // Skip to Layer 3 (validation)
                         goto SkipToValidation;
                     }
@@ -280,7 +282,9 @@ namespace DynamicAi.Application.Services
                             // Cost tracking fields
                             InputTokens = (int)_costTracker.GetSessionSummary().TotalInputTokens,
                             OutputTokens = (int)_costTracker.GetSessionSummary().TotalOutputTokens,
-                            GeminiCost = (decimal)_costTracker.GetSessionSummary().TotalCostUsd
+                            GeminiCost = (decimal)_costTracker.GetSessionSummary().TotalCostUsd,
+                            // Cache/Retrieval confidence
+                            ConfidenceScore = confidenceScore
                         };
                         await _queryLogRepo.AddAsync(queryLog);
                         _logger.LogInformation("[Orchestrator] ✓ Query Logged to SQL DB (ID: {Id})", queryLogId);
