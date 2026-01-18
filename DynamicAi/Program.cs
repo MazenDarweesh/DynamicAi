@@ -130,6 +130,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddTransient<ISqlRewriterService, SqlRewriterService>();
     services.AddTransient<ISandboxedSqlExecutor, SandboxedSqlExecutor>();
     services.AddTransient<IRagRetrievalService, QdrantRetrievalService>();
+    services.AddTransient<IDataSeederService, DataSeederService>(); // Phase 0: Synthetic Data Seeder
 
 
     // --- Repositories ---
