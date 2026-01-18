@@ -1,4 +1,4 @@
-import { Component, OnInit, ViewChild, ElementRef, AfterViewChecked, ChangeDetectorRef, inject, EventEmitter, Output } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef, AfterViewChecked, ChangeDetectorRef, inject, EventEmitter, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
@@ -13,7 +13,7 @@ import { ChatMessage } from '../../models';
     templateUrl: './chat.component.html',
     styleUrls: ['./chat.component.css']
 })
-export class ChatComponent implements OnInit, AfterViewChecked {
+export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     @ViewChild('scrollContainer') private scrollContainer!: ElementRef;
     @Output() sidebarToggle = new EventEmitter<void>();
 
@@ -41,6 +41,21 @@ export class ChatComponent implements OnInit, AfterViewChecked {
         this.chatSignal.reset$.subscribe(() => {
             this.resetChat();
         });
+
+        // Load Persistent State
+        const savedState = this.chatSignal.getState();
+        if (savedState.messages.length > 0) {
+            this.messages = savedState.messages;
+            this.lastQuestion = savedState.lastQuestion;
+            this.lastSql = savedState.lastSql;
+            this.confirmedQuestion = savedState.confirmedQuestion;
+            this.confirmedSql = savedState.confirmedSql;
+        }
+    }
+
+    ngOnDestroy() {
+        // Save State when component is destroyed (e.g. navigating away)
+        this.chatSignal.saveState(this.messages, this.lastQuestion, this.lastSql, this.confirmedQuestion, this.confirmedSql);
     }
 
     toggleSidebar() {
@@ -102,6 +117,9 @@ export class ChatComponent implements OnInit, AfterViewChecked {
         this.messages = [];
         this.lastQuestion = undefined;
         this.lastSql = undefined;
+        this.confirmedQuestion = undefined;
+        this.confirmedSql = undefined;
+        this.chatSignal.clearState(); // Clear persistence
         this.cdr.detectChanges();
     }
 
