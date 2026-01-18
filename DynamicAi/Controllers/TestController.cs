@@ -89,14 +89,20 @@ namespace DynamicAi.Api.Controllers
                     queryLogId = qEx.QueryLogId // Vital for feedback on errors
                 });
             }
-            catch (InvalidOperationException ex) when (ex.Message.StartsWith("INTERACTION_REQUIRED:", StringComparison.OrdinalIgnoreCase))
+            catch (InteractionRequiredException ex)
             {
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
 
-                var aiQuestion = ex.Message.Replace("INTERACTION_REQUIRED:", "").Trim();
-                _logger.LogWarning("API REQUEST - CLARIFICATION REQUIRED. AI Question: \"{AiQuestion}\". Duration: {Duration:F0}ms", aiQuestion, apiDuration);
+                _logger.LogWarning("API REQUEST - CLARIFICATION REQUIRED. AI Question: \"{AiQuestion}\". Duration: {Duration:F0}ms", ex.ClarificationMessage, apiDuration);
 
-                return Ok(new { Type = "Question", Message = aiQuestion });
+                return Ok(new
+                {
+                    Type = "Question",
+                    Message = ex.ClarificationMessage,
+                    QueryLogId = ex.QueryLogId, // Essential for feedback
+                    ConfidenceScore = ex.ConfidenceScore,
+                    IsAmbiguous = true
+                });
             }
             catch (SecurityException secEx)
             {

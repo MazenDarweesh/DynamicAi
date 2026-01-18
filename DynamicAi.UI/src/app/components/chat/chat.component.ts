@@ -150,8 +150,18 @@ export class ChatComponent implements OnInit, AfterViewChecked {
 
                 let newMessage: ChatMessage;
 
-                if (data && data.Message) {
-                    newMessage = { isAi: true, text: data.Message, originalQuestion: currentQ, retryCount: retryCount };
+                // Helper to get case-insensitive property
+                const getProp = (obj: any, key: string) => obj[key] || obj[key.toLowerCase()] || obj[key.charAt(0).toUpperCase() + key.slice(1)];
+
+                const msgType = getProp(data, 'Type');
+                const msgText = getProp(data, 'Message');
+
+                if (msgText && !msgType) {
+                    // Standard message
+                    newMessage = { isAi: true, text: msgText, originalQuestion: currentQ, retryCount: retryCount };
+                } else if (msgType === 'Question') {
+                    // Clarification Question
+                    newMessage = { isAi: true, text: msgText, originalQuestion: currentQ, retryCount: retryCount };
                 } else if (Array.isArray(data)) {
                     if (data.length > 0) {
                         newMessage = { isAi: true, tableData: data, originalQuestion: currentQ, retryCount: retryCount };

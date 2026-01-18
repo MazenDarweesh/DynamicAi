@@ -37,9 +37,9 @@ public class FeedbackService : IFeedbackService
                 return false;
             }
 
-            if (string.IsNullOrEmpty(queryLog.GeneratedSql))
+            if (string.IsNullOrEmpty(queryLog.GeneratedSql) && !queryLog.IsAmbiguous)
             {
-                _logger.LogWarning("[Feedback] QueryLog has no SQL: {QueryLogId}", queryLogId);
+                _logger.LogWarning("[Feedback] QueryLog has no SQL and is not ambiguous: {QueryLogId}", queryLogId);
                 return false;
             }
 
@@ -47,7 +47,7 @@ public class FeedbackService : IFeedbackService
             var example = new TrainingExample
             {
                 NaturalQuery = queryLog.RawQuestion,
-                GeneratedSql = queryLog.GeneratedSql,
+                GeneratedSql = queryLog.GeneratedSql ?? string.Empty,
                 SchemaContext = queryLog.SchemaContext, // ✅ Now capturing SchemaContext
                 FeedbackSource = "UserLike",
                 TenantId = tenantId ?? queryLog.CompanyId, // Use passed value or fallback to QueryLog

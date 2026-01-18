@@ -203,7 +203,7 @@ namespace DynamicAi.Application.Services
                     _logger.LogInformation("[Orchestrator] Clarification Message: \"{ClarificationMessage}\"", clarificationMessage);
 
                     // Throw a specific exception that the Controller will catch and handle
-                    throw new InvalidOperationException($"INTERACTION_REQUIRED: {clarificationMessage}");
+                    throw new InteractionRequiredException(clarificationMessage, queryLogId, confidenceScore ?? 0f);
                 }
 
             SkipToValidation:
