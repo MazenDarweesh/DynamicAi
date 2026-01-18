@@ -11,7 +11,7 @@ namespace DynamicAi.Application.Models
         /// <summary>
         /// (جديد) كائن JSON يمثل شجرة الصفحة الكاملة (Page -> Attributes -> Details).
         /// </summary>
-        public string UnifiedPageContext { get; set; }
+        public string? UnifiedPageContext { get; set; }
 
         /// <summary>
         /// "القاموس" - صفوف البيانات من ListSetups (كنصوص JSON)
