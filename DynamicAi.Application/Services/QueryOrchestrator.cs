@@ -94,6 +94,7 @@ namespace DynamicAi.Application.Services
             string condensedQuestion = userQuestion; // Default to original if no condensing needed
             QueryActionType actionType = QueryActionType.New; // Default action type
             float? confidenceScore = null; // Track similarity score from cache or retrieval
+            SqlGenerationResult? sqlResult = null; // Scope for catch block access
 
             try
             {
@@ -182,7 +183,7 @@ namespace DynamicAi.Application.Services
 
                 var layer2Start = DateTime.UtcNow;
                 // CRITICAL: Use CONDENSED question and pass actionType (From Condenser Layer 0.5)
-                var sqlResult = await _generationService.GenerateSqlAsync(condensedQuestion, contextSnippets, previousSql, actionType);
+                sqlResult = await _generationService.GenerateSqlAsync(condensedQuestion, contextSnippets!, previousSql, actionType);
                 rawSql = sqlResult.Sql;
                 confidenceScore = sqlResult.Confidence; // Capture LLM confidence
                 layer2Duration = (DateTime.UtcNow - layer2Start).TotalMilliseconds;
@@ -363,7 +364,13 @@ namespace DynamicAi.Application.Services
                         CreatedAt = DateTime.UtcNow,
                         // Observability fields (Phase D)
                         LatencyMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds,
-                        HandlerType = "SQL"
+                        HandlerType = "SQL",
+                        // Captured metrics even on failure
+                        ConfidenceScore = confidenceScore,
+                        IsAmbiguous = sqlResult?.NeedsClarification ?? false,
+                        GeminiCost = (decimal)_costTracker.GetSessionSummary().TotalCostUsd,
+                        InputTokens = (int)_costTracker.GetSessionSummary().TotalInputTokens,
+                        OutputTokens = (int)_costTracker.GetSessionSummary().TotalOutputTokens
                     };
                     await _queryLogRepo.AddAsync(errorLog);
                     _logger.LogInformation("[Orchestrator] ✗ Failed Query Logged to SQL DB (ID: {Id})", queryLogId);
