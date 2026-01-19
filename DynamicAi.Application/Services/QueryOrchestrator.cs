@@ -1,6 +1,7 @@
 ﻿using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Exceptions;
+using DynamicAi.Domain.Entities;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -27,6 +28,7 @@ namespace DynamicAi.Application.Services
         private readonly ILogger<QueryOrchestrator> _logger;
         private readonly IQueryLogRepository _queryLogRepo;              // (Logging)
         private readonly IGeminiCostTracker _costTracker;                 // (Cost Tracking)
+        private readonly IIntentClassificationService _intentClassifier;  // (Phase 1: Intent Router)
         private readonly bool _queryCacheEnabled;
 
         public QueryOrchestrator(
@@ -40,6 +42,7 @@ namespace DynamicAi.Application.Services
             IEmbeddingGenerator<string, Embedding<float>> embeddingService,
             IQueryLogRepository queryLogRepo,
             IGeminiCostTracker costTracker,
+            IIntentClassificationService intentClassifier,
             ILogger<QueryOrchestrator> logger,
             IConfiguration configuration)
         {
@@ -53,6 +56,7 @@ namespace DynamicAi.Application.Services
             _embeddingService = embeddingService;
             _queryLogRepo = queryLogRepo;
             _costTracker = costTracker;
+            _intentClassifier = intentClassifier;
             _logger = logger;
             _queryCacheEnabled = bool.Parse(configuration["Caching:QueryCache:Enabled"] ?? "true");
         }
@@ -95,6 +99,44 @@ namespace DynamicAi.Application.Services
             QueryActionType actionType = QueryActionType.New; // Default action type
             float? confidenceScore = null; // Track similarity score from cache or retrieval
             SqlGenerationResult? sqlResult = null; // Scope for catch block access
+            IntentClassificationResult? intentResult = null; // Phase 1: Intent Classification
+
+            try
+            {
+                // ============================================================================
+                // Layer 0: INTENT CLASSIFICATION - Semantic Router (Phase 1: The Brain)
+                // ============================================================================
+                _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+                _logger.LogInformation("║         [Layer 0: INTENT ROUTER] - CLASSIFYING USER INTENT             ║");
+                _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+
+                var intentStart = DateTime.UtcNow;
+                intentResult = await _intentClassifier.ClassifyIntentAsync(userQuestion);
+                var intentDuration = (DateTime.UtcNow - intentStart).TotalMilliseconds;
+
+                _logger.LogInformation("[Orchestrator] ✓ Intent Classification completed in {Duration:F0}ms", intentDuration);
+                _logger.LogInformation("[Orchestrator] Detected Intent: {Intent} (Confidence: {Confidence:F2})",
+                    intentResult.Intent, intentResult.ConfidenceScore);
+
+                // TODO (Phase 3): Route to different handlers based on intent
+                // For now, all intents go through SQL generation pipeline
+                if (intentResult.Intent == IntentType.Chat)
+                {
+                    _logger.LogInformation("[Orchestrator] Chat intent detected - returning friendly response");
+                    return new QueryExecutionResult
+                    {
+                        // Wrap message as a dynamic object in the Data collection
+                        Data = new[] { new { Message = "مرحباً! أنا هنا لمساعدتك في استعلامات البيانات. كيف يمكنني مساعدتك اليوم؟", Type = "Chat" } },
+                        QueryLogId = queryLogId,
+                        IsCached = false
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Orchestrator] Intent classification failed, continuing with default DataRetrieval");
+                intentResult = IntentClassificationResult.Default();
+            }
 
             try
             {
