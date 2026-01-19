@@ -43,7 +43,7 @@ builder.ConfigureServices((context, services) =>
     services.AddTransient<IErpMetadataService, ErpMetadataService>();
     services.AddTransient<IChangeTrackingStrategy, CdcChangeStrategy>();
     services.AddTransient<IErpDataExtractorService, ErpDataExtractorService>();
-    services.AddTransient<IVectorDbService, QdrantVectorDbService>();
+    services.AddTransient<SchemaGenerator.Interfaces.IVectorDbService, QdrantVectorDbService>();
 
     // (جديد) تسجيل خدمة التحقق من Qdrant
     services.AddTransient<IQdrantValidationService, QdrantValidationService>();

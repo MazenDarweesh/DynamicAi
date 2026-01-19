@@ -167,6 +167,8 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
         );
     });
 
+    services.AddSingleton<IAppVectorDbService, QdrantDbService>();
+
     // --- تسجيل خدمات Gemini ---
     string googleApiKey = configuration["Gemini:ApiKey"]!;
     string embeddingModel = configuration["Gemini:EmbeddingModel"]!;

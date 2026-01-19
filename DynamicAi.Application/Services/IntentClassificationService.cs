@@ -19,7 +19,7 @@ namespace DynamicAi.Application.Services;
 /// </summary>
 public class IntentClassificationService : IIntentClassificationService
 {
-    private readonly QdrantClient _qdrantClient;
+    private readonly IAppVectorDbService _vectorDb;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
     private readonly IChatCompletionService _chatService;
     private readonly ILogger<IntentClassificationService> _logger;
@@ -37,13 +37,13 @@ public class IntentClassificationService : IIntentClassificationService
     };
 
     public IntentClassificationService(
-        QdrantClient qdrantClient,
+        IAppVectorDbService vectorDb,
         IEmbeddingGenerator<string, Embedding<float>> embeddingService,
         IChatCompletionService chatService,
         IConfiguration configuration,
         ILogger<IntentClassificationService> logger)
     {
-        _qdrantClient = qdrantClient;
+        _vectorDb = vectorDb;
         _embeddingService = embeddingService;
         _chatService = chatService;
         _logger = logger;
@@ -87,11 +87,11 @@ public class IntentClassificationService : IIntentClassificationService
 
             // Step 3: Search Qdrant for similar intent examples
             _logger.LogInformation("[IntentRouter] STEP 2: Searching intent examples in Qdrant...");
-            var searchResult = await _qdrantClient.SearchAsync(
+            var searchResult = await _vectorDb.SearchAsync(
                 collectionName: _intentCollectionName,
                 vector: queryVector,
                 limit: 3, // Get top 3 matches for confidence calculation
-                cancellationToken: cancellationToken);
+                ct: cancellationToken);
 
             if (searchResult == null || searchResult.Count == 0)
             {
@@ -264,8 +264,8 @@ USER QUESTION: ""{userQuestion}""";
             _logger.LogInformation("[IntentRouter] 🌱 Seeding new intent example: {Intent} -> \"{Question}\"",
                 intentType, question.Length > 50 ? question[..50] + "..." : question);
 
-            var pointId = (ulong)Math.Abs(question.GetHashCode());
-            var payload = new Google.Protobuf.Collections.MapField<string, Value>
+            var pointId = Guid.NewGuid(); // Use Guid for ID
+            var payload = new Dictionary<string, object>
             {
                 ["example_text"] = question,
                 ["intent_type"] = intentType.ToString(),
@@ -273,14 +273,7 @@ USER QUESTION: ""{userQuestion}""";
                 ["created_at"] = DateTime.UtcNow.ToString("O")
             };
 
-            var point = new PointStruct
-            {
-                Id = pointId,
-                Vectors = embedding,
-                Payload = { payload }
-            };
-
-            await _qdrantClient.UpsertAsync(_intentCollectionName, new[] { point }, cancellationToken: cancellationToken);
+            await _vectorDb.UpsertPointAsync(_intentCollectionName, pointId, embedding, payload, cancellationToken);
             _logger.LogInformation("[IntentRouter] ✓ Intent example seeded successfully (ID: {PointId})", pointId);
         }
         catch (Exception ex)
@@ -297,18 +290,14 @@ USER QUESTION: ""{userQuestion}""";
     {
         try
         {
-            var collections = await _qdrantClient.ListCollectionsAsync(cancellationToken);
-            var exists = collections.Any(c => c == _intentCollectionName);
+            var exists = await _vectorDb.CollectionExistsAsync(_intentCollectionName, cancellationToken);
 
             if (!exists)
             {
                 _logger.LogInformation("[IntentRouter] Intent collection '{Collection}' not found. Creating...", _intentCollectionName);
 
                 // Create collection with same vector size as Gemini embedding model (3072 dimensions)
-                await _qdrantClient.CreateCollectionAsync(
-                    collectionName: _intentCollectionName,
-                    vectorsConfig: new VectorParams { Size = 3072, Distance = Distance.Cosine },
-                    cancellationToken: cancellationToken);
+                await _vectorDb.CreateCollectionAsync(_intentCollectionName, 3072, cancellationToken);
 
                 _logger.LogInformation("[IntentRouter] ✓ Collection '{Collection}' created.", _intentCollectionName);
 
@@ -382,8 +371,9 @@ USER QUESTION: ""{userQuestion}""";
             }
         };
 
-        var points = new List<PointStruct>();
-        var pointId = 1ul;
+
+        // Actually, SeedDefaultIntentExamplesAsync was using ulong ID.
+        // My IVectorDbService uses Guid. I should change this loop to use Guid.NewGuid() or deterministic Guid.
 
         foreach (var (intentType, examples) in intentExamples)
         {
@@ -393,7 +383,12 @@ USER QUESTION: ""{userQuestion}""";
                 {
                     var embedding = await _embeddingService.GenerateAsync(example);
 
-                    var payload = new Google.Protobuf.Collections.MapField<string, Value>
+                    // Deterministic GUID based on example text hash could be better for idempotency, 
+                    // but for now random Guid is okay as we Check Exists at collection level.
+                    // Or I can generate a deterministic Guid from the string hash.
+                    // For simplicity, let's use Guid.NewGuid().
+
+                    var payload = new Dictionary<string, object>
                     {
                         ["example_text"] = example,
                         ["intent_type"] = intentType.ToString(),
@@ -401,12 +396,7 @@ USER QUESTION: ""{userQuestion}""";
                         ["created_at"] = DateTime.UtcNow.ToString("O")
                     };
 
-                    points.Add(new PointStruct
-                    {
-                        Id = pointId++,
-                        Vectors = embedding.Vector.ToArray(),
-                        Payload = { payload }
-                    });
+                    await _vectorDb.UpsertPointAsync(_intentCollectionName, Guid.NewGuid(), embedding.Vector.ToArray(), payload, cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -415,11 +405,9 @@ USER QUESTION: ""{userQuestion}""";
             }
         }
 
-        if (points.Count > 0)
-        {
-            await _qdrantClient.UpsertAsync(_intentCollectionName, points, cancellationToken: cancellationToken);
-            _logger.LogInformation("[IntentRouter] ✓ Seeded {Count} default intent examples.", points.Count);
-        }
+        // Removed batch upsert logic from here as UpsertPointAsync is single. 
+        // In the future I could add BulkUpsert to IVectorDbService if needed, but for runtime seeding single is fine or loop is fine.
+        _logger.LogInformation("[IntentRouter] ✓ Seeded default intent examples.");
     }
 
     /// <summary>

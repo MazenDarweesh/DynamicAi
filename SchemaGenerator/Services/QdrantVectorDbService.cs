@@ -19,7 +19,7 @@ namespace SchemaGenerator.Services
     /// التنفيذ الفعلي لـ IVectorDbService.
     /// (محسّن لـ Gemini API Tier 1 + Resiliency Tracking)
     /// </summary>
-    public class QdrantVectorDbService : IVectorDbService
+    public class QdrantVectorDbService : SchemaGenerator.Interfaces.IVectorDbService
     {
         private readonly QdrantClient _qdrantClient;
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;

@@ -60,7 +60,7 @@ public class SqlGenerationServiceTests
         var result = await _sut.GenerateSqlAsync(userQuestion, contextBundle, null, QueryActionType.New);
 
         // Assert
-        result.Should().Be(expectedSql);
+        result.Sql.Should().Be(expectedSql);
         A.CallTo(() => _chatService.GetChatMessageContentsAsync(
             A<ChatHistory>._,
             A<PromptExecutionSettings>._,
@@ -88,7 +88,7 @@ public class SqlGenerationServiceTests
         var result = await _sut.GenerateSqlAsync(userQuestion, contextBundle, null, QueryActionType.New);
 
         // Assert
-        result.Should().BeEmpty();
+        result.Sql.Should().BeEmpty();
     }
 
     [Fact]

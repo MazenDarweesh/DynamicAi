@@ -29,6 +29,7 @@ public class QueryOrchestratorTests
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
     private readonly IQueryLogRepository _queryLogRepo;
     private readonly IGeminiCostTracker _costTracker;
+    private readonly IIntentClassificationService _intentService;
     private readonly IConfiguration _configuration;
 
     public QueryOrchestratorTests()
@@ -42,7 +43,9 @@ public class QueryOrchestratorTests
         _queryCacheService = A.Fake<IQueryCacheService>();
         _embeddingService = A.Fake<IEmbeddingGenerator<string, Embedding<float>>>();
         _queryLogRepo = A.Fake<IQueryLogRepository>();
+        _queryLogRepo = A.Fake<IQueryLogRepository>();
         _costTracker = A.Fake<IGeminiCostTracker>();
+        _intentService = A.Fake<IIntentClassificationService>();
         _configuration = A.Fake<IConfiguration>();
 
         // Default Configuration
@@ -75,6 +78,7 @@ public class QueryOrchestratorTests
             _embeddingService,
             _queryLogRepo,
             _costTracker,
+            _intentService,
             logger,
             _configuration
         );
@@ -101,7 +105,7 @@ public class QueryOrchestratorTests
 
         // 3. Generation
         A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._, A<QueryActionType>._))
-            .Returns(Task.FromResult(rawSql));
+            .Returns(Task.FromResult(new SqlGenerationResult { Sql = rawSql, Confidence = 1.0f }));
 
         // 4. Validation (Success - void)
         A.CallTo(() => _validatorService.ValidateSqlAsync(rawSql, tenantId))
@@ -204,7 +208,7 @@ public class QueryOrchestratorTests
             .Returns(Task.FromResult(contextBundle));
 
         A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._, A<QueryActionType>._))
-            .Returns(Task.FromResult(generatedSql));
+            .Returns(Task.FromResult(new SqlGenerationResult { Sql = generatedSql, Confidence = 1.0f }));
 
         // Fail Validation
         var securityEx = new System.Security.SecurityException("DROP not allowed");
