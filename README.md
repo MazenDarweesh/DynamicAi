@@ -23,7 +23,14 @@ The system follows **Clean Architecture** principles with a **7-Layer Query Pipe
             └───────┬────────────────────────-┘│
                     │                          │
         ┌───────────▼───────────┐              │
-        │  🆕 Layer 0.5:        │              │
+        │  🆕 Layer 0:          │              │
+        │  Intent Router        │              │
+        │  (Qdrant + LLM Loop)  │              │
+        │  [Auto-Seeding]       │              │
+        └───────────┬───────────┘              │
+                    │                          │
+        ┌───────────▼───────────┐              │
+        │  Layer 0.5:           │              │
         │  Query Condenser      │              │
         │  (ActionType Logic)   │              │
         └───────────┬───────────┘              │
@@ -136,7 +143,18 @@ A standalone **6-Phase Checkpointed Knowledge Ingestion Pipeline** that bootstra
 
 ---
 
-### 2. 🆕 Query Condenser Layer 0.5 (`QueryCondenserService`)
+### 2. 🆕 Intent Router Layer 0 (`IntentClassificationService`)
+A **Semantic Router** that classifies user questions to determine the correct pipeline path before ANY processing.
+
+**Key Capabilities:**
+*   **Zero-Shot Classification:** Uses Qdrant vector search to match questions against seeded examples.
+*   **Auto-Creation & Seeding:** Automatically creates `intent_examples` collection and seeds 32+ default examples (Arabic/English) on first run.
+*   **🧠 Self-Learning (Hybrid Loop):**
+    *   If Qdrant finds a match → Uses it (Fast path).
+    *   If NO match found → Calls LLM to classify → **Automatically seeds** the new example to Qdrant for future use.
+    *   *Result:* The system gets smarter with every question!
+
+### 3. Query Condenser Layer 0.5 (`QueryCondenserService`)
 
 A **pre-processing layer** that intelligently handles follow-up questions and determines the optimal SQL generation strategy.
 
@@ -190,10 +208,11 @@ With Layer 0.5: Condenses to "هات آخر 5 فواتير ورتبهم تناز
 
 ---
 
-### 3. Dynamic AI Core (`DynamicAi.Application`)
+### 4. Dynamic AI Core (`DynamicAi.Application`)
 The brain of the operation, containing the business logic.
 
-*   **`QueryOrchestrator`:** Manages the 7-layer flow of a user request. 🆕 Now integrates Query Condenser (Layer 0.5) before caching.
+*   **`QueryOrchestrator`:** Manages the pipeline. 🆕 Now starts with Layer 0 (Intent Router) → Layer 0.5 (Condenser) → Caching.
+*   **`IntentClassificationService`:** 🆕 Layer 0 service that classifies intent (DataRetrieval, Analysis, Prediction, Chat) and effectively handles "Chat" intents without touching the DB.
 *   **`SqlGenerationService`:** Constructs precise SQL queries based on user prompts and retrieved schema context. 🆕 Now accepts `ActionType` to handle WRAP vs REGENERATE modes.
 *   **`SqlValidatorService`:** Parses generated SQL with `ScriptDom` to strictly enforce security policies (No DML/DDL) and syntactic correctness before execution.
 *   **`QueryCacheService`:** *[MVP Feature]* Checks Qdrant for semantically similar past questions to return cached SQL instantly, bypassing the LLM for faster responses.
@@ -201,28 +220,28 @@ The brain of the operation, containing the business logic.
 
 ---
 
-### 4. Dynamic AI UI (`DynamicAi.UI`)
+### 5. Dynamic AI UI (`DynamicAi.UI`)
 A modern, responsive web interface built with **Angular (Latest)**.
 
 *   **Chat Interface:** A ChatGPT-like experience for interacting with the data.
 *   **Data Visualization:** Displays query results in clean, formatted tables.
+*   **🆕 Dashboard:** Real-time glassmorphism dashboard tracking:
+    *   **Performance:** P95/P99 Latency, Error Rates.
+    *   **Intelligence:** Intent Distribution (SQL vs. Chat vs. Predict).
+    *   **Cost:** Token usage and estimated USD cost.
+    *   **CSAT:** User Satisfaction Score derived from Like/Dislike feedback.
 *   **Feedback System:** Like/Dislike buttons with user comments for Golden Dataset collection.
 *   **SQL Display:** Copy-to-clipboard functionality for viewing generated SQL.
-*   🆕 **Dislike Context Rollback:** When user clicks "Dislike", the conversational context reverts to the last confirmed (non-disliked) state for seamless retry.
 
-**🆕 Context Management (Two-Tier State):**
-```typescript
-// Current state (may be disliked)
-lastQuestion: string | undefined
-lastSql: string | undefined
+---
 
-// Rollback point (last confirmed good state)
-confirmedQuestion: string | undefined
-confirmedSql: string | undefined
+### 6. User-Centric Observability Backend
+A foundational layer enabling precise tracking of system performance and user satisfaction.
 
-// On successful response: confirmed = last
-// On dislike: last = confirmed (rollback!)
-```
+*   **`MetricsService`:** Aggregates `QueryLog` data to provide real-time insights (CSAT, Speed, Cost).
+*   **`GeminiTokenCounter`:** Uses official **Google.GenAI SDK** for accurate token counting.
+*   **`FeedbackService`:** Closes the loop by updating logs with user sentiment (Like/Dislike), directly influencing CSAT scores.
+*   **`MetricsController`:** Exposes Tier 1-4 metrics endpoints (`/performance`, `/intent-distribution`, `/cost-breakdown`, `/user-experience`).
 
 ---
 
@@ -337,9 +356,19 @@ docker-compose up
 
 We are currently implementing **Query Condensing (Layer 0.5)** with **Smart ActionType** and **Dislike Context Rollback** features.
 
+## 🌟 Current Phase: The Brain (Intent Classification)
+
+We are currently implementing **Phase 1: The Brain**, focusing on intelligent routing and self-learning intent classification.
+
 ### ✅ Implemented Features
 
-#### 1. 🆕 Query Condensing (Layer 0.5)
+#### 1. 🆕 Intent Router (Layer 0)
+*   **Semantic Classification:** Vector-based routing (Qdrant) to distinguish `DataRetrieval`, `Analysis`, `Prediction`, and `Chat`.
+*   **Self-Learning Loop:** Falls back to LLM if no match found, then **auto-seeds** the result to Qdrant.
+*   **Auto-Configuration:** `EnsureCollectionExistsAsync` creates collection (3072 dim) and seeds defaults automatically.
+*   **Chat Handling:** Direct response for specific intents (e.g., greetings) bypassing SQL generation.
+
+#### 2. Query Condensing (Layer 0.5)
 *   **Smart Follow-up Handling:** Understands "رتبهم" refers to previous results.
 *   **ActionType System:** NEW / WRAP_PREVIOUS / REGENERATE modes for optimal SQL generation.
 *   **Subquery Wrapping:** For WRAP mode, previous SQL is wrapped in subquery for modifications.
@@ -363,10 +392,12 @@ We are currently implementing **Query Condensing (Layer 0.5)** with **Smart Acti
 *   **SQL Validation Layer:** `SecurityVisitor` & `Rewriter` ensure generated SQL is safe and optimized. **(Verified by 82 Unit Tests ✅)**.
 *   **Retry Policies:** Polly integration for resilient API calls.
 
-#### 5. Observability & Cost Tracking
-*   **Cost Tracker (`GeminiCostTracker`):** Real-time tracking of input/output tokens and cost calculation for every request.
-*   **Structured Logging (`Serilog`):** Unified JSON-ready logs across all services for seamless monitoring.
-*   **Request Metrics:** Tracks latency (`TotalDuration`) and Status Codes.
+#### 5. User-Centric Observability & Dashboard
+*   **Performance Metrics:** Tracks P95/P99 latency and error rates across all handlers.
+*   **User Satisfaction (CSAT):** Calculates real-time CSAT score based on Like/Dislike feedback ratio.
+*   **Cost Precision:** Tracks `GeminiCost` with high precision (8 decimal places) using `GeminiTokenCounter` (Google.GenAI SDK).
+*   **Intent Distribution:** Visualizes the breakdown of traffic (SQL vs. Chat vs. Predict).
+*   **Structured Logging:** Extended `QueryLog` with `HandlerType`, `ConfidenceScore`, `LatencyMs`, and `WasFallback`.
 
 #### 6. Testing Strategy
 *   **Unit Tests:** **82 tests** covering `SqlValidatorService`, `SqlRewriterService`, `SqlGenerationService`, `QueryCondenserService`, and `CondenserResult`.
@@ -475,14 +506,15 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 
 | Axis | Status | Score | Notes |
 |:---|:---:|:---:|:---|
-| **Query Condensing** | ✅✅✅ | 10/10 | 🆕 **Complete:** Layer 0.5 with ActionType system. |
+| **Intent Routing** | ✅✅✅ | 10/10 | 🆕 **Complete:** Layer 0 with Self-Learning & Auto-Seeding. |
+| **Observability** | ✅✅✅ | 10/10 | 🆕 **Complete:** CSAT, Cost, Latency, & Dashboard implemented. |
+| **Query Condensing** | ✅✅✅ | 10/10 | **Complete:** Layer 0.5 with ActionType system. |
 | **Silent Failures** | ✅✅✅ | 10/10 | **Solved:** "Clarification Loop" + Validation Layer prevents almost all guessing. |
 | **Prompt Engineering** | ✅✅✅ | 9/10 | **Optimized:** "Prompt Diet" + ListName fix. Strict Static Rules. |
 | **Feedback System** | ✅✅✅ | 9/10 | **Complete:** Like/Dislike → TrainingExamples + Context Rollback. |
 | **Vector DB** | ✅✅✅ | 9/10 | Qdrant with proper payload indexing is solid. |
 | **Architecture** | ✅✅✅ | 9/10 | Clean Arch + Semantic Kernel + Explicit Caching Support. |
-| **Observability** | ✅✅ | 8/10 | Cost tracking & Structured logging + QueryLog tracking. |
-| **Cost Control** | ✅✅ | 8/10 | **Improved:** 60% less input tokens per request + Caching. |
+| **Cost Control** | ✅✅ | 8/10 | **Improved:** 60% less input tokens + Caching. |
 | **Embedding** | ✅✅ | 8/10 | Gemini models are performing well. |
 | **Containerization** | ✅✅ | 8/10 | Docker support with CORS and static files. |
 | **Doc Parsing** | ✅ | 6/10 | SMO-based SQL parsing is accurate but limited to SQL. |
@@ -496,7 +528,28 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 
 ## 📝 Changelog
 
-### v1.2.0 (2026-01-07) - Query Condensing Release 🆕
+### v1.3.0 (2026-01-20) - The Brain & Observability 🆕
+
+**Layer 0: Intent Router**
+- ✅ **Semantic Classification:** Using Qdrant (3072 dim) to distinguish SQL vs. Chat vs. Predict.
+- ✅ **Self-Learning Loop:** Hybrid fallback (Vector → LLM → Auto-Seed).
+- ✅ **Auto-Seeding:** Automatically injects 32+ default examples on startup.
+- ✅ **Chat Handler:** Immediate response for casual chat (No SQL generated).
+
+**Observability & Dashboard (Phases A-J):**
+- ✅ **Dashboard UI:** Glassmorphism dashboard with Chart.js visualization.
+- ✅ **Deep Metrics:** P95 Latency, CSAT Score, Clarification Rate.
+- ✅ **Cost Precision:** Tracking Gemini costs to 8 decimal places.
+- ✅ **Token Counter:** Upgraded to Google.GenAI SDK for accuracy.
+- ✅ **QueryLog Extension:** Added `LatencyMs`, `HandlerType`, `ConfidenceScore`, `IsAmbiguous`.
+
+**New Files:**
+- `IntentClassificationService.cs` - Layer 0 Logic
+- `MetricsService.cs` & `MetricsController.cs` - Observability Backend
+- `GeminiTokenCounter.cs` - Accurate Token Counting
+- `DashboardComponent` (Angular) - Real-time Visualization
+
+### v1.2.0 (2026-01-07) - Query Condensing Release
 
 **New Features:**
 - ✅ **Query Condenser (Layer 0.5):** Smart follow-up question handling with LLM-based ActionType determination.
