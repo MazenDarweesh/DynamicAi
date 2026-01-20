@@ -31,12 +31,6 @@ public class IntentClassificationResult
     public ulong? MatchedPointId { get; set; }
 
     /// <summary>
-    /// Indicates whether this classification requires LLM Judge verification.
-    /// True when ConfidenceScore is below the threshold (0.75).
-    /// </summary>
-    public bool RequiresJudge => ConfidenceScore < 0.75f;
-
-    /// <summary>
     /// Time taken to classify the intent in milliseconds.
     /// </summary>
     public long LatencyMs { get; set; }

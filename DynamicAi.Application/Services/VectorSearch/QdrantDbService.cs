@@ -90,4 +90,94 @@ public class QdrantDbService : IAppVectorDbService
             _ => new Value { StringValue = obj.ToString() }
         };
     }
+
+    #region Phase 2: Safety Net (Admin Review)
+
+    /// <inheritdoc />
+    public async Task<List<RetrievedPoint>> ScrollAsync(
+        string collectionName,
+        Dictionary<string, object>? filter = null,
+        int limit = 100,
+        CancellationToken ct = default)
+    {
+        _logger.LogDebug("[QdrantDbService] Scrolling through {CollectionName} with limit {Limit}", collectionName, limit);
+
+        Filter? qFilter = null;
+        if (filter != null && filter.Count > 0)
+        {
+            qFilter = new Filter();
+            foreach (var kvp in filter)
+            {
+                var condition = new Condition();
+                var fieldCondition = new FieldCondition { Key = kvp.Key };
+
+                if (kvp.Value is int intValue)
+                {
+                    fieldCondition.Match = new Match { Integer = intValue };
+                }
+                else if (kvp.Value is long longValue)
+                {
+                    fieldCondition.Match = new Match { Integer = longValue };
+                }
+                else if (kvp.Value is string stringValue)
+                {
+                    fieldCondition.Match = new Match { Keyword = stringValue };
+                }
+                else if (kvp.Value is bool boolValue)
+                {
+                    fieldCondition.Match = new Match { Boolean = boolValue };
+                }
+                else
+                {
+                    fieldCondition.Match = new Match { Text = kvp.Value.ToString() };
+                }
+
+                condition.Field = fieldCondition;
+                qFilter.Must.Add(condition);
+            }
+        }
+
+        var response = await _qdrantClient.ScrollAsync(
+            collectionName,
+            filter: qFilter,
+            limit: (uint)limit,
+            cancellationToken: ct
+        );
+
+        return response.Result.ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task UpdatePayloadAsync(
+        string collectionName,
+        Guid pointId,
+        Dictionary<string, object> payload,
+        CancellationToken ct = default)
+    {
+        _logger.LogDebug("[QdrantDbService] Updating payload for point {PointId} in {CollectionName}", pointId, collectionName);
+
+        var qPayload = PayloadToMapField(payload);
+
+        await _qdrantClient.SetPayloadAsync(
+            collectionName,
+            qPayload,
+            pointId,
+            cancellationToken: ct
+        );
+    }
+
+    /// <inheritdoc />
+    public async Task DeletePointAsync(string collectionName, Guid pointId, CancellationToken ct = default)
+    {
+        _logger.LogDebug("[QdrantDbService] Deleting point {PointId} from {CollectionName}", pointId, collectionName);
+
+        // This one works correctly based on QueryCacheService pattern
+        await _qdrantClient.DeleteAsync(
+            collectionName,
+            new PointId { Uuid = pointId.ToString() },
+            cancellationToken: ct
+        );
+    }
+
+    #endregion
 }

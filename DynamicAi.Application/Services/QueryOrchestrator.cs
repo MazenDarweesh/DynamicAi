@@ -118,6 +118,18 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("[Orchestrator] Detected Intent: {Intent} (Confidence: {Confidence:F2})",
                     intentResult.Intent, intentResult.ConfidenceScore);
 
+                // ============================================================================
+                // Phase 2: Continuous Improvement - Save Low-Confidence Examples for Review
+                // ============================================================================
+                if (intentResult.ConfidenceScore < 0.75f)
+                {
+                    _logger.LogInformation("[Orchestrator] Low confidence detected ({Score:F2}). Queuing for admin review (async).",
+                        intentResult.ConfidenceScore);
+
+                    // Save for later review - fire-and-forget, zero latency impact
+                    _ = _intentClassifier.SavePendingExampleAsync(userQuestion, intentResult);
+                }
+
                 // TODO (Phase 3): Route to different handlers based on intent
                 // For now, all intents go through SQL generation pipeline
                 if (intentResult.Intent == IntentType.Chat)

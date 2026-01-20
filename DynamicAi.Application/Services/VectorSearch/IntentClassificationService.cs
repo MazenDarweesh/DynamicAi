@@ -424,4 +424,140 @@ USER QUESTION: ""{userQuestion}""";
             _ => value.ToString()
         };
     }
+
+    #region Phase 2: Safety Net (Confidence-Based Review)
+
+    /// <inheritdoc />
+    public async Task SavePendingExampleAsync(
+        string question,
+        IntentClassificationResult result,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("[SafetyNet] 📋 Saving pending example for admin review...");
+
+            var embedding = await _embeddingService.GenerateAsync(question);
+            var pointId = Guid.NewGuid();
+
+            var payload = new Dictionary<string, object>
+            {
+                ["example_text"] = question,
+                ["intent_type"] = result.Intent.ToString(),
+                ["confidence_score"] = result.ConfidenceScore,
+                ["review_status"] = IntentReviewStatus.Pending.ToString(),
+                ["source"] = "LowConfidenceVerification",
+                ["is_llm_generated"] = true,
+                ["created_at"] = DateTime.UtcNow.ToString("O")
+            };
+
+            await _vectorDb.UpsertPointAsync(_intentCollectionName, pointId, embedding.Vector.ToArray(), payload, cancellationToken);
+
+            _logger.LogInformation("[SafetyNet] ✓ Pending example saved (ID: {PointId}, Status: Pending)", pointId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[SafetyNet] Failed to save pending example (non-blocking).");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<IEnumerable<PendingIntentExample>> GetPendingExamplesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("[SafetyNet] Fetching pending examples...");
+
+            // Search for points with review_status = "Pending"
+            var results = await _vectorDb.ScrollAsync(
+                collectionName: _intentCollectionName,
+                filter: new Dictionary<string, object>
+                {
+                    ["review_status"] = IntentReviewStatus.Pending.ToString()
+                },
+                limit: 100,
+                ct: cancellationToken);
+
+            var pendingExamples = new List<PendingIntentExample>();
+
+            foreach (var point in results)
+            {
+                var example = new PendingIntentExample
+                {
+                    Id = point.Id?.Uuid != null ? Guid.Parse(point.Id.Uuid) : Guid.Empty,
+                    Question = ExtractPayloadValue(point.Payload, "example_text") ?? "",
+                    ConfidenceScore = float.TryParse(ExtractPayloadValue(point.Payload, "confidence_score"), out var conf) ? conf : 0f,
+                    Source = ExtractPayloadValue(point.Payload, "source") ?? "Unknown",
+                    Status = IntentReviewStatus.Pending
+                };
+
+                var intentStr = ExtractPayloadValue(point.Payload, "intent_type") ?? "DataRetrieval";
+                example.ClassifiedIntent = IntentMapping.TryGetValue(intentStr, out var mapped) ? mapped : IntentType.DataRetrieval;
+
+                if (DateTime.TryParse(ExtractPayloadValue(point.Payload, "created_at"), out var createdAt))
+                {
+                    example.CreatedAt = createdAt;
+                }
+
+                pendingExamples.Add(example);
+            }
+
+            _logger.LogInformation("[SafetyNet] ✓ Found {Count} pending examples", pendingExamples.Count);
+            return pendingExamples;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[SafetyNet] Failed to fetch pending examples.");
+            return Enumerable.Empty<PendingIntentExample>();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> ApproveExampleAsync(Guid pointId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("[SafetyNet] ✅ Approving example: {PointId}", pointId);
+
+            // Update the payload to mark as Approved
+            var updatedPayload = new Dictionary<string, object>
+            {
+                ["review_status"] = IntentReviewStatus.Approved.ToString(),
+                ["reviewed_at"] = DateTime.UtcNow.ToString("O")
+            };
+
+            await _vectorDb.UpdatePayloadAsync(_intentCollectionName, pointId, updatedPayload, cancellationToken);
+
+            _logger.LogInformation("[SafetyNet] ✓ Example approved successfully.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[SafetyNet] Failed to approve example: {PointId}", pointId);
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> RejectExampleAsync(Guid pointId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("[SafetyNet] ❌ Rejecting example: {PointId}", pointId);
+
+            // Delete the point from Qdrant (or could mark as Rejected)
+            await _vectorDb.DeletePointAsync(_intentCollectionName, pointId, cancellationToken);
+
+            _logger.LogInformation("[SafetyNet] ✓ Example rejected and deleted.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[SafetyNet] Failed to reject example: {PointId}", pointId);
+            return false;
+        }
+    }
+
+    #endregion
 }
