@@ -36,6 +36,11 @@ public class IntentClassificationResult
     public long LatencyMs { get; set; }
 
     /// <summary>
+    /// The embedding vector of the query (Optimization to avoid regeneration).
+    /// </summary>
+    public float[]? QueryEmbedding { get; set; }
+
+    /// <summary>
     /// Creates a default DataRetrieval result (fallback).
     /// </summary>
     public static IntentClassificationResult Default() => new()

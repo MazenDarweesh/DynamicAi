@@ -132,7 +132,7 @@ namespace DynamicAi.Application.Services
                     // Save for later review - fire-and-forget, zero latency impact
                     _ = _intentManager.StoreIntentExampleAsync(
                         question: userQuestion,
-                        embedding: null, // Let the manager regenerate or handle it
+                        embedding: intentResult.QueryEmbedding, // ✅ Optimization: Reuse generated vector
                         intentType: intentResult.Intent,
                         cancellationToken: CancellationToken.None,
                         status: IntentReviewStatus.Pending,

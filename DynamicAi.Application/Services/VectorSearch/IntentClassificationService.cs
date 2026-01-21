@@ -111,9 +111,10 @@ public class IntentClassificationService : IIntentClassificationService
             {
                 Intent = intentType,
                 ConfidenceScore = topScore,
-                MatchedExample = ExtractPayloadValue(topMatch.Payload, "example_text") ?? "N/A",
-                MatchedPointId = topMatch.Id?.Num,
-                LatencyMs = stopwatch.ElapsedMilliseconds
+                MatchedExample = ExtractPayloadValue(topMatch.Payload, "example_text"),
+                MatchedPointId = topMatch.Id?.Uuid != null ? ulong.TryParse(topMatch.Id.Uuid, out var uid) ? uid : 0 : 0, // Simplified ID handling for now
+                LatencyMs = stopwatch.ElapsedMilliseconds,
+                QueryEmbedding = queryVector // ✅ Optimized
             };
         }
         catch (Exception ex)
@@ -199,9 +200,10 @@ USER QUESTION: ""{userQuestion}""";
             return new IntentClassificationResult
             {
                 Intent = detectedIntent,
-                ConfidenceScore = confidence,
-                MatchedExample = $"[LLM] {userQuestion}",
-                LatencyMs = elapsedMs + stopwatch.ElapsedMilliseconds
+                ConfidenceScore = 0.85f, // Artificial confidence for LLM results, can be tuned
+                MatchedExample = null,
+                LatencyMs = elapsedMs + stopwatch.ElapsedMilliseconds,
+                QueryEmbedding = embedding // ✅ Optimized
             };
         }
         catch (Exception ex)
