@@ -30,6 +30,7 @@ public class QueryOrchestratorTests
     private readonly IQueryLogRepository _queryLogRepo;
     private readonly IGeminiCostTracker _costTracker;
     private readonly IIntentClassificationService _intentService;
+    private readonly IIntentExampleManagementService _intentManager;
     private readonly IConfiguration _configuration;
 
     public QueryOrchestratorTests()
@@ -46,6 +47,7 @@ public class QueryOrchestratorTests
         _queryLogRepo = A.Fake<IQueryLogRepository>();
         _costTracker = A.Fake<IGeminiCostTracker>();
         _intentService = A.Fake<IIntentClassificationService>();
+        _intentManager = A.Fake<IIntentExampleManagementService>();
         _configuration = A.Fake<IConfiguration>();
 
         // Default Configuration
@@ -79,6 +81,7 @@ public class QueryOrchestratorTests
             _queryLogRepo,
             _costTracker,
             _intentService,
+            _intentManager,
             logger,
             _configuration
         );

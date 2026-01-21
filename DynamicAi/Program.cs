@@ -131,6 +131,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddTransient<ISandboxedSqlExecutor, SandboxedSqlExecutor>();
     services.AddTransient<IRagRetrievalService, QdrantRetrievalService>();
     services.AddTransient<IDataSeederService, DataSeederService>(); // Phase 0: Synthetic Data Seeder
+    services.AddTransient<IIntentExampleManagementService, IntentExampleManagementService>(); // Phase 2: Intent Feedback Loop
     services.AddTransient<IIntentClassificationService, IntentClassificationService>(); // Phase 1: The Brain - Intent Router
 
 

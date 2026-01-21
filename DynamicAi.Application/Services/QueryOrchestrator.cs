@@ -25,10 +25,11 @@ namespace DynamicAi.Application.Services
         private readonly ISandboxedSqlExecutor _executorService;         // (Layer 5)
         private readonly IQueryCacheService _queryCacheService;          // (Cache Layer)
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
+        private readonly IIntentClassificationService _intentClassifier;  // (Phase 1: Intent Router)
+        private readonly IIntentExampleManagementService _intentManager;
         private readonly ILogger<QueryOrchestrator> _logger;
         private readonly IQueryLogRepository _queryLogRepo;              // (Logging)
         private readonly IGeminiCostTracker _costTracker;                 // (Cost Tracking)
-        private readonly IIntentClassificationService _intentClassifier;  // (Phase 1: Intent Router)
         private readonly bool _queryCacheEnabled;
 
         public QueryOrchestrator(
@@ -43,6 +44,7 @@ namespace DynamicAi.Application.Services
             IQueryLogRepository queryLogRepo,
             IGeminiCostTracker costTracker,
             IIntentClassificationService intentClassifier,
+            IIntentExampleManagementService intentExampleManagementService,
             ILogger<QueryOrchestrator> logger,
             IConfiguration configuration)
         {
@@ -57,6 +59,7 @@ namespace DynamicAi.Application.Services
             _queryLogRepo = queryLogRepo;
             _costTracker = costTracker;
             _intentClassifier = intentClassifier;
+            _intentManager = intentExampleManagementService;
             _logger = logger;
             _queryCacheEnabled = bool.Parse(configuration["Caching:QueryCache:Enabled"] ?? "true");
         }
@@ -127,7 +130,7 @@ namespace DynamicAi.Application.Services
                         intentResult.ConfidenceScore);
 
                     // Save for later review - fire-and-forget, zero latency impact
-                    _ = _intentClassifier.SavePendingExampleAsync(userQuestion, intentResult);
+                    _ = _intentManager.SavePendingExampleAsync(userQuestion, intentResult);
                 }
 
                 // TODO (Phase 3): Route to different handlers based on intent
