@@ -130,7 +130,14 @@ namespace DynamicAi.Application.Services
                         intentResult.ConfidenceScore);
 
                     // Save for later review - fire-and-forget, zero latency impact
-                    _ = _intentManager.SavePendingExampleAsync(userQuestion, intentResult);
+                    _ = _intentManager.StoreIntentExampleAsync(
+                        question: userQuestion,
+                        embedding: null, // Let the manager regenerate or handle it
+                        intentType: intentResult.Intent,
+                        cancellationToken: CancellationToken.None,
+                        status: IntentReviewStatus.Pending,
+                        source: "LowConfidenceVerification"
+                    );
                 }
 
                 // TODO (Phase 3): Route to different handlers based on intent

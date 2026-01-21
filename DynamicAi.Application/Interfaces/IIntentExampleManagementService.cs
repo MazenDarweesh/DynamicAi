@@ -10,24 +10,18 @@ namespace DynamicAi.Application.Interfaces;
 public interface IIntentExampleManagementService
 {
     /// <summary>
-    /// Seeds a new intent example into the knowledge base (Qdrant).
-    /// Used for auto-seeding from LLM fallback or manual addition.
+    /// Stores an intent example into the knowledge base (Qdrant).
+    /// Used for both auto-seeding (Feedback Loop) and initial seeding.
     /// </summary>
-    Task SeedIntentExampleAsync(
+    Task StoreIntentExampleAsync(
         string question,
-        float[] embedding, // Optional: if already computed
+        float[]? embedding, // Nullable: can be generated inside if missing
         IntentType intentType,
         CancellationToken cancellationToken = default,
         IntentReviewStatus status = IntentReviewStatus.Approved,
         string source = "AutoSeed");
 
-    /// <summary>
-    /// Saves a low-confidence classification result as a pending example for admin review.
-    /// </summary>
-    Task SavePendingExampleAsync(
-        string question,
-        IntentClassificationResult result,
-        CancellationToken cancellationToken = default);
+
 
     /// <summary>
     /// Retrieves all examples currently pending review.

@@ -43,7 +43,7 @@ public class IntentExampleManagementService : IIntentExampleManagementService
     }
 
     /// <inheritdoc />
-    public async Task SeedIntentExampleAsync(
+    public async Task StoreIntentExampleAsync(
         string question,
         float[]? embedding,
         IntentType intentType,
@@ -88,23 +88,7 @@ public class IntentExampleManagementService : IIntentExampleManagementService
         }
     }
 
-    /// <inheritdoc />
-    public async Task SavePendingExampleAsync(
-        string question,
-        IntentClassificationResult result,
-        CancellationToken cancellationToken = default)
-    {
-        // Wrapper regarding the specific "Pending" context
-        await SeedIntentExampleAsync(
-            question: question,
-            embedding: null, // Will be regenerated, or we could optimize by passing it if available. 
-                             // For now, regeneration is safer to decouple, cost is negligible (embedding is cheap).
-            intentType: result.Intent,
-            cancellationToken: cancellationToken,
-            status: IntentReviewStatus.Pending,
-            source: "LowConfidenceVerification"
-        );
-    }
+
 
     /// <inheritdoc />
     public async Task<IEnumerable<PendingIntentExample>> GetPendingExamplesAsync(CancellationToken cancellationToken = default)
@@ -256,7 +240,7 @@ public class IntentExampleManagementService : IIntentExampleManagementService
         {
             foreach (var example in examples)
             {
-                await SeedIntentExampleAsync(example, null, intentType, cancellationToken, IntentReviewStatus.Approved, "SystemDefault");
+                await StoreIntentExampleAsync(example, null, intentType, cancellationToken, IntentReviewStatus.Approved, "SystemDefault");
             }
         }
     }

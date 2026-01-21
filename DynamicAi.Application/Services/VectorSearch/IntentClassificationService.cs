@@ -186,7 +186,7 @@ USER QUESTION: ""{userQuestion}""";
 
             // Auto-Seed via Manager (Fire-and-Forget)
             // Note: We use the *already computed* embedding to save cost/time
-            _ = _intentManager.SeedIntentExampleAsync(
+            _ = _intentManager.StoreIntentExampleAsync(
                 question: userQuestion,
                 embedding: embedding,
                 intentType: detectedIntent,
