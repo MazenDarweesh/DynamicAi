@@ -91,6 +91,7 @@ public class QdrantDbService : IAppVectorDbService
         };
     }
 
+
     #region Phase 2: Safety Net (Admin Review)
 
     /// <inheritdoc />
@@ -102,40 +103,7 @@ public class QdrantDbService : IAppVectorDbService
     {
         _logger.LogDebug("[QdrantDbService] Scrolling through {CollectionName} with limit {Limit}", collectionName, limit);
 
-        Filter? qFilter = null;
-        if (filter != null && filter.Count > 0)
-        {
-            qFilter = new Filter();
-            foreach (var kvp in filter)
-            {
-                var condition = new Condition();
-                var fieldCondition = new FieldCondition { Key = kvp.Key };
-
-                if (kvp.Value is int intValue)
-                {
-                    fieldCondition.Match = new Match { Integer = intValue };
-                }
-                else if (kvp.Value is long longValue)
-                {
-                    fieldCondition.Match = new Match { Integer = longValue };
-                }
-                else if (kvp.Value is string stringValue)
-                {
-                    fieldCondition.Match = new Match { Keyword = stringValue };
-                }
-                else if (kvp.Value is bool boolValue)
-                {
-                    fieldCondition.Match = new Match { Boolean = boolValue };
-                }
-                else
-                {
-                    fieldCondition.Match = new Match { Text = kvp.Value.ToString() };
-                }
-
-                condition.Field = fieldCondition;
-                qFilter.Must.Add(condition);
-            }
-        }
+        Filter? qFilter = BuildQdrantFilter(filter);
 
         var response = await _qdrantClient.ScrollAsync(
             collectionName,
@@ -177,6 +145,30 @@ public class QdrantDbService : IAppVectorDbService
             new PointId { Uuid = pointId.ToString() },
             cancellationToken: ct
         );
+    }
+    private Filter? BuildQdrantFilter(Dictionary<string, object>? filter)
+    {
+        if (filter == null || filter.Count == 0) return null;
+
+        var qFilter = new Filter();
+        foreach (var kvp in filter)
+        {
+            var condition = new Condition();
+            var fieldCondition = new FieldCondition { Key = kvp.Key };
+
+            fieldCondition.Match = kvp.Value switch
+            {
+                int i => new Match { Integer = i },
+                long l => new Match { Integer = l },
+                string s => new Match { Keyword = s },
+                bool b => new Match { Boolean = b },
+                _ => new Match { Text = kvp.Value?.ToString() ?? string.Empty }
+            };
+
+            condition.Field = fieldCondition;
+            qFilter.Must.Add(condition);
+        }
+        return qFilter;
     }
 
     #endregion
