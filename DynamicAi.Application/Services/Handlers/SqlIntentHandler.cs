@@ -75,9 +75,7 @@ public class SqlIntentHandler : IIntentHandler
 
         // 0. Layer 0: Query Cache Check
         float[]? questionEmbedding = null;
-        string? cacheId = null;
         bool isCached = false;
-        float? confidenceScore = null;
 
         if (_queryCacheEnabled)
         {
