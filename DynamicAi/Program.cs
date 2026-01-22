@@ -12,6 +12,7 @@ using Qdrant.Client;
 using Polly;
 using System.Net;
 using Serilog;
+using DynamicAi.Application.Services.Handlers;
 
 // 1. بناء الـ Builder (لقراءة الإعدادات و DI)
 // ensure console output uses UTF-8 so Arabic characters render correctly
@@ -133,7 +134,8 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddTransient<IDataSeederService, DataSeederService>(); // Phase 0: Synthetic Data Seeder
     services.AddTransient<IIntentExampleManagementService, IntentExampleManagementService>(); // Phase 2: Intent Feedback Loop
     services.AddTransient<IIntentClassificationService, IntentClassificationService>(); // Phase 1: The Brain - Intent Router
-
+    services.AddTransient<IIntentHandlerFactory, IntentHandlerFactory>(); // Phase 3: Handler Factory
+    services.AddTransient<IIntentHandler, SqlIntentHandler>(); // Phase 3: SQL Handler
 
     // --- Repositories ---
     services.AddScoped<ITrainingExampleRepository, TrainingExampleRepository>();

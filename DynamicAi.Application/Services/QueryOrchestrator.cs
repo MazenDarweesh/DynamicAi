@@ -6,67 +6,43 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Threading;
 
 namespace DynamicAi.Application.Services
 {
     /// <summary>
-    /// التنفيذ الفعلي لـ IQueryOrchestrator.
-    /// يقوم بربط جميع الخدمات (Layers 1-5) معاً بالترتيب الصحيح.
+    /// Implementation of IQueryOrchestrator.
+    /// Orchestrates queries by delegating to specific IntentHandlers (Layered Architecture).
     /// </summary>
     public class QueryOrchestrator : IQueryOrchestrator
     {
-        private readonly IQueryCondenserService _condenserService;        // (Layer 0.5)
-        private readonly IRagRetrievalService _retrievalService;         // (Layer 1)
-        private readonly ISqlGenerationService _generationService;       // (Layer 2)
-        private readonly ISqlValidatorService _validatorService;         // (Layer 3)
-        private readonly ISqlRewriterService _rewriterService;           // (Layer 4)
-        private readonly ISandboxedSqlExecutor _executorService;         // (Layer 5)
-        private readonly IQueryCacheService _queryCacheService;          // (Cache Layer)
-        private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
-        private readonly IIntentClassificationService _intentClassifier;  // (Phase 1: Intent Router)
+        private readonly IIntentHandlerFactory _handlerFactory;
+        private readonly IIntentClassificationService _intentClassifier;
         private readonly IIntentExampleManagementService _intentManager;
+        private readonly IQueryLogRepository _queryLogRepo;
+        private readonly IGeminiCostTracker _costTracker;
         private readonly ILogger<QueryOrchestrator> _logger;
-        private readonly IQueryLogRepository _queryLogRepo;              // (Logging)
-        private readonly IGeminiCostTracker _costTracker;                 // (Cost Tracking)
         private readonly bool _queryCacheEnabled;
 
         public QueryOrchestrator(
-            IQueryCondenserService condenserService,
-            IRagRetrievalService retrievalService,
-            ISqlGenerationService generationService,
-            ISqlValidatorService validatorService,
-            ISqlRewriterService rewriterService,
-            ISandboxedSqlExecutor executorService,
-            IQueryCacheService queryCacheService,
-            IEmbeddingGenerator<string, Embedding<float>> embeddingService,
-            IQueryLogRepository queryLogRepo,
-            IGeminiCostTracker costTracker,
+            IIntentHandlerFactory handlerFactory,
             IIntentClassificationService intentClassifier,
             IIntentExampleManagementService intentExampleManagementService,
+            IQueryLogRepository queryLogRepo,
+            IGeminiCostTracker costTracker,
             ILogger<QueryOrchestrator> logger,
             IConfiguration configuration)
         {
-            _condenserService = condenserService;
-            _retrievalService = retrievalService;
-            _generationService = generationService;
-            _validatorService = validatorService;
-            _rewriterService = rewriterService;
-            _executorService = executorService;
-            _queryCacheService = queryCacheService;
-            _embeddingService = embeddingService;
-            _queryLogRepo = queryLogRepo;
-            _costTracker = costTracker;
+            _handlerFactory = handlerFactory;
             _intentClassifier = intentClassifier;
             _intentManager = intentExampleManagementService;
+            _queryLogRepo = queryLogRepo;
+            _costTracker = costTracker;
             _logger = logger;
             _queryCacheEnabled = bool.Parse(configuration["Caching:QueryCache:Enabled"] ?? "true");
         }
 
-        /// <summary>
-        /// يعالج سؤال المستخدم بالكامل، مروراً بجميع طبقات الأمان والتوليد.
-        /// </summary>
         public async Task<QueryExecutionResult> HandleQueryAsync(
             string userQuestion,
             string tenantId,
@@ -74,65 +50,38 @@ namespace DynamicAi.Application.Services
             string? previousQuestion = null,
             string? previousSql = null)
         {
-            // ============================================================================
-            // بداية Pipeline - عرض معلومات الطلب
-            // ============================================================================
             _logger.LogInformation("\n");
             _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
             _logger.LogInformation("║                  QUERY ORCHESTRATOR - PIPELINE START                   ║");
             _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
             _logger.LogInformation("[Orchestrator] User Question: \"{UserQuestion}\"", userQuestion);
-            _logger.LogInformation("[Orchestrator] Previous Question: \"{PreviousQuestion}\"", previousQuestion ?? "(none)");
             _logger.LogInformation("[Orchestrator] Tenant ID: {TenantId}", tenantId);
-            _logger.LogInformation("[Orchestrator] Company ID: {CompanyId}", comID.HasValue ? comID.Value.ToString() : "null");
-            _logger.LogInformation("[Orchestrator] Pipeline has 6 layers to execute (0.5-5)...");
 
             var startTime = DateTime.UtcNow;
-            string rawSql = string.Empty;
-            RewrittenSqlResult? rewrittenResult = null;
-            float[]? questionEmbedding = null;
-            int? pageId = null;
-            string? cacheId = null;
-            Guid queryLogId = Guid.NewGuid(); // Generate tracking ID for this execution
-            bool isCached = false;
-            double layer05Duration = 0, layer1Duration = 0, layer2Duration = 0; // Initialized for cache HIT path
-            RetrievalContextBundle? contextSnippets = null; // Store for logging
-            string condensedQuestion = userQuestion; // Default to original if no condensing needed
-            QueryActionType actionType = QueryActionType.New; // Default action type
-            float? confidenceScore = null; // Track similarity score from cache or retrieval
-            SqlGenerationResult? sqlResult = null; // Scope for catch block access
-            IntentClassificationResult? intentResult = null; // Phase 1: Intent Classification
+            Guid queryLogId = Guid.NewGuid();
+            IntentClassificationResult? intentResult = null;
+            QueryExecutionResult? result = null;
 
             try
             {
                 // ============================================================================
-                // Layer 0: INTENT CLASSIFICATION - Semantic Router (Phase 1: The Brain)
+                // Layer 0: INTENT CLASSIFICATION
                 // ============================================================================
-                _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-                _logger.LogInformation("║         [Layer 0: INTENT ROUTER] - CLASSIFYING USER INTENT             ║");
-                _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
-
+                _logger.LogInformation("[Orchestrator] Layer 0: Classifying Intent...");
                 var intentStart = DateTime.UtcNow;
                 intentResult = await _intentClassifier.ClassifyIntentAsync(userQuestion);
                 var intentDuration = (DateTime.UtcNow - intentStart).TotalMilliseconds;
 
-                _logger.LogInformation("[Orchestrator] ✓ Intent Classification completed in {Duration:F0}ms", intentDuration);
-                _logger.LogInformation("[Orchestrator] Detected Intent: {Intent} (Confidence: {Confidence:F2})",
-                    intentResult.Intent, intentResult.ConfidenceScore);
+                _logger.LogInformation("[Orchestrator] ✓ Intent Detected: {Intent} (Confidence: {Confidence:F2}) in {Duration:F0}ms",
+                    intentResult.Intent, intentResult.ConfidenceScore, intentDuration);
 
-                // ============================================================================
-                // Phase 2: Continuous Improvement - Save Low-Confidence Examples for Review
-                // ============================================================================
+                // Save low confidence examples
                 if (intentResult.ConfidenceScore < 0.75f)
                 {
-                    _logger.LogInformation("[Orchestrator] Low confidence detected ({Score:F2}). Queuing for admin review (async).",
-                        intentResult.ConfidenceScore);
-
-                    // Save for later review - fire-and-forget, zero latency impact
                     _ = _intentManager.StoreIntentExampleAsync(
                         question: userQuestion,
-                        embedding: intentResult.QueryEmbedding, // ✅ Optimization: Reuse generated vector
+                        embedding: intentResult.QueryEmbedding,
                         intentType: intentResult.Intent,
                         cancellationToken: CancellationToken.None,
                         status: IntentReviewStatus.Pending,
@@ -140,349 +89,110 @@ namespace DynamicAi.Application.Services
                     );
                 }
 
-                // TODO (Phase 3): Route to different handlers based on intent
-                // For now, all intents go through SQL generation pipeline
-                if (intentResult.Intent == IntentType.Chat)
+                // ============================================================================
+                // ROUTING TO HANDLER
+                // ============================================================================
+                if (_handlerFactory.TryGetHandler(intentResult.Intent, out var handler))
                 {
-                    _logger.LogInformation("[Orchestrator] Chat intent detected - returning friendly response");
-                    return new QueryExecutionResult
+                    _logger.LogInformation("[Orchestrator] Delegating to Handler: {HandlerType}", handler!.GetType().Name);
+
+                    var context = new IntentHandlerContext
                     {
-                        // Wrap message as a dynamic object in the Data collection
+                        PreviousQuestion = previousQuestion,
+                        PreviousSql = previousSql,
+                        QueryLogId = queryLogId,
+                        TenantId = tenantId,
+                        CompanyId = comID
+                    };
+
+                    result = await handler.HandleAsync(userQuestion, intentResult, context);
+                }
+                else if (intentResult.Intent == IntentType.Chat)
+                {
+                    // Fallback for Chat until Module 3 is fully implemented
+                    _logger.LogInformation("[Orchestrator] Chat intent detected (Fallback Logic) - returning friendly response");
+                    result = new QueryExecutionResult
+                    {
                         Data = new[] { new { Message = "مرحباً! أنا هنا لمساعدتك في استعلامات البيانات. كيف يمكنني مساعدتك اليوم؟", Type = "Chat" } },
                         QueryLogId = queryLogId,
                         IsCached = false
                     };
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[Orchestrator] Intent classification failed, continuing with default DataRetrieval");
-                intentResult = IntentClassificationResult.Default();
-            }
-
-            try
-            {
-                // ============================================================================
-                // Layer 0.5: Query Condensing - تكثيف السؤال إذا كان معتمداً على سياق سابق
-                // ============================================================================
-                _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-                _logger.LogInformation("║            [Layer 0.5: QUERY CONDENSING] - STARTING                    ║");
-                _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
-
-                var layer05Start = DateTime.UtcNow;
-                var condenserResult = await _condenserService.CondenseQuestionAsync(userQuestion, previousQuestion, previousSql);
-                condensedQuestion = condenserResult.CondensedQuestion;
-                actionType = condenserResult.ActionType;
-                layer05Duration = (DateTime.UtcNow - layer05Start).TotalMilliseconds;
-
-                _logger.LogInformation("[Orchestrator] ✓ Layer 0.5 completed in {Duration:F0}ms", layer05Duration);
-                _logger.LogInformation("[Orchestrator] Condensed Question: \"{CondensedQuestion}\"", condensedQuestion);
-                _logger.LogInformation("[Orchestrator] Action Type: {ActionType}", actionType);
-                // ============================================================================
-                // Layer 0: Query Cache Check - البحث عن نتيجة مخزنة (using CONDENSED question)
-                // ============================================================================
-                if (_queryCacheEnabled)
+                else
                 {
-                    _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-                    _logger.LogInformation("║               [Layer 0: QUERY CACHE] - CHECKING                        ║");
-                    _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
-
-                    var cacheCheckStart = DateTime.UtcNow;
-                    // CRITICAL: Use CONDENSED question for embedding (Fixes Problem 5)
-                    var embedding = await _embeddingService.GenerateAsync(condensedQuestion);
-                    questionEmbedding = embedding.Vector.ToArray();
-
-                    var cachedResult = await _queryCacheService.TryGetCachedSqlAsync(
-                        questionEmbedding, tenantId, comID ?? 0);
-
-                    var cacheCheckDuration = (DateTime.UtcNow - cacheCheckStart).TotalMilliseconds;
-
-                    if (cachedResult != null)
-                    {
-                        _logger.LogInformation("[Orchestrator] ✓ Cache HIT in {Duration:F0}ms - Skipping Layers 1-2!", cacheCheckDuration);
-
-                        rawSql = cachedResult.Sql;
-                        cacheId = cachedResult.CacheId;
-                        // Use the existing CacheId as QueryLogId for feedback consistency
-                        if (Guid.TryParse(cacheId, out var existingGuid))
-                        {
-                            queryLogId = existingGuid;
-                        }
-                        isCached = true;
-                        confidenceScore = cachedResult.Score; // Capture similarity score for logging
-                        // Skip to Layer 3 (validation)
-                        goto SkipToValidation;
-                    }
-
-                    _logger.LogInformation("[Orchestrator] Cache checked in {Duration:F0}ms - proceeding to full pipeline", cacheCheckDuration);
+                    _logger.LogWarning("[Orchestrator] No handler found for intent: {Intent}. Returning error.", intentResult.Intent);
+                    throw new NotSupportedException($"The intent '{intentResult.Intent}' is not currently supported.");
                 }
 
                 // ============================================================================
-                // Layer 1: RAG - استرجاع السياق من قاعدة المعرفة (using CONDENSED question)
-                // ============================================================================
-                _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-                _logger.LogInformation("║                [Layer 1: RAG RETRIEVAL] - STARTING                     ║");
-                _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
-
-                var layer1Start = DateTime.UtcNow;
-                // CRITICAL: Use CONDENSED question for RAG retrieval
-                contextSnippets = await _retrievalService.RetrieveContextAsync(condensedQuestion, tenantId);
-                layer1Duration = (DateTime.UtcNow - layer1Start).TotalMilliseconds;
-
-                _logger.LogInformation("[Orchestrator] ✓ Layer 1 completed in {Duration:F0}ms", layer1Duration);
-                _logger.LogInformation("[Orchestrator] Retrieved context bundle with Unified Context: {UnifiedContext}, {DictCount} dictionary entry(ies), and {RuleCount} business rule(s).",
-                     !string.IsNullOrEmpty(contextSnippets.UnifiedPageContext),
-                     contextSnippets?.DictionaryEntries?.Count ?? 0,
-                     contextSnippets?.BusinessRules?.Count ?? 0);
-
-                // Extract PageId for cache storage
-                pageId = ExtractPageIdFromContext(contextSnippets?.UnifiedPageContext);
-
-                // ============================================================================
-                // Layer 2: SQL Generation - توليد SQL من LLM
-                // ============================================================================
-                _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-                _logger.LogInformation("║              [Layer 2: SQL GENERATION] - STARTING                      ║");
-                _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
-
-                var layer2Start = DateTime.UtcNow;
-                // CRITICAL: Use CONDENSED question and pass actionType (From Condenser Layer 0.5)
-                sqlResult = await _generationService.GenerateSqlAsync(condensedQuestion, contextSnippets!, previousSql, actionType);
-                rawSql = sqlResult.Sql;
-                confidenceScore = sqlResult.Confidence; // Capture LLM confidence
-                layer2Duration = (DateTime.UtcNow - layer2Start).TotalMilliseconds;
-
-                _logger.LogInformation("[Orchestrator] ✓ Layer 2 completed in {Duration:F0}ms", layer2Duration);
-                _logger.LogInformation("[Orchestrator] LLM Confidence: {Confidence:P0}", confidenceScore);
-
-                // ============================================================================
-                // Interactivity Check: Handle CLARIFICATION_NEEDED
-                // ============================================================================
-                if (sqlResult.NeedsClarification || rawSql.Trim().StartsWith("CLARIFICATION_NEEDED:", StringComparison.OrdinalIgnoreCase))
-                {
-                    var clarificationMessage = sqlResult.ClarificationQuestion
-                        ?? rawSql.Replace("CLARIFICATION_NEEDED:", "", StringComparison.OrdinalIgnoreCase).Trim();
-
-                    _logger.LogWarning("[Orchestrator] ✋ Interactivity Triggered: AI requesting clarification from user.");
-                    _logger.LogInformation("[Orchestrator] Clarification Message: \"{ClarificationMessage}\"", clarificationMessage);
-
-                    // Throw a specific exception that the Controller will catch and handle
-                    throw new InteractionRequiredException(clarificationMessage, queryLogId, confidenceScore ?? 0f);
-                }
-
-            SkipToValidation:
-                // ============================================================================
-                // Layer 3: SQL Validation - التحقق من الأمان
-                // ============================================================================
-                var layer3Start = DateTime.UtcNow;
-                await _validatorService.ValidateSqlAsync(rawSql, tenantId);
-                var layer3Duration = (DateTime.UtcNow - layer3Start).TotalMilliseconds;
-
-                _logger.LogInformation("[Orchestrator] ✓ Layer 3 completed in {Duration:F0}ms", layer3Duration);
-
-                // Store in cache AFTER validation passes (never cache invalid SQL!)
-                if (_queryCacheEnabled && questionEmbedding != null && !isCached)
-                {
-                    // Use the generated queryLogId for the cache entry
-                    await _queryCacheService.StoreCachedSqlAsync(
-                        queryLogId,
-                        userQuestion, questionEmbedding, rawSql,
-                        pageId ?? 0, tenantId, comID ?? 0);
-
-                    cacheId = queryLogId.ToString();
-                }
-
-                // ============================================================================
-                // Layer 4: SQL Rewriting - (مُفعّلة الآن)
-                // ============================================================================
-                _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-                _logger.LogInformation("║               [Layer 4: SQL REWRITER] - STARTING                       ║");
-                _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
-
-                var layer4Start = DateTime.UtcNow;
-                rewrittenResult = await _rewriterService.RewriteAsync(rawSql, tenantId, comID);
-                var layer4Duration = (DateTime.UtcNow - layer4Start).TotalMilliseconds;
-
-                _logger.LogInformation("[Orchestrator] ✓ Layer 4 completed in {Duration:F0}ms", layer4Duration);
-                _logger.LogInformation("[Orchestrator] Hardened SQL:\n{RewrittenSql}", rewrittenResult.RewrittenSql);
-                _logger.LogDebug("[Orchestrator] Parameters: {ParamCount}", rewrittenResult.Parameters.Count);
-                foreach (var param in rewrittenResult.Parameters)
-                {
-                    _logger.LogDebug("  - {Key} = {Value}", param.Key, param.Value);
-                }
-
-                // ============================================================================
-                // Layer 5: SQL Execution - التنفيذ الآمن
-                // ============================================================================
-                _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-                _logger.LogInformation("║            [Layer 5: SANDBOXED EXECUTOR] - STARTING                    ║");
-                _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
-
-                var layer5Start = DateTime.UtcNow;
-                var data = await _executorService.ExecuteSqlAsync(rewrittenResult.RewrittenSql, rewrittenResult.Parameters);
-                var layer5Duration = (DateTime.UtcNow - layer5Start).TotalMilliseconds;
-
-                _logger.LogInformation("[Orchestrator] ✓ Layer 5 completed in {Duration:F0}ms", layer5Duration);
-                _logger.LogInformation("[Orchestrator] Query executed successfully. Rows returned.");
-
-                _logger.LogInformation("[Orchestrator] ✓ Layer 5 completed in {Duration:F0}ms", layer5Duration);
-                _logger.LogInformation("[Orchestrator] Query executed successfully. Rows returned.");
-
-                // ============================================================================
-                // Logging: Save to SQL QueryLogs (Vital for Feedback System)
-                // ============================================================================
-                if (!isCached) // Only log new executions (Cached ones are already logged)
-                {
-                    try
-                    {
-                        var queryLog = new Domain.Entities.QueryLog
-                        {
-                            Id = queryLogId,
-                            RawQuestion = userQuestion,
-                            GeneratedSql = rewrittenResult?.RewrittenSql ?? rawSql,
-                            WasSuccessful = true,
-                            SchemaContext = contextSnippets?.UnifiedPageContext,
-                            TenantId = tenantId,
-                            CompanyId = comID,
-                            CreatedAt = DateTime.UtcNow,
-                            // Observability fields (Phase D)
-                            LatencyMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds,
-                            HandlerType = "SQL",
-                            // Cost tracking fields
-                            InputTokens = (int)_costTracker.GetSessionSummary().TotalInputTokens,
-                            OutputTokens = (int)_costTracker.GetSessionSummary().TotalOutputTokens,
-                            GeminiCost = (decimal)_costTracker.GetSessionSummary().TotalCostUsd,
-                            // Cache/Retrieval confidence
-                            ConfidenceScore = confidenceScore
-                        };
-                        await _queryLogRepo.AddAsync(queryLog);
-                        _logger.LogInformation("[Orchestrator] ✓ Query Logged to SQL DB (ID: {Id})", queryLogId);
-                    }
-                    catch (Exception logEx)
-                    {
-                        _logger.LogError(logEx, "[Orchestrator] ⚠ Failed to log query to SQL DB");
-                        // Don't fail the request just because logging failed
-                    }
-                }
-
-                // ============================================================================
-                // Pipeline مكتمل - عرض الإحصائيات النهائية
+                // POST-EXECUTION LOGGING
                 // ============================================================================
                 var totalDuration = (DateTime.UtcNow - startTime).TotalMilliseconds;
 
-                _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-                _logger.LogInformation("║              QUERY ORCHESTRATOR - PIPELINE COMPLETED ✓                 ║");
-                _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
-
-                _logger.LogInformation("\n[Orchestrator] ═══ PIPELINE PERFORMANCE SUMMARY ═══");
-                _logger.LogInformation("  Layer 1 (RAG Retrieval):      {Layer1Duration,8:F0} ms", layer1Duration);
-                _logger.LogInformation("  Layer 2 (SQL Generation):     {Layer2Duration,8:F0} ms", layer2Duration);
-                _logger.LogInformation("  Layer 3 (SQL Validation):     {Layer3Duration,8:F0} ms", layer3Duration);
-                _logger.LogInformation("  Layer 4 (SQL Rewriter):       {Layer4Duration,8:F0} ms", layer4Duration);
-                _logger.LogInformation("  Layer 5 (Execution):          {Layer5Duration,8:F0} ms", layer5Duration);
-                _logger.LogInformation("  ───────────────────────────────────────────────");
-                _logger.LogInformation("  Total Pipeline Duration:      {TotalDuration,8:F0} ms", totalDuration);
-                _logger.LogInformation("[Orchestrator] ══════════════════════════════════════");
-
-                return new QueryExecutionResult
+                if (result.IsSuccess && !result.IsCached)
                 {
-                    Data = data,
-                    RewrittenSql = rewrittenResult?.RewrittenSql ?? rawSql,
-                    IsCached = isCached,
-                    CacheId = cacheId,
-                    QueryLogId = queryLogId
-                };
-            }
-            catch (Exception ex)
-            {
-                var totalDuration = (DateTime.UtcNow - startTime).TotalMilliseconds;
-
-                _logger.LogError("\n╔════════════════════════════════════════════════════════════════════════╗");
-                _logger.LogError("║              QUERY ORCHESTRATOR - PIPELINE FAILED ✗                    ║");
-                _logger.LogError("╚════════════════════════════════════════════════════════════════════════╝");
-
-                _logger.LogError("[Orchestrator] Error Type: {ErrorType}", ex.GetType().Name);
-                _logger.LogError("[Orchestrator] Error Message: {ErrorMessage}", ex.Message);
-                _logger.LogError("[Orchestrator] Failed after {Duration:F0}ms", totalDuration);
-
-                if (ex.StackTrace != null)
-                {
-                    _logger.LogError("[Orchestrator] Stack Trace:\n{StackTrace}", ex.StackTrace);
-                }
-
-                // ============================================================================
-                // ERROR HANDLING & LOGGING (New: Save failure to SQL)
-                // ============================================================================
-                try
-                {
-                    var errorLog = new Domain.Entities.QueryLog
+                    // Log success
+                    var queryLog = new Domain.Entities.QueryLog
                     {
                         Id = queryLogId,
                         RawQuestion = userQuestion,
-                        GeneratedSql = rewrittenResult?.RewrittenSql ?? rawSql,
-                        WasSuccessful = false,
-                        ErrorMessage = ex.Message,
-                        SchemaContext = contextSnippets?.UnifiedPageContext,
+                        GeneratedSql = result.RewrittenSql, // Might be null for Chat
+                        WasSuccessful = true,
+                        SchemaContext = result.SchemaContext,
                         TenantId = tenantId,
                         CompanyId = comID,
                         CreatedAt = DateTime.UtcNow,
-                        // Observability fields (Phase D)
-                        LatencyMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds,
-                        HandlerType = "SQL",
-                        // Captured metrics even on failure
-                        ConfidenceScore = confidenceScore,
-                        IsAmbiguous = sqlResult?.NeedsClarification ?? false,
-                        GeminiCost = (decimal)_costTracker.GetSessionSummary().TotalCostUsd,
+                        LatencyMs = (int)totalDuration,
+                        HandlerType = intentResult.Intent.ToString(),
                         InputTokens = (int)_costTracker.GetSessionSummary().TotalInputTokens,
-                        OutputTokens = (int)_costTracker.GetSessionSummary().TotalOutputTokens
+                        OutputTokens = (int)_costTracker.GetSessionSummary().TotalOutputTokens,
+                        GeminiCost = (decimal)_costTracker.GetSessionSummary().TotalCostUsd,
+                        ConfidenceScore = result.ConfidenceScore
                     };
-                    await _queryLogRepo.AddAsync(errorLog);
-                    _logger.LogInformation("[Orchestrator] ✗ Failed Query Logged to SQL DB (ID: {Id})", queryLogId);
+                    // Fire and forget logging
+                    _ = _queryLogRepo.AddAsync(queryLog);
                 }
-                catch (Exception logEx)
+                else if (!result.IsSuccess)
                 {
-                    _logger.LogError(logEx, "[Orchestrator] ⚠ Failed to log error query to SQL DB");
+                    _logger.LogWarning("[Orchestrator] Handler returned failure: {Error}", result.ErrorMessage);
+
+                    if (result.ErrorMessage?.StartsWith("CLARIFICATION_REQUIRED:") == true)
+                    {
+                        var clarification = result.ErrorMessage.Replace("CLARIFICATION_REQUIRED:", "").Trim();
+                        throw new InteractionRequiredException(clarification, queryLogId, result.ConfidenceScore ?? 0);
+                    }
                 }
 
-                // If we have generated SQL, wrap the exception to pass it up (with QueryLogId)
-                if (!string.IsNullOrEmpty(rewrittenResult?.RewrittenSql ?? rawSql))
-                {
-                    _logger.LogWarning("[Orchestrator] Wrapping {ErrorType} in QueryExecutionException to preserve SQL.", ex.GetType().Name);
+                _logger.LogInformation("[Orchestrator] Pipeline Completed in {Duration:F0}ms", totalDuration);
+                return result;
+            }
+            catch (InteractionRequiredException)
+            {
+                throw; // Pass through controller
+            }
+            catch (Exception ex)
+            {
+                var totalDuration = (DateTime.UtcNow - startTime).TotalMilliseconds;
+                _logger.LogError(ex, "[Orchestrator] Pipeline Failed after {Duration:F0}ms", totalDuration);
 
-                    throw new QueryExecutionException(
-                        ex.Message,
-                        rewrittenResult?.RewrittenSql ?? rawSql,
-                        ex,
-                        queryLogId); // Pass the ID for frontend feedback
-                }
+                // Log Failure
+                var errorLog = new Domain.Entities.QueryLog
+                {
+                    Id = queryLogId,
+                    RawQuestion = userQuestion,
+                    WasSuccessful = false,
+                    ErrorMessage = ex.Message,
+                    TenantId = tenantId,
+                    CompanyId = comID,
+                    CreatedAt = DateTime.UtcNow,
+                    LatencyMs = (int)totalDuration,
+                    HandlerType = intentResult?.Intent.ToString() ?? "Unknown",
+                    ConfidenceScore = intentResult?.ConfidenceScore
+                };
+                _ = _queryLogRepo.AddAsync(errorLog);
 
                 throw;
-
-                throw;
             }
-        }
-
-        /// <summary>
-        /// Extracts PageId from the UnifiedPageContext JSON.
-        /// </summary>
-        private int? ExtractPageIdFromContext(string? unifiedContext)
-        {
-            if (string.IsNullOrEmpty(unifiedContext)) return null;
-
-            try
-            {
-                var match = System.Text.RegularExpressions.Regex.Match(
-                    unifiedContext, @"""PageID""\s*:\s*(\d+)");
-                if (match.Success)
-                {
-                    return int.Parse(match.Groups[1].Value);
-                }
-            }
-            catch
-            {
-                // Ignore parsing errors
-            }
-            return null;
         }
     }
 }

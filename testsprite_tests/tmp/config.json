@@ -1,0 +1,18 @@
+{
+  "status": "commited",
+  "type": "backend",
+  "scope": "codebase",
+  "localEndpoint": "http://localhost:8080",
+  "backendAuthType": "API key",
+  "backendApiKey": "DynamicAI_22-01-26",
+  "backendApiValue": "sk-user-xn97mWhFJOGopQmba2tpUsbLhT7EgCtKZW3rFXpjldVaS5wMO-03XpuP8tZ1852ytKmoPdn8JKCnR2xiVrpNqsskZDxpRMl1PtsLCFhxb-B4-urk05o9g7k_MTCOUHS1pLg",
+  "executionArgs": {
+    "projectName": "DynamicAi",
+    "projectPath": "e:\\Mazen\\EGYD\\DynamicAi",
+    "testIds": [],
+    "additionalInstruction": "Scan for logic issues and API consistency.",
+    "envs": {
+      "API_KEY": "sk-user-xn97mWhFJOGopQmba2tpUsbLhT7EgCtKZW3rFXpjldVaS5wMO-03XpuP8tZ1852ytKmoPdn8JKCnR2xiVrpNqsskZDxpRMl1PtsLCFhxb-B4-urk05o9g7k_MTCOUHS1pLg"
+    }
+  }
+}

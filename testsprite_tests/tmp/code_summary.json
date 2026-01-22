@@ -1,0 +1,81 @@
+{
+  "tech_stack": [
+    "C#",
+    ".NET 8",
+    "Angular 21",
+    "SQL Server",
+    "Qdrant",
+    "Google Gemini API"
+  ],
+  "features": [
+    {
+      "name": "Query Orchestration",
+      "description": "Main API for natural language to SQL generation and execution.",
+      "files": [
+        "DynamicAi/Controllers/QueryController.cs",
+        "DynamicAi.Application/Services/QueryOrchestrator.cs"
+      ],
+      "api_doc": {
+        "openapi": "3.0.1",
+        "paths": {
+          "/api/query": {
+            "post": {
+              "summary": "Handle user question",
+              "responses": {
+                "200": {
+                  "description": "Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Intent Feedback Loop",
+      "description": "API for reviewing and approving AI-generated queries.",
+      "files": [
+        "DynamicAi/Controllers/IntentReviewController.cs",
+        "DynamicAi.Application/Services/VectorSearch/IntentExampleManagementService.cs"
+      ],
+      "api_doc": {
+        "openapi": "3.0.1",
+        "paths": {
+          "/api/intent-review": {
+            "get": {
+              "summary": "Get pending reviews",
+              "responses": {
+                "200": {
+                  "description": "Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Metrics and Observability",
+      "description": "API for system performance and cost tracking.",
+      "files": [
+        "DynamicAi/Controllers/MetricsController.cs",
+        "DynamicAi.Application/Services/MetricsService.cs"
+      ],
+      "api_doc": {
+        "openapi": "3.0.1",
+        "paths": {
+          "/api/metrics": {
+            "get": {
+              "summary": "Get system metrics",
+              "responses": {
+                "200": {
+                  "description": "Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

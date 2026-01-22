@@ -31,4 +31,24 @@ public class QueryExecutionResult
     /// The unique ID of the query log in the database (for feedback).
     /// </summary>
     public Guid? QueryLogId { get; set; }
+
+    /// <summary>
+    /// Error message if the execution failed.
+    /// </summary>
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// Indicates if the execution was successful.
+    /// </summary>
+    public bool IsSuccess => string.IsNullOrEmpty(ErrorMessage);
+
+    /// <summary>
+    /// The schema context used for generation (for logging/debugging).
+    /// </summary>
+    public string? SchemaContext { get; set; }
+
+    /// <summary>
+    /// The AI's confidence score in the generated SQL.
+    /// </summary>
+    public float? ConfidenceScore { get; set; }
 }
