@@ -81,6 +81,16 @@ public interface IAppVectorDbService
         Guid pointId,
         CancellationToken ct = default);
 
+
+    /// <summary>
+    /// Creates a payload index for optimized filtering.
+    /// </summary>
+    Task CreatePayloadIndexAsync(
+        string collectionName,
+        string fieldName,
+        PayloadSchemaType fieldType,
+        CancellationToken ct = default);
+
     #endregion
 }
 

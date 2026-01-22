@@ -197,6 +197,9 @@ public class IntentExampleManagementService : IIntentExampleManagementService
                 return true;
             }
 
+            // Always check/create indexes to ensure performance as schema evolves
+            await EnsureIndexesAsync(cancellationToken);
+
             return exists;
         }
         catch (Exception ex)
@@ -243,6 +246,18 @@ public class IntentExampleManagementService : IIntentExampleManagementService
                 await StoreIntentExampleAsync(example, null, intentType, cancellationToken, IntentReviewStatus.Approved, "SystemDefault");
             }
         }
+    }
+
+    private async Task EnsureIndexesAsync(CancellationToken cancellationToken)
+    {
+        // 1. Review Status (Critical for Admin Dashboard filters)
+        await _vectorDb.CreatePayloadIndexAsync(_intentCollectionName, "review_status", PayloadSchemaType.Keyword, cancellationToken);
+
+        // 2. Intent Type (Useful for analytics/filtering)
+        await _vectorDb.CreatePayloadIndexAsync(_intentCollectionName, "intent_type", PayloadSchemaType.Keyword, cancellationToken);
+
+        // 3. Source (To distinguish between AutoSeed, Manual, System)
+        await _vectorDb.CreatePayloadIndexAsync(_intentCollectionName, "source", PayloadSchemaType.Keyword, cancellationToken);
     }
 
     private static string? ExtractPayloadValue(IDictionary<string, Value>? payload, string key)

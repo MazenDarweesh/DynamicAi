@@ -91,6 +91,27 @@ public class QdrantDbService : IAppVectorDbService
         };
     }
 
+    public async Task CreatePayloadIndexAsync(
+        string collectionName,
+        string fieldName,
+        PayloadSchemaType fieldType,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            _logger.LogInformation("[QdrantDbService] Creating index for field '{Field}' in '{Collection}'", fieldName, collectionName);
+            await _qdrantClient.CreatePayloadIndexAsync(collectionName, fieldName, fieldType, cancellationToken: ct);
+        }
+        catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument && ex.Status.Detail.Contains("exists"))
+        {
+            _logger.LogDebug("[QdrantDbService] Index '{Field}' already exists.", fieldName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[QdrantDbService] Failed to create index for '{Field}'.", fieldName);
+            throw; // Re-throw to handle upstream if needed
+        }
+    }
 
     #region Phase 2: Safety Net (Admin Review)
 

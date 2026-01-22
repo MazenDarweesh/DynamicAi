@@ -136,7 +136,7 @@ namespace DynamicAi.Application.Services
                         intentType: intentResult.Intent,
                         cancellationToken: CancellationToken.None,
                         status: IntentReviewStatus.Pending,
-                        source: "LowConfidenceVerification"
+                        source: "System_LowConfidenceFallback"
                     );
                 }
 
