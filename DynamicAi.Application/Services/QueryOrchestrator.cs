@@ -121,19 +121,9 @@ namespace DynamicAi.Application.Services
 
                     result = await handler.HandleAsync(userQuestion, intentResult, context);
                 }
-                else if (intentResult.Intent == IntentType.Chat)
-                {
-                    // Fallback for Chat until Module 3 is fully implemented
-                    _logger.LogInformation("[Orchestrator] Chat intent detected (Fallback Logic) - returning friendly response");
-                    result = new QueryExecutionResult
-                    {
-                        Data = new[] { new { Message = "مرحباً! أنا هنا لمساعدتك في استعلامات البيانات. كيف يمكنني مساعدتك اليوم؟", Type = "Chat" } },
-                        QueryLogId = queryLogId,
-                        IsCached = false
-                    };
-                }
                 else
                 {
+                    // No handler registered for this intent type
                     _logger.LogWarning("[Orchestrator] No handler found for intent: {Intent}. Returning error.", intentResult.Intent);
                     throw new NotSupportedException($"The intent '{intentResult.Intent}' is not currently supported.");
                 }
