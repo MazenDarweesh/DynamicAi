@@ -146,20 +146,4 @@ namespace DynamicAi.Api.Controllers
 
         #endregion
     }
-
-    #region Request Models
-
-    public class ClearCacheRequest
-    {
-        public string Question { get; set; } = string.Empty;
-        public string? TenantId { get; set; }
-        public int? CompanyId { get; set; }
-    }
-
-    public class ClearIntentRequest
-    {
-        public string Question { get; set; } = string.Empty;
-    }
-
-    #endregion
 }
