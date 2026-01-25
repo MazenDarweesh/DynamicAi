@@ -224,7 +224,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
         client.Timeout = TimeSpan.FromSeconds(60);
     });
 
-    // خدمة المحادثة (Chat)
+    // خدمة المحادثة (Chat) - Semantic Kernel
     services.AddSingleton<IChatCompletionService>(sp =>
     {
         var clientFactory = sp.GetRequiredService<IHttpClientFactory>();
@@ -235,6 +235,19 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
             apiKey: googleApiKey,
             httpClient: httpClient
         );
+    });
+
+    // خدمة المحادثة (Chat) - Microsoft.Extensions.AI (for ChatIntentHandler)
+    services.AddSingleton<IChatClient>(sp =>
+    {
+        var clientFactory = sp.GetRequiredService<IHttpClientFactory>();
+        var httpClient = clientFactory.CreateClient("GeminiChatClient");
+
+        return new GoogleAIGeminiChatCompletionService(
+            modelId: chatModel,
+            apiKey: googleApiKey,
+            httpClient: httpClient
+        ).AsChatClient();
     });
 
     // --- تسجيل قاعدة البيانات ---
