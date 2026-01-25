@@ -1,6 +1,7 @@
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.AI;
 using System.ComponentModel.DataAnnotations;
 
 namespace DynamicAi.Api.Controllers;
@@ -12,13 +13,16 @@ namespace DynamicAi.Api.Controllers;
 public class IntentReviewController : ControllerBase
 {
     private readonly IIntentExampleManagementService _intentManager;
+    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly ILogger<IntentReviewController> _logger;
 
     public IntentReviewController(
         IIntentExampleManagementService intentManager,
+        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
         ILogger<IntentReviewController> logger)
     {
         _intentManager = intentManager;
+        _embeddingGenerator = embeddingGenerator;
         _logger = logger;
     }
 
@@ -94,5 +98,35 @@ public class IntentReviewController : ControllerBase
         {
             PendingCount = examples.Count()
         });
+    }
+    /// <summary>
+    /// Deletes an intent example by its question text using similarity search.
+    /// Use this to clean up incorrectly classified intent examples.
+    /// </summary>
+    [HttpPost("clear-by-question")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ClearIntentByQuestion([FromBody] ClearIntentRequest request)
+    {
+        _logger.LogInformation("🧹 [IntentClear] Clearing intent example for: {Question}", request.Question);
+
+        try
+        {
+            // Generate embedding
+            var embedding = await _embeddingGenerator.GenerateAsync(request.Question);
+            var vector = embedding.Vector.ToArray();
+
+            // Delete similar intent examples
+            var deleted = await _intentManager.DeleteByEmbeddingSimilarityAsync(vector);
+
+            return deleted
+                ? Ok(new { Message = "Intent example cleared", Question = request.Question })
+                : Ok(new { Message = "No matching intent example found", Question = request.Question });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear intent example");
+            return StatusCode(500, new { Error = ex.Message });
+        }
     }
 }
