@@ -81,6 +81,7 @@
 | **Frontend (Angular)** | اتبع أنماط الـ Components الموجودة، حافظ على نمط ChatGPT-like interface |
 | **Error Handling** | استخدم Result Pattern أو Custom Exceptions مع logging مناسب |
 | **التوثيق** | أضف XML documentation للـ public methods في C# |
+| **تنظيم الكود** | **إلزامي:** استخدم `#region` لتنظيم ملفات C# (`.cs`) في جميع الملفات الجديدة والموجودة (Fields, Constructor, Methods, etc.) |
 
 ### **المكدس التقني المعتمد:**
 
