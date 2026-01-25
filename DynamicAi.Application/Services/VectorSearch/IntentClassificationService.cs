@@ -137,11 +137,16 @@ public class IntentClassificationService : IIntentClassificationService
             _logger.LogInformation("[IntentRouter] 🤖 Calling Gemini for classification...");
 
             // ... (Prompt Construction similar to before) ...
-            var prompt = $@"SYSTEM: You are an advanced Intent Classification Engine for a Corporate BI System.
+            // Build ChatHistory with System prompt and User message (Gemini requires User message)
+            var chatHistory = new ChatHistory();
+
+            // System Message: Role and capabilities
+            chatHistory.AddSystemMessage(@"SYSTEM: You are an advanced Intent Classification Engine for a Corporate BI System.
 SKILLS: Deep understanding of English and Arabic (MSA & Egyptian Dialect), Robust Semantic Analysis, Context Inference.
+OUTPUT FORMAT (JSON ONLY): {""intent"": ""DataRetrieval"" | ""Analysis"" | ""Prediction"" | ""Chat"", ""confidence"": <0.0 to 1.0>, ""reasoning"": ""Brief explanation""}");
 
-YOUR GOAL: Decipher the user's intent, no matter how vague, colloquial, indirect, or 'twisted' the phrasing is. Map it to exactly ONE of the following intents.
-
+            // User Message: The actual classification request with full examples
+            chatHistory.AddUserMessage($@"YOUR GOAL: Decipher the user's intent, no matter how vague, colloquial, indirect, or 'twisted' the phrasing is. Map it to exactly ONE of the following intents.
 NOTE: The keywords and examples below are *Illustrative ONLY* (Not Exhaustive). Use your semantic understanding to classify similar intents even if wording differs.
 
 1. [DataRetrieval]: User wants raw data, lists, specific numbers, or records.
@@ -159,27 +164,23 @@ NOTE: The keywords and examples below are *Illustrative ONLY* (Not Exhaustive). 
    - Examples (EN): 'Predict next month', 'Forecast sales', 'Future trends'.
    - Keywords: 'Predict', 'Forecast', 'توقع', 'Future', 'مستقبل', 'هيحصل'.
 
-4. [Chat]: Non-business interactions, greetings, thanks, or gibberish.
-   - Examples (AR): 'شكرا', 'السلام عليكم', 'ازيك', 'صباح الخير'.
-    - Examples (EN): 'Hello', 'Thanks', 'How are you'.
-   - Keywords: 'Hi', 'Hello', 'ازيك', 'Thanks', 'شكرا', 'السلام عليكم'.
+4. [Chat]: Non-business interactions, greetings, thanks, asking about capabilities, or gibberish.
+   - Examples (AR): 'شكرا', 'السلام عليكم', 'ازيك', 'صباح الخير', 'انت بتعمل ايه'.
+   - Examples (EN): 'Hello', 'Thanks', 'How are you', 'What can you do?', 'Who are you?'.
+   - Keywords: 'Hi', 'Hello', 'ازيك', 'Thanks', 'شكرا', 'السلام عليكم', 'what can you do', 'كيف حالك'.
 
 CRITICAL RULES:
 - If the user implies fetching info, it is DataRetrieval.
 - If the user implies a calculation or judgment, it is Analysis.
+- If user is greeting, asking about capabilities, saying thanks, or non-business, it is Chat.
 - If the input is mixed or ambiguous, prioritize business value (Data/Analysis) over Chat.
 - IGNORE typos and slang. Focus on the *meaning*.
 
-OUTPUT FORMAT (JSON ONLY):
-{{
-  ""intent"": ""DataRetrieval"" | ""Analysis"" | ""Prediction"" | ""Chat"",
-  ""confidence"": <0.0 to 1.0 (Reflecting how sure you are of the meaning)>,
-  ""reasoning"": ""Brief English explanation of why you chose this intent""
-}}
+USER QUESTION: ""{userQuestion}""
 
-USER QUESTION: ""{userQuestion}""";
+Respond with JSON only:");
 
-            var result = await _chatService.GetChatMessageContentAsync(new ChatHistory(prompt), cancellationToken: cancellationToken);
+            var result = await _chatService.GetChatMessageContentAsync(chatHistory, cancellationToken: cancellationToken);
             var responseText = result.Content?.Trim() ?? "";
 
             // Parse (Simplified for brevity, assuming standard JSON parsing logic)
