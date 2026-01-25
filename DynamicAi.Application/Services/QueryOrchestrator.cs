@@ -154,8 +154,17 @@ namespace DynamicAi.Application.Services
                         GeminiCost = (decimal)_costTracker.GetSessionSummary().TotalCostUsd,
                         ConfidenceScore = result.ConfidenceScore
                     };
-                    // Fire and forget logging
-                    _ = _queryLogRepo.AddAsync(queryLog);
+
+                    // Await logging to prevent DbContext disposal before SaveChanges completes
+                    try
+                    {
+                        await _queryLogRepo.AddAsync(queryLog);
+                        _logger.LogDebug("[Orchestrator] Query log saved: {LogId}", queryLogId);
+                    }
+                    catch (Exception logEx)
+                    {
+                        _logger.LogWarning(logEx, "[Orchestrator] Failed to save query log, pipeline continues");
+                    }
                 }
                 else if (!result.IsSuccess)
                 {
@@ -198,7 +207,17 @@ namespace DynamicAi.Application.Services
                     HandlerType = intentResult?.Intent.ToString() ?? "Unknown",
                     ConfidenceScore = intentResult?.ConfidenceScore
                 };
-                _ = _queryLogRepo.AddAsync(errorLog);
+
+                // Await logging to prevent DbContext disposal before SaveChanges completes
+                try
+                {
+                    await _queryLogRepo.AddAsync(errorLog);
+                    _logger.LogDebug("[Orchestrator] Error log saved: {LogId}", queryLogId);
+                }
+                catch (Exception logSaveEx)
+                {
+                    _logger.LogWarning(logSaveEx, "[Orchestrator] Failed to save error log");
+                }
 
                 throw;
             }
