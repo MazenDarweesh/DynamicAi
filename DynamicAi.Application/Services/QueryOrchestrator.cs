@@ -17,6 +17,8 @@ namespace DynamicAi.Application.Services
     /// </summary>
     public class QueryOrchestrator : IQueryOrchestrator
     {
+        #region Fields
+
         private readonly IIntentHandlerFactory _handlerFactory;
         private readonly IIntentClassificationService _intentClassifier;
         private readonly IIntentExampleManagementService _intentManager;
@@ -24,6 +26,10 @@ namespace DynamicAi.Application.Services
         private readonly IGeminiCostTracker _costTracker;
         private readonly ILogger<QueryOrchestrator> _logger;
         private readonly bool _queryCacheEnabled;
+
+        #endregion
+
+        #region Constructor
 
         public QueryOrchestrator(
             IIntentHandlerFactory handlerFactory,
@@ -43,6 +49,10 @@ namespace DynamicAi.Application.Services
             _queryCacheEnabled = bool.Parse(configuration["Caching:QueryCache:Enabled"] ?? "true");
         }
 
+        #endregion
+
+        #region Public Methods
+
         public async Task<QueryExecutionResult> HandleQueryAsync(
             string userQuestion,
             string tenantId,
@@ -50,6 +60,8 @@ namespace DynamicAi.Application.Services
             string? previousQuestion = null,
             string? previousSql = null)
         {
+            #region Setup & Logging
+
             _logger.LogInformation("\n");
             _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
             _logger.LogInformation("║                  QUERY ORCHESTRATOR - PIPELINE START                   ║");
@@ -63,11 +75,12 @@ namespace DynamicAi.Application.Services
             IntentClassificationResult? intentResult = null;
             QueryExecutionResult? result = null;
 
+            #endregion
+
             try
             {
-                // ============================================================================
-                // Layer 0: INTENT CLASSIFICATION
-                // ============================================================================
+                #region Layer 0: Intent Classification
+
                 _logger.LogInformation("[Orchestrator] Layer 0: Classifying Intent...");
                 var intentStart = DateTime.UtcNow;
                 intentResult = await _intentClassifier.ClassifyIntentAsync(userQuestion);
@@ -89,9 +102,10 @@ namespace DynamicAi.Application.Services
                     );
                 }
 
-                // ============================================================================
-                // ROUTING TO HANDLER
-                // ============================================================================
+                #endregion
+
+                #region Routing to Handler
+
                 if (_handlerFactory.TryGetHandler(intentResult.Intent, out var handler))
                 {
                     _logger.LogInformation("[Orchestrator] Delegating to Handler: {HandlerType}", handler!.GetType().Name);
@@ -124,9 +138,10 @@ namespace DynamicAi.Application.Services
                     throw new NotSupportedException($"The intent '{intentResult.Intent}' is not currently supported.");
                 }
 
-                // ============================================================================
-                // POST-EXECUTION LOGGING
-                // ============================================================================
+                #endregion
+
+                #region Post-Execution Logging
+
                 var totalDuration = (DateTime.UtcNow - startTime).TotalMilliseconds;
 
                 if (result.IsSuccess && !result.IsCached)
@@ -165,7 +180,11 @@ namespace DynamicAi.Application.Services
 
                 _logger.LogInformation("[Orchestrator] Pipeline Completed in {Duration:F0}ms", totalDuration);
                 return result;
+
+                #endregion
             }
+            #region Error Handling
+
             catch (InteractionRequiredException)
             {
                 throw; // Pass through controller
@@ -193,6 +212,10 @@ namespace DynamicAi.Application.Services
 
                 throw;
             }
+
+            #endregion
         }
+
+        #endregion
     }
 }

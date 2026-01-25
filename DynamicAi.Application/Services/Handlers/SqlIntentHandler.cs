@@ -13,6 +13,8 @@ namespace DynamicAi.Application.Services.Handlers;
 /// </summary>
 public class SqlIntentHandler : IIntentHandler
 {
+    #region Fields
+
     private readonly IQueryCondenserService _condenserService;
     private readonly IRagRetrievalService _retrievalService;
     private readonly ISqlGenerationService _generationService;
@@ -24,6 +26,10 @@ public class SqlIntentHandler : IIntentHandler
     private readonly IGeminiCostTracker _costTracker; // For tracking token usage
     private readonly ILogger<SqlIntentHandler> _logger;
     private readonly bool _queryCacheEnabled;
+
+    #endregion
+
+    #region Constructor
 
     public SqlIntentHandler(
         IQueryCondenserService condenserService,
@@ -51,7 +57,15 @@ public class SqlIntentHandler : IIntentHandler
         _queryCacheEnabled = bool.Parse(configuration["Caching:QueryCache:Enabled"] ?? "true");
     }
 
+    #endregion
+
+    #region Properties
+
     public IntentType[] SupportedIntents => new[] { IntentType.DataRetrieval, IntentType.Analysis };
+
+    #endregion
+
+    #region Public Methods
 
     public bool CanHandle(IntentType intent) => SupportedIntents.Contains(intent);
 
@@ -63,7 +77,8 @@ public class SqlIntentHandler : IIntentHandler
     {
         _logger.LogInformation("[SqlHandler] Starting SQL pipeline for intent: {Intent}", intentResult.Intent);
 
-        // 0.5 Layer 0.5: Query Condensing
+        #region Phase 1: Query Condensing
+
         _logger.LogInformation("[SqlHandler] Layer 0.5: Condensing Query...");
         var condenserResult = await _condenserService.CondenseQuestionAsync(
             userQuestion,
@@ -73,7 +88,10 @@ public class SqlIntentHandler : IIntentHandler
         var condensedQuestion = condenserResult.CondensedQuestion;
         var actionType = condenserResult.ActionType;
 
-        // 0. Layer 0: Query Cache Check
+        #endregion
+
+        #region Phase 2: Query Cache Check
+
         float[]? questionEmbedding = null;
         bool isCached = false;
 
@@ -102,14 +120,20 @@ public class SqlIntentHandler : IIntentHandler
             }
         }
 
-        // 1. Layer 1: RAG Retrieval
+        #endregion
+
+        #region Phase 3: RAG Retrieval
+
         _logger.LogInformation("[SqlHandler] Layer 1: Retrieving context...");
         var retrievalResult = await _retrievalService.RetrieveContextAsync(
             condensedQuestion,
             context?.TenantId ?? "default"
         );
 
-        // 2. Layer 2: SQL Generation
+        #endregion
+
+        #region Phase 4: SQL Generation
+
         _logger.LogInformation("[SqlHandler] Layer 2: Generating SQL (Action: {ActionType})...", actionType);
 
         var sqlResult = await _generationService.GenerateSqlAsync(
@@ -132,7 +156,10 @@ public class SqlIntentHandler : IIntentHandler
             return new QueryExecutionResult { ErrorMessage = "Failed to generate SQL from the prompt." };
         }
 
-        // 3. Layer 3: Validation
+        #endregion
+
+        #region Phase 5: SQL Validation
+
         _logger.LogInformation("[SqlHandler] Layer 3: Validating SQL...");
         try
         {
@@ -143,7 +170,10 @@ public class SqlIntentHandler : IIntentHandler
             return new QueryExecutionResult { ErrorMessage = $"SQL Validation Failed: {ex.Message}" };
         }
 
-        // 3.5 Cache Store
+        #endregion
+
+        #region Phase 6: Cache Storage
+
         if (_queryCacheEnabled && questionEmbedding != null && !isCached && context?.QueryLogId != null)
         {
             var pageId = 0;
@@ -158,6 +188,10 @@ public class SqlIntentHandler : IIntentHandler
                 context?.CompanyId ?? 0);
         }
 
+        #endregion
+
+        #region Phase 7: Execution Dispatch
+
         return await ExecutePipelineFromValidationAsync(
             sqlResult.Sql,
             context,
@@ -165,7 +199,13 @@ public class SqlIntentHandler : IIntentHandler
             false, // isCached
             sqlResult.Confidence,
             retrievalResult.UnifiedPageContext);
+
+        #endregion
     }
+
+    #endregion
+
+    #region Private Methods
 
     private async Task<QueryExecutionResult> ExecutePipelineFromValidationAsync(
         string rawSql,
@@ -209,4 +249,6 @@ public class SqlIntentHandler : IIntentHandler
             ConfidenceScore = confidence
         };
     }
+
+    #endregion
 }
