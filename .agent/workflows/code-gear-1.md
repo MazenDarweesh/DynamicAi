@@ -75,7 +75,10 @@ description: بروتوكول ترس الشفرة-1 - الهندسة الموج�
 | **Clean Architecture** | احترم طبقات المشروع: Domain → Application → Infrastructure → Api |
 | **الحفاظ على الأنماط** | عند إضافة خدمة جديدة، اتبع نمط الخدمات الموجودة مثل `SqlGenerationService` |
 | **Dependency Injection** | جميع الخدمات يجب أن تُسجل في DI container ويتم حقنها عبر constructor |
+| **Atomic Commits** | نفذ التغييرات في وحدات صغيرة ومترابطة. |
+| **فصل الاهتمامات (Separation of Concerns)** | فصل الموديلات (Models) والمستندات (Requests/DTOs) في ملفات مستقلة فورًا؛ التكدس داخل ملف واحد ممنوع. |
 | **Async/Await** | جميع عمليات الـ I/O يجب أن تكون async |
+| **Model Separation** | ضع الموديلات (Models/DTOs/Requests) دائمًا في ملفات منفصلة في المجلد المناسب. يمنع منعًا باتًا كتابة الكلاسات داخل ملف الـ Controller. |
 
 ### **التفضيلات القوية:**
 

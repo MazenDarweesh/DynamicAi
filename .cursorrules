@@ -72,6 +72,7 @@
 | **الحفاظ على الأنماط** | عند إضافة خدمة جديدة، اتبع نمط الخدمات الموجودة مثل `SqlGenerationService` |
 | **Dependency Injection** | جميع الخدمات يجب أن تُسجل في DI container ويتم حقنها عبر constructor |
 | **Async/Await** | جميع عمليات الـ I/O يجب أن تكون async |
+| **Model Separation** | ضع الموديلات (Models/DTOs/Requests) دائمًا في ملفات منفصلة في المجلد المناسب. يمنع منعًا باتًا كتابة الكلاسات داخل ملف الـ Controller. |
 
 ### **التفضيلات القوية:**
 

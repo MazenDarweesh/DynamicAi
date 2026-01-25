@@ -32,7 +32,7 @@ description: بروتوكول "Code Gear: Velocity" - المعيار الذهب�
 
 ### **💎 3. التنفيذ الجراحي (Surgical Execution)**
 *   **Atomic Commits:** نفذ التغييرات في وحدات صغيرة ومترابطة (Models أولًا -> Interfaces -> Implementation -> Controllers -> UI). هذا يقلل من تكسير البناء (Breaking Build).
-*   **فصل الاهتمامات (Separation of Concerns):** إذا شعرت أن الملف مزدحم، افصله فورًا (مثال: فصل `Request Models`). النظافة أهم من السرعة.
+*   **فصل الاهتمامات (Separation of Concerns):** فصل الموديلات (Models) والمستندات (Requests/DTOs) في ملفات مستقلة فورًا في المجلدات المخصصة لها؛ التكدس داخل ملف واحد أو كتابتها داخل الـ Controller ممنوع بتاتًا.
 
 ### **💎 4. التحقق الإلزامي (Mandatory Verification)**
 *   بعد كل مجموعة تغييرات (Module Completion):
