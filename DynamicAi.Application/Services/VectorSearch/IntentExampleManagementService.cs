@@ -271,4 +271,59 @@ public class IntentExampleManagementService : IIntentExampleManagementService
             _ => value.ToString()
         };
     }
+
+    /// <inheritdoc />
+    public async Task<bool> DeleteByEmbeddingSimilarityAsync(float[] embedding, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("[IntentManager] Searching for similar intent examples to delete...");
+
+            // Search for similar examples with high similarity using _vectorDb
+            var results = await _vectorDb.SearchAsync(
+                _intentCollectionName,
+                embedding,
+                limit: 5,
+                scoreThreshold: 0.85f,
+                ct: cancellationToken);
+
+            if (results == null || !results.Any())
+            {
+                _logger.LogInformation("[IntentManager] No similar intent examples found");
+                return false;
+            }
+
+            var deletedCount = 0;
+            foreach (var result in results)
+            {
+                try
+                {
+                    // Extract point ID from the result
+                    var pointId = Guid.Parse(result.Id.Uuid);
+
+                    // Use _vectorDb.DeletePointAsync instead of direct Qdrant client
+                    await _vectorDb.DeletePointAsync(
+                        _intentCollectionName,
+                        pointId,
+                        ct: cancellationToken);
+
+                    _logger.LogInformation("[IntentManager] ✓ Deleted intent example {PointId} (Score: {Score:F2})",
+                        pointId, result.Score);
+                    deletedCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[IntentManager] Failed to delete point {PointId}", result.Id.Uuid);
+                }
+            }
+
+            _logger.LogInformation("[IntentManager] ✓ Deleted {Count} similar intent example(s)", deletedCount);
+            return deletedCount > 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[IntentManager] Error deleting similar intent examples");
+            return false;
+        }
+    }
 }

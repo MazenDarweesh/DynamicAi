@@ -42,4 +42,10 @@ public interface IIntentExampleManagementService
     /// Ensures the underlying storage (Collection) exists and is seeded with defaults.
     /// </summary>
     Task<bool> EnsureCollectionExistsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes intent examples similar to the given embedding vector.
+    /// Used to clean up incorrectly classified or poisoned examples.
+    /// </summary>
+    Task<bool> DeleteByEmbeddingSimilarityAsync(float[] embedding, CancellationToken cancellationToken = default);
 }
