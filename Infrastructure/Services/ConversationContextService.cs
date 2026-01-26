@@ -36,14 +36,26 @@ public class ConversationContextService : IConversationContextService
             // ✅ الحل الذكي: Statistical Sample logic
             if (resultData != null && intent != "Chat")
             {
+                var resultObj = (object)resultData;
+                _logger.LogInformation("ContextService: Processing resultData of type {Type}", resultObj.GetType().Name);
+
                 // We assume resultData is IEnumerable<dynamic> or similar
                 IEnumerable<dynamic> resultsEnumerable = resultData as IEnumerable<dynamic> ?? new List<dynamic>();
                 var resultsList = resultsEnumerable.ToList();
+
+                _logger.LogInformation("ContextService: Result list count: {Count}", resultsList.Count);
 
                 if (resultsList.Count > 0)
                 {
                     // To get columns from dynamic objects (usually DapperRow or ExpandoObject)
                     var firstRow = resultsList.First() as IDictionary<string, object>;
+
+                    if (firstRow == null)
+                    {
+                        var firstItem = (object)resultsList.First();
+                        _logger.LogWarning("ContextService: First row is NOT IDictionary<string, object>. It is {Type}", firstItem.GetType().Name);
+                    }
+
                     var columns = firstRow?.Keys.ToList() ?? new List<string>();
 
                     var sample = new
@@ -59,6 +71,7 @@ public class ConversationContextService : IConversationContextService
                     };
 
                     sampleJson = JsonSerializer.Serialize(sample);
+                    _logger.LogInformation("ContextService: Sample JSON generated. Length: {Length}", sampleJson.Length);
                 }
             }
 
