@@ -1,4 +1,5 @@
-﻿using DynamicAi.Application.Interfaces;
+﻿using System.Text;
+using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Exceptions;
 using DynamicAi.Domain.Entities;
@@ -25,6 +26,7 @@ namespace DynamicAi.Application.Services
         private readonly IQueryLogRepository _queryLogRepo;
         private readonly IGeminiCostTracker _costTracker;
         private readonly ILogger<QueryOrchestrator> _logger;
+        private readonly IConversationContextService _contextService;
         private readonly bool _queryCacheEnabled;
 
         #endregion
@@ -36,11 +38,13 @@ namespace DynamicAi.Application.Services
             IIntentClassificationService intentClassifier,
             IIntentExampleManagementService intentExampleManagementService,
             IQueryLogRepository queryLogRepo,
+            IConversationContextService contextService,
             IGeminiCostTracker costTracker,
             ILogger<QueryOrchestrator> logger,
             IConfiguration configuration)
         {
             _handlerFactory = handlerFactory;
+            _contextService = contextService;
             _intentClassifier = intentClassifier;
             _intentManager = intentExampleManagementService;
             _queryLogRepo = queryLogRepo;
@@ -55,6 +59,7 @@ namespace DynamicAi.Application.Services
 
         public async Task<QueryExecutionResult> HandleQueryAsync(
             string userQuestion,
+            string sessionId,
             string tenantId,
             int? comID = null,
             string? previousQuestion = null,
@@ -79,11 +84,22 @@ namespace DynamicAi.Application.Services
 
             try
             {
+                #region Context Injection (Layer -1)
+
+                var recentContext = await _contextService.GetRecentContextAsync(sessionId);
+                var augmentedQuestion = BuildPromptWithContext(userQuestion, recentContext);
+
+                // Use augmented question for classification and handling to ensure context awareness
+                var questionToProcess = augmentedQuestion;
+
+                #endregion
+
                 #region Layer 0: Intent Classification
 
                 _logger.LogInformation("[Orchestrator] Layer 0: Classifying Intent...");
                 var intentStart = DateTime.UtcNow;
-                intentResult = await _intentClassifier.ClassifyIntentAsync(userQuestion);
+                // We pass the augmented question so the classifier sees "Previous: SQL... Current: Why low?"
+                intentResult = await _intentClassifier.ClassifyIntentAsync(questionToProcess);
                 var intentDuration = (DateTime.UtcNow - intentStart).TotalMilliseconds;
 
                 _logger.LogInformation("[Orchestrator] ✓ Intent Detected: {Intent} (Confidence: {Confidence:F2}) in {Duration:F0}ms",
@@ -178,6 +194,22 @@ namespace DynamicAi.Application.Services
                 }
 
                 _logger.LogInformation("[Orchestrator] Pipeline Completed in {Duration:F0}ms", totalDuration);
+                #region Context Saving
+
+                if (result != null && result.IsSuccess)
+                {
+                    // Save the turn asynchronously (fire and forget-ish, but awaited)
+                    await _contextService.SaveTurnAsync(
+                        sessionId,
+                        userQuestion, // Save original question
+                        intentResult?.Intent.ToString() ?? "Unknown",
+                        result.RewrittenSql, // Or executed SQL
+                        result.Data // The service will handle sampling
+                    );
+                }
+
+                #endregion
+
                 return result;
 
                 #endregion
@@ -223,6 +255,30 @@ namespace DynamicAi.Application.Services
             }
 
             #endregion
+        }
+
+        private string BuildPromptWithContext(string question, List<ConversationTurn> context)
+        {
+            if (context == null || !context.Any())
+                return question;
+
+            var sb = new StringBuilder();
+            sb.AppendLine("CONVERSATION HISTORY (Youngest to Oldest):");
+            sb.AppendLine("---");
+
+            foreach (var turn in context)
+            {
+                sb.AppendLine($"User: {turn.Question}");
+                if (!string.IsNullOrEmpty(turn.SqlExecuted))
+                    sb.AppendLine($"Executed SQL: {turn.SqlExecuted}");
+                if (!string.IsNullOrEmpty(turn.ResultSampleJson))
+                    sb.AppendLine($"Result Sample: {turn.ResultSampleJson}");
+                sb.AppendLine();
+            }
+            sb.AppendLine("---");
+            sb.AppendLine($"CURRENT QUESTION: {question}");
+
+            return sb.ToString();
         }
 
         #endregion

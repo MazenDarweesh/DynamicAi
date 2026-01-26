@@ -22,6 +22,7 @@ namespace DynamicAi.Application.Interfaces
         /// <returns>نتيجة الاستعلام (البيانات + Metadata).</returns>
         Task<QueryExecutionResult> HandleQueryAsync(
             string userQuestion,
+            string sessionId,
             string tenantId,
             int? comID = null,
             string? previousQuestion = null,

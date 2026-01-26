@@ -61,6 +61,7 @@ namespace DynamicAi.Api.Controllers
                 // تشغيل Pipeline بالكامل مع إرسال ComID و Conversation Context
                 var result = await _queryOrchestrator.HandleQueryAsync(
                     request.Question,
+                    request.SessionId ?? Guid.NewGuid().ToString(), // ضمان وجود SessionId
                     request.TenantId,
                     request.ComID,
                     request.PreviousQuestion,  // Layer 0.5: للـ Query Condensing

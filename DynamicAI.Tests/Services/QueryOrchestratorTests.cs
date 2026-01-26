@@ -26,6 +26,7 @@ public class QueryOrchestratorTests
     private readonly IGeminiCostTracker _costTracker;
     private readonly ILogger<QueryOrchestrator> _logger;
     private readonly IConfiguration _configuration;
+    private readonly IConversationContextService _contextService;
 
     public QueryOrchestratorTests()
     {
@@ -36,6 +37,7 @@ public class QueryOrchestratorTests
         _costTracker = A.Fake<IGeminiCostTracker>();
         _logger = A.Fake<ILogger<QueryOrchestrator>>();
         _configuration = A.Fake<IConfiguration>();
+        _contextService = A.Fake<IConversationContextService>();
 
         // Default Configuration
         A.CallTo(() => _configuration["Caching:QueryCache:Enabled"]).Returns("true");
@@ -45,6 +47,7 @@ public class QueryOrchestratorTests
             _intentClassifier,
             _intentManager,
             _queryLogRepo,
+            _contextService,
             _costTracker,
             _logger,
             _configuration
@@ -79,7 +82,7 @@ public class QueryOrchestratorTests
             .Returns(Task.FromResult(executionResult));
 
         // Act
-        var result = await _sut.HandleQueryAsync(userQuestion, tenantId);
+        var result = await _sut.HandleQueryAsync(userQuestion, "test-session", tenantId);
 
         // Assert
         result.Should().Be(executionResult);
@@ -116,7 +119,7 @@ public class QueryOrchestratorTests
             .Returns(false);
 
         // Act
-        var result = await _sut.HandleQueryAsync(userQuestion, tenantId);
+        var result = await _sut.HandleQueryAsync(userQuestion, "test-session", tenantId);
 
         // Assert
         result.Should().NotBeNull();
@@ -143,7 +146,7 @@ public class QueryOrchestratorTests
             .Returns(false);
 
         // Act
-        Func<Task> act = async () => await _sut.HandleQueryAsync(userQuestion, tenantId);
+        Func<Task> act = async () => await _sut.HandleQueryAsync(userQuestion, "test-session", tenantId);
 
         // Assert
         await act.Should().ThrowAsync<NotSupportedException>()

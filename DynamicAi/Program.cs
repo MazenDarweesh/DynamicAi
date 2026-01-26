@@ -1,5 +1,6 @@
 ﻿using DynamicAi.Infrastructure.Persistence;
 using DynamicAi.Infrastructure.Repositories;
+using DynamicAi.Infrastructure.Services;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Services;
 using DynamicAi.Api.Services;
@@ -141,6 +142,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     // --- Repositories ---
     services.AddScoped<ITrainingExampleRepository, TrainingExampleRepository>();
     services.AddScoped<IQueryLogRepository, QueryLogRepository>();
+    services.AddScoped<IConversationContextService, ConversationContextService>();
 
     // --- Feedback Service (Golden Dataset) ---
     services.AddScoped<IFeedbackService, FeedbackService>();
