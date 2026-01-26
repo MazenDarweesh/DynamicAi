@@ -10,7 +10,7 @@ namespace DynamicAi.Infrastructure.Persistence
 
         public DbSet<QueryLog> QueryLogs { get; set; }
         public DbSet<TrainingExample> TrainingExamples { get; set; }
-        public DbSet<ConversationTurn> ConversationTurns { get; set; }
+
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

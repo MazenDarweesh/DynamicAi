@@ -1,8 +1,7 @@
+using System.Collections.Generic;
 using System.Text.Json;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Domain.Entities;
-using DynamicAi.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
@@ -10,21 +9,19 @@ namespace DynamicAi.Infrastructure.Services;
 
 public class ConversationContextService : IConversationContextService
 {
-    private readonly AppDbContext _db;
     private readonly IMemoryCache _cache;
     private readonly ILogger<ConversationContextService> _logger;
+    private const int MAX_HISTORY_PER_SESSION = 5; // Keep last 5 turns in memory
 
     public ConversationContextService(
-        AppDbContext db,
         IMemoryCache cache,
         ILogger<ConversationContextService> logger)
     {
-        _db = db;
         _cache = cache;
         _logger = logger;
     }
 
-    public async Task SaveTurnAsync(
+    public Task SaveTurnAsync(
         string sessionId,
         string question,
         string intent,
@@ -67,56 +64,69 @@ public class ConversationContextService : IConversationContextService
 
             var turn = new ConversationTurn
             {
+                Id = Guid.NewGuid(),
                 SessionId = sessionId,
                 Question = question,
                 Intent = intent,
                 SqlExecuted = sqlExecuted,
                 ResultSampleJson = sampleJson,
-                IsRelevantForContext = intent != "Chat", // Ignore simple chat
+                IsRelevantForContext = intent != "Chat",
                 CreatedAt = DateTime.UtcNow
             };
 
-            await _db.ConversationTurns.AddAsync(turn, cancellationToken);
-            await _db.SaveChangesAsync(cancellationToken);
+            // ⚡ Pure Memory Logic
+            var cacheKey = $"context-{sessionId}";
 
-            // Invalidate cache
-            _cache.Remove($"context-{sessionId}");
+            // Get existing history or create new
+            var history = _cache.GetOrCreate(cacheKey, entry =>
+            {
+                entry.SlidingExpiration = TimeSpan.FromMinutes(30);
+                return new List<ConversationTurn>();
+            }) ?? new List<ConversationTurn>();
+
+            // Add new turn
+            history.Add(turn);
+
+            // Limit size to prevent memory bloat
+            if (history.Count > MAX_HISTORY_PER_SESSION)
+            {
+                history = history.OrderByDescending(x => x.CreatedAt).Take(MAX_HISTORY_PER_SESSION).OrderBy(x => x.CreatedAt).ToList();
+            }
+
+            // Update cache
+            _cache.Set(cacheKey, history, new MemoryCacheEntryOptions
+            {
+                SlidingExpiration = TimeSpan.FromMinutes(30)
+            });
+
+            return Task.CompletedTask;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save conversation turn");
-            // Fail silently to not disrupt the main flow
+            _logger.LogError(ex, "Failed to save conversation turn to memory");
+            return Task.CompletedTask;
         }
     }
 
-    public async Task<List<ConversationTurn>> GetRecentContextAsync(
+    public Task<List<ConversationTurn>> GetRecentContextAsync(
         string sessionId,
         int limit = 3,
         CancellationToken cancellationToken = default)
     {
         var cacheKey = $"context-{sessionId}";
-        if (_cache.TryGetValue<List<ConversationTurn>>(cacheKey, out var cached))
+        if (_cache.TryGetValue<List<ConversationTurn>>(cacheKey, out var history))
         {
-            return cached!;
-        }
-
-        try
-        {
-            var context = await _db.ConversationTurns
-                .Where(x => x.SessionId == sessionId && x.IsRelevantForContext)
+            // Filter and take random/last N? Logic says "Recent Context" -> Last N
+            var relevant = history!
+                .Where(x => x.IsRelevantForContext)
                 .OrderByDescending(x => x.CreatedAt)
                 .Take(limit)
-                // Reverse to chronological order
                 .OrderBy(x => x.CreatedAt)
-                .ToListAsync(cancellationToken);
+                .ToList();
 
-            _cache.Set(cacheKey, context, TimeSpan.FromMinutes(15));
-            return context;
+            return Task.FromResult(relevant);
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to get recent context");
-            return new List<ConversationTurn>();
-        }
+
+        return Task.FromResult(new List<ConversationTurn>());
     }
 }

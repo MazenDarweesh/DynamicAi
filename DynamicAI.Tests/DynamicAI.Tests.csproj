@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DynamicAi.Application\DynamicAi.Application.csproj" />
+    <ProjectReference Include="..\Infrastructure\DynamicAi.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
