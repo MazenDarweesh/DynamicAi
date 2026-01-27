@@ -139,14 +139,13 @@ public class IntentClassificationService : IIntentClassificationService
         {
             _logger.LogInformation("[IntentRouter] 🤖 Calling Gemini for classification...");
 
-            // ... (Prompt Construction similar to before) ...
             // Build ChatHistory with System prompt and User message (Gemini requires User message)
             var chatHistory = new ChatHistory();
 
-            // System Message: Role and capabilities
+            // System Message: Role and capabilities - Updated with PredictionWithDataFetch
             chatHistory.AddSystemMessage(@"SYSTEM: You are an advanced Intent Classification Engine for a Corporate BI System.
 SKILLS: Deep understanding of English and Arabic (MSA & Egyptian Dialect), Robust Semantic Analysis, Context Inference.
-OUTPUT FORMAT (JSON ONLY): {""intent"": ""DataRetrieval"" | ""Analysis"" | ""Prediction"" | ""Chat"", ""confidence"": <0.0 to 1.0>, ""reasoning"": ""Brief explanation""}");
+OUTPUT FORMAT (JSON ONLY): {""intent"": ""DataRetrieval"" | ""Analysis"" | ""Prediction"" | ""PredictionWithDataFetch"" | ""Chat"", ""confidence"": <0.0 to 1.0>, ""reasoning"": ""Brief explanation""}");
 
             // User Message: The actual classification request with full examples
             chatHistory.AddUserMessage($@"YOUR GOAL: Decipher the user's intent, no matter how vague, colloquial, indirect, or 'twisted' the phrasing is. Map it to exactly ONE of the following intents.
@@ -162,12 +161,18 @@ NOTE: The keywords and examples below are *Illustrative ONLY* (Not Exhaustive). 
    - Examples (EN): 'Why did sales drop?', 'Best selling product', 'Compare Q1 and Q2', 'Performance analysis'.
    - Keywords: 'Compare', 'Why', 'ليه', 'احسن', 'Trend', 'سبب'.
 
-3. [Prediction]: User asks about the future, forecasts, or what *will* happen.
+3. [Prediction]: User asks about the future, forecasts, or what *will* happen (WITHOUT referencing specific data to base it on).
    - Examples (AR): 'توقع المبيعات الجاية', 'ايه اللي هيحصل الشهر الجاي؟', 'مستقبل السوق'.
    - Examples (EN): 'Predict next month', 'Forecast sales', 'Future trends'.
    - Keywords: 'Predict', 'Forecast', 'توقع', 'Future', 'مستقبل', 'هيحصل'.
 
-4. [Chat]: Non-business interactions, greetings, thanks, asking about capabilities, or gibberish.
+4. [PredictionWithDataFetch]: User wants a prediction BUT explicitly asks to base it on specific data (e.g., last X months, previous year).
+   - Examples (AR): 'بناء على بيانات اخر 5 شهور توقع لي المبيعات', 'استناداً للسنة الماضية توقع الأرباح', 'من بيانات الربع الاول توقع الربع الجاي'.
+   - Examples (EN): 'Based on last 5 months data, predict next month sales', 'Using previous year data, forecast Q2', 'From last quarter predict next quarter'.
+   - Keywords: 'Based on' + 'predict', 'بناء على' + 'توقع', 'استناداً' + 'توقع', 'Using data' + 'forecast'.
+   - CRITICAL: This is for requests that COMBINE data fetching AND prediction in one question.
+
+5. [Chat]: Non-business interactions, greetings, thanks, asking about capabilities, or gibberish.
    - Examples (AR): 'شكرا', 'السلام عليكم', 'ازيك', 'صباح الخير', 'انت بتعمل ايه'.
    - Examples (EN): 'Hello', 'Thanks', 'How are you', 'What can you do?', 'Who are you?'.
    - Keywords: 'Hi', 'Hello', 'ازيك', 'Thanks', 'شكرا', 'السلام عليكم', 'what can you do', 'كيف حالك'.
@@ -175,8 +180,10 @@ NOTE: The keywords and examples below are *Illustrative ONLY* (Not Exhaustive). 
 CRITICAL RULES:
 - If the user implies fetching info, it is DataRetrieval.
 - If the user implies a calculation or judgment, it is Analysis.
+- If the user wants future prediction WITHOUT data context, it is Prediction.
+- If the user wants prediction AND explicitly mentions data to use (last X months, previous year, etc.), it is PredictionWithDataFetch.
 - If user is greeting, asking about capabilities, saying thanks, or non-business, it is Chat.
-- If the input is mixed or ambiguous, prioritize business value (Data/Analysis) over Chat.
+- If the input is mixed or ambiguous, prioritize business value (Data/Analysis/Prediction) over Chat.
 - IGNORE typos and slang. Focus on the *meaning*.
 
 USER QUESTION: ""{userQuestion}""
