@@ -38,13 +38,6 @@ public class IntentClassificationService : IIntentClassificationService
         ["Unknown"] = IntentType.Unknown
     };
 
-    // Phase 4: Prediction Keywords for fast detection (bypasses Vector Search)
-    private static readonly string[] PredictionKeywordsAr = { "توقع", "تنبأ", "الشهر الجاي", "مستقبل", "هيحصل", "القادم", "الجاية", "هتبقى", "هيبقى" };
-    private static readonly string[] PredictionKeywordsEn = { "predict", "forecast", "future", "next month", "will be", "will happen", "projection" };
-
-    // Phase 5: Combined Keywords - Data Fetch + Prediction (Multi-Step)
-    private static readonly string[] DataFetchContextAr = { "بناء على", "استناداً", "بناءً على", "من بيانات", "اخر", "آخر", "السابق", "الماضي" };
-    private static readonly string[] DataFetchContextEn = { "based on", "using data", "from last", "last", "previous", "past" };
 
     public IntentClassificationService(
         IAppVectorDbService vectorDb,
@@ -78,41 +71,6 @@ public class IntentClassificationService : IIntentClassificationService
             _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
             _logger.LogInformation("[IntentRouter] User Question: \"{Question}\"",
                 userQuestion.Length > 80 ? userQuestion[..80] + "..." : userQuestion);
-
-            // Extract ONLY the current question for keyword detection
-            // The userQuestion may contain conversation history prefix
-            var currentQuestion = ExtractCurrentQuestion(userQuestion);
-
-            // Phase 5: Check for Combined (Data Fetch + Prediction) - Must come BEFORE simple Prediction check
-            if (CheckPredictionWithDataFetchKeywords(currentQuestion))
-            {
-                _logger.LogInformation("[IntentRouter] 🎯 KEYWORD MATCH: PredictionWithDataFetch - Multi-Step required");
-                stopwatch.Stop();
-                return new IntentClassificationResult
-                {
-                    Intent = IntentType.PredictionWithDataFetch,
-                    ConfidenceScore = 0.95f,
-                    MatchedExample = "Combined Keyword Detection",
-                    LatencyMs = stopwatch.ElapsedMilliseconds,
-                    QueryEmbedding = null
-                };
-            }
-
-            // Phase 4: Keyword Pre-Check for Prediction (Fast Path)
-            // IMPORTANT: Use currentQuestion only, not the full context
-            if (CheckPredictionKeywords(currentQuestion))
-            {
-                _logger.LogInformation("[IntentRouter] 🎯 KEYWORD MATCH: Prediction intent detected via keywords");
-                stopwatch.Stop();
-                return new IntentClassificationResult
-                {
-                    Intent = IntentType.Prediction,
-                    ConfidenceScore = 0.95f, // High confidence for keyword match
-                    MatchedExample = "Keyword Detection",
-                    LatencyMs = stopwatch.ElapsedMilliseconds,
-                    QueryEmbedding = null
-                };
-            }
 
 
             // Ensure DB is ready (Delegated to Manager)
@@ -284,125 +242,4 @@ Respond with JSON only:");
         return value.KindCase == Value.KindOneofCase.StringValue ? value.StringValue : value.ToString();
     }
 
-    /// <summary>
-    /// Phase 4: Fast keyword-based detection for Prediction intents.
-    /// Bypasses Vector Search for explicit prediction keywords.
-    /// </summary>
-    private static bool CheckPredictionKeywords(string question)
-    {
-        var lowerQuestion = question.ToLowerInvariant();
-
-        // Check Arabic keywords
-        foreach (var keyword in PredictionKeywordsAr)
-        {
-            if (question.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        // Check English keywords
-        foreach (var keyword in PredictionKeywordsEn)
-        {
-            if (lowerQuestion.Contains(keyword))
-                return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Extracts the current user question from a context-enriched prompt.
-    /// The prompt may start with "CONVERSATION HISTORY..." and end with "Current question: X"
-    /// or just be the raw question.
-    /// </summary>
-    private static string ExtractCurrentQuestion(string fullPrompt)
-    {
-        // Check if prompt contains conversation history
-        if (fullPrompt.StartsWith("CONVERSATION HISTORY", StringComparison.OrdinalIgnoreCase))
-        {
-            // Look for "Current question:" marker
-            var marker = "Current question:";
-            var markerIndex = fullPrompt.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-            if (markerIndex >= 0)
-            {
-                return fullPrompt[(markerIndex + marker.Length)..].Trim();
-            }
-
-            // Alternative: Look for last "---" separator and take what's after
-            var lastSeparator = fullPrompt.LastIndexOf("---", StringComparison.Ordinal);
-            if (lastSeparator >= 0)
-            {
-                var afterSeparator = fullPrompt[(lastSeparator + 3)..].Trim();
-                // If there's a newline, take the last line
-                var lines = afterSeparator.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-                if (lines.Length > 0)
-                {
-                    return lines[^1].Trim();
-                }
-            }
-        }
-
-        // No context enrichment, return as-is
-        return fullPrompt;
-    }
-
-    /// <summary>
-    /// Checks if the question contains BOTH prediction keywords AND data context keywords.
-    /// This indicates a multi-step query: fetch data first, then predict.
-    /// Example: "بناء على بيانات اخر 5 شهور توقع لي المبيعات"
-    /// </summary>
-    private static bool CheckPredictionWithDataFetchKeywords(string question)
-    {
-        var lowerQuestion = question.ToLowerInvariant();
-
-        bool hasPrediction = false;
-        bool hasDataContext = false;
-
-        // Check for prediction keywords
-        foreach (var keyword in PredictionKeywordsAr)
-        {
-            if (question.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-            {
-                hasPrediction = true;
-                break;
-            }
-        }
-
-        if (!hasPrediction)
-        {
-            foreach (var keyword in PredictionKeywordsEn)
-            {
-                if (lowerQuestion.Contains(keyword))
-                {
-                    hasPrediction = true;
-                    break;
-                }
-            }
-        }
-
-        if (!hasPrediction) return false;
-
-        // Check for data context keywords
-        foreach (var keyword in DataFetchContextAr)
-        {
-            if (question.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-            {
-                hasDataContext = true;
-                break;
-            }
-        }
-
-        if (!hasDataContext)
-        {
-            foreach (var keyword in DataFetchContextEn)
-            {
-                if (lowerQuestion.Contains(keyword))
-                {
-                    hasDataContext = true;
-                    break;
-                }
-            }
-        }
-
-        return hasPrediction && hasDataContext;
-    }
 }
