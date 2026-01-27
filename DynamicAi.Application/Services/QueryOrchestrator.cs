@@ -233,6 +233,7 @@ namespace DynamicAi.Application.Services
 
                 #endregion
             }
+
             #region Error Handling
 
             catch (InteractionRequiredException)
@@ -276,6 +277,10 @@ namespace DynamicAi.Application.Services
             #endregion
         }
 
+        #endregion
+
+        #region Private Methods
+
         private string BuildPromptWithContext(string question, List<ConversationTurn> context)
         {
             if (context == null || !context.Any())
@@ -299,6 +304,10 @@ namespace DynamicAi.Application.Services
 
             return sb.ToString();
         }
+
+        #endregion
+
+        #region Multi-Step Prediction Pipeline
 
         /// <summary>
         /// Handles Multi-Step prediction queries like "Based on last 5 months data, predict next month sales"
@@ -440,6 +449,10 @@ namespace DynamicAi.Application.Services
 
             return predictionResult;
         }
+
+        #endregion
+
+        #region Helper Methods
 
         /// <summary>
         /// Helper to count rows in data result
