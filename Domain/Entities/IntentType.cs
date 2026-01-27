@@ -25,6 +25,13 @@ public enum IntentType
     Prediction,
 
     /// <summary>
+    /// Combined data fetch + prediction in one query.
+    /// Example: "Based on last 5 months data, predict next month's sales"
+    /// Requires multi-step handling: fetch data first, then predict.
+    /// </summary>
+    PredictionWithDataFetch,
+
+    /// <summary>
     /// Casual conversation or greetings.
     /// Example: "Hello", "Thanks"
     /// </summary>
@@ -36,3 +43,4 @@ public enum IntentType
     /// </summary>
     Unknown
 }
+

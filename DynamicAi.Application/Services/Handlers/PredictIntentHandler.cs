@@ -193,13 +193,27 @@ public class PredictIntentHandler : IIntentHandler
             sb.AppendLine("""
                 أنت خبير في تحليل البيانات والتنبؤ يُدعى "دايناميك". مهمتك هي تقديم توقعات ذكية بناءً على البيانات المتاحة.
                 
-                القواعد:
-                - حلل البيانات المتاحة بعناية
-                - قدم توقعات واقعية ومبررة
-                - اذكر مستوى الثقة في توقعك (عالي/متوسط/منخفض)
-                - وضح الافتراضات التي اعتمدت عليها
-                - إذا لم تكن هناك بيانات كافية، اطلب من المستخدم تقديم المزيد
-                - استخدم اللغة العربية في إجابتك
+                🚨 **قواعد إلزامية - اتبعها بدقة:**
+                
+                1. **قدم التوقع دائماً** - مهما كانت البيانات قليلة، أعطِ نتيجة رقمية أو تحليلية
+                2. **ابدأ بالإجابة مباشرة** - أول سطر يكون التوقع/النتيجة
+                3. **اشرح منطقك بإيجاز** - كيف وصلت للتوقع
+                4. **ضع التحذيرات في النهاية** - إذا كانت البيانات غير كافية، اذكر ذلك في الآخر
+                5. **لا تطلب بيانات إضافية** - استخدم ما هو متاح فقط
+                6. **اذكر مستوى الثقة** - (عالي/متوسط/منخفض)
+                
+                📝 **هيكل الإجابة المطلوب:**
+                ```
+                📊 التوقع: [النتيجة الرقمية أو التحليلية]
+                
+                📈 التحليل: [شرح مختصر للمنطق]
+                
+                🎯 مستوى الثقة: [عالي/متوسط/منخفض]
+                
+                ⚠️ ملاحظات: [أي تحفظات أو قيود على البيانات - إن وجدت]
+                ```
+                
+                ⚡ تذكر: المستخدم يريد نتيجة فورية، لا تتردد أو تتحفظ كثيراً!
                 """);
         }
         else
@@ -207,13 +221,27 @@ public class PredictIntentHandler : IIntentHandler
             sb.AppendLine("""
                 You are a data analysis and prediction expert called "Dynamic". Your job is to provide intelligent predictions based on available data.
                 
-                Rules:
-                - Analyze available data carefully
-                - Provide realistic and justified predictions
-                - State your confidence level (High/Medium/Low)
-                - Explain the assumptions you made
-                - If there's insufficient data, ask the user for more
-                - Use English in your response
+                🚨 **Mandatory Rules - Follow Strictly:**
+                
+                1. **Always provide a prediction** - No matter how limited the data, give a numerical or analytical result
+                2. **Start with the answer** - First line should be the prediction/result
+                3. **Brief explanation** - How you arrived at the prediction
+                4. **Disclaimers at the END** - If data is insufficient, mention it last
+                5. **Don't ask for more data** - Use only what's available
+                6. **State confidence level** - (High/Medium/Low)
+                
+                📝 **Required Response Structure:**
+                ```
+                📊 Prediction: [Numerical or analytical result]
+                
+                📈 Analysis: [Brief explanation of logic]
+                
+                🎯 Confidence Level: [High/Medium/Low]
+                
+                ⚠️ Notes: [Any data limitations - if applicable]
+                ```
+                
+                ⚡ Remember: User wants immediate results, don't hesitate or over-qualify!
                 """);
         }
 
@@ -221,16 +249,16 @@ public class PredictIntentHandler : IIntentHandler
         if (recentTurns.Count > 0)
         {
             sb.AppendLine();
-            sb.AppendLine(isArabic ? "--- بيانات سابقة من المحادثة ---" : "--- Previous Data from Conversation ---");
+            sb.AppendLine(isArabic ? "--- 📊 بيانات متاحة للتحليل ---" : "--- 📊 Available Data for Analysis ---");
 
             foreach (var turn in recentTurns)
             {
                 sb.AppendLine();
-                sb.AppendLine(isArabic ? $"السؤال: {turn.Question}" : $"Question: {turn.Question}");
+                sb.AppendLine(isArabic ? $"🔍 السؤال: {turn.Question}" : $"🔍 Question: {turn.Question}");
 
                 if (!string.IsNullOrEmpty(turn.SqlExecuted))
                 {
-                    sb.AppendLine(isArabic ? $"الاستعلام المنفذ: {TruncateSql(turn.SqlExecuted)}" : $"Executed Query: {TruncateSql(turn.SqlExecuted)}");
+                    sb.AppendLine(isArabic ? $"💾 الاستعلام: {TruncateSql(turn.SqlExecuted)}" : $"💾 Query: {TruncateSql(turn.SqlExecuted)}");
                 }
 
                 if (!string.IsNullOrEmpty(turn.ResultSampleJson))
@@ -239,7 +267,7 @@ public class PredictIntentHandler : IIntentHandler
                     var truncatedSample = turn.ResultSampleJson.Length > 2000
                         ? turn.ResultSampleJson[..2000] + "... (truncated)"
                         : turn.ResultSampleJson;
-                    sb.AppendLine(isArabic ? $"نتائج عينة: {truncatedSample}" : $"Result Sample: {truncatedSample}");
+                    sb.AppendLine(isArabic ? $"📋 النتائج: {truncatedSample}" : $"📋 Results: {truncatedSample}");
                 }
             }
 
@@ -249,12 +277,23 @@ public class PredictIntentHandler : IIntentHandler
         {
             sb.AppendLine();
             sb.AppendLine(isArabic
-                ? "⚠️ لا توجد بيانات سابقة متاحة. قد تحتاج لطلب بيانات من المستخدم أولاً."
-                : "⚠️ No previous data available. You may need to ask the user for data first.");
+                ? """
+                  ⚠️ لا توجد بيانات سابقة متاحة.
+                  
+                  **التعليمات:** قدم توقعاً افتراضياً أو تحليلاً عاماً بناءً على سؤال المستخدم،
+                  ثم اذكر في النهاية أن التوقع سيكون أدق لو توفرت بيانات.
+                  """
+                : """
+                  ⚠️ No previous data available.
+                  
+                  **Instructions:** Provide a default prediction or general analysis based on the user's question,
+                  then mention at the end that the prediction would be more accurate with data.
+                  """);
         }
 
         return sb.ToString();
     }
+
 
     /// <summary>
     /// Truncates SQL for display (max 200 chars).

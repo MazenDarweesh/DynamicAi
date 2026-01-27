@@ -122,7 +122,25 @@ namespace DynamicAi.Application.Services
 
                 #region Routing to Handler
 
-                if (_handlerFactory.TryGetHandler(intentResult.Intent, out var handler))
+                // Phase 5: Multi-Step Handling for PredictionWithDataFetch
+                if (intentResult.Intent == IntentType.PredictionWithDataFetch)
+                {
+                    _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+                    _logger.LogInformation("║           [MULTI-STEP] PredictionWithDataFetch - Starting              ║");
+                    _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+
+                    result = await HandleMultiStepPredictionAsync(
+                        userQuestion,
+                        sessionId,
+                        tenantId,
+                        comID,
+                        previousQuestion,
+                        previousSql,
+                        queryLogId,
+                        intentResult,
+                        CancellationToken.None);
+                }
+                else if (_handlerFactory.TryGetHandler(intentResult.Intent, out var handler))
                 {
                     _logger.LogInformation("[Orchestrator] Delegating to Handler: {HandlerType}", handler!.GetType().Name);
 
@@ -280,6 +298,173 @@ namespace DynamicAi.Application.Services
             sb.AppendLine($"CURRENT QUESTION: {question}");
 
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Handles Multi-Step prediction queries like "Based on last 5 months data, predict next month sales"
+        /// Step 1: Extract and execute the data fetch query
+        /// Step 2: Save results to conversation context
+        /// Step 3: Execute prediction using the fetched data
+        /// </summary>
+        private async Task<QueryExecutionResult> HandleMultiStepPredictionAsync(
+            string userQuestion,
+            string sessionId,
+            string tenantId,
+            int? comID,
+            string? previousQuestion,
+            string? previousSql,
+            Guid queryLogId,
+            IntentClassificationResult intentResult,
+            CancellationToken cancellationToken)
+        {
+            _logger.LogInformation("[MultiStep] Step 1: Extracting data query from combined question...");
+
+            // Extract the data part from the question
+            var dataQuery = ExtractDataQueryFromCombined(userQuestion);
+            _logger.LogInformation("[MultiStep] Extracted Data Query: \"{DataQuery}\"", dataQuery);
+
+            // Step 1: Call SqlIntentHandler to fetch data
+            _logger.LogInformation("[MultiStep] Step 2: Fetching data via SqlIntentHandler...");
+
+            if (!_handlerFactory.TryGetHandler(IntentType.DataRetrieval, out var sqlHandler))
+            {
+                _logger.LogError("[MultiStep] ❌ SqlIntentHandler not found!");
+                throw new InvalidOperationException("SqlIntentHandler is required for Multi-Step prediction");
+            }
+
+            var sqlContext = new IntentHandlerContext
+            {
+                PreviousQuestion = previousQuestion,
+                PreviousSql = previousSql,
+                QueryLogId = queryLogId,
+                TenantId = tenantId,
+                CompanyId = comID,
+                SessionId = sessionId
+            };
+
+            var sqlIntentResult = new IntentClassificationResult
+            {
+                Intent = IntentType.DataRetrieval,
+                ConfidenceScore = 0.95f,
+                MatchedExample = "Multi-Step Data Fetch"
+            };
+
+            var dataResult = await sqlHandler!.HandleAsync(dataQuery, sqlIntentResult, sqlContext, cancellationToken);
+
+            if (!dataResult.IsSuccess || dataResult.Data == null)
+            {
+                _logger.LogWarning("[MultiStep] ⚠️ Data fetch failed. Proceeding with prediction anyway...");
+            }
+            else
+            {
+                _logger.LogInformation("[MultiStep] ✓ Data fetched successfully. Saving to context...");
+
+                // Step 2: Save the data to conversation context for the prediction handler
+                await _contextService.SaveTurnAsync(
+                    sessionId,
+                    dataQuery,
+                    "DataRetrieval",
+                    dataResult.RewrittenSql,
+                    dataResult.Data,
+                    cancellationToken);
+            }
+
+            // Step 3: Call PredictIntentHandler with the context now populated
+            _logger.LogInformation("[MultiStep] Step 3: Executing prediction with fetched context...");
+
+            if (!_handlerFactory.TryGetHandler(IntentType.Prediction, out var predictHandler))
+            {
+                _logger.LogError("[MultiStep] ❌ PredictIntentHandler not found!");
+                throw new InvalidOperationException("PredictIntentHandler is required for Multi-Step prediction");
+            }
+
+            var predictIntentResult = new IntentClassificationResult
+            {
+                Intent = IntentType.Prediction,
+                ConfidenceScore = 0.95f,
+                MatchedExample = "Multi-Step Prediction"
+            };
+
+            var predictContext = new IntentHandlerContext
+            {
+                PreviousQuestion = dataQuery,
+                PreviousSql = dataResult?.RewrittenSql,
+                QueryLogId = queryLogId,
+                TenantId = tenantId,
+                CompanyId = comID,
+                SessionId = sessionId
+            };
+
+            var predictionResult = await predictHandler!.HandleAsync(userQuestion, predictIntentResult, predictContext, cancellationToken);
+
+            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+            _logger.LogInformation("║           [MULTI-STEP] PredictionWithDataFetch - Completed ✓          ║");
+            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+
+            return predictionResult;
+        }
+
+        /// <summary>
+        /// Extracts the data-related part from a combined prediction query.
+        /// Example: "بناء على بيانات اخر 5 شهور توقع لي المبيعات" → "هات بيانات اخر 5 شهور"
+        /// </summary>
+        private static string ExtractDataQueryFromCombined(string combinedQuestion)
+        {
+            var question = combinedQuestion.ToLowerInvariant();
+
+            // Arabic patterns: "بناء على X توقع Y" → extract X
+            var arabicPatterns = new[]
+            {
+                ("بناء على", "توقع"),
+                ("بناءً على", "توقع"),
+                ("استناداً", "توقع"),
+                ("من بيانات", "توقع"),
+                ("based on", "predict"),
+                ("using data", "predict"),
+                ("using", "forecast")
+            };
+
+            foreach (var (startMarker, endMarker) in arabicPatterns)
+            {
+                var startIndex = question.IndexOf(startMarker, StringComparison.OrdinalIgnoreCase);
+                var endIndex = question.IndexOf(endMarker, StringComparison.OrdinalIgnoreCase);
+
+                if (startIndex >= 0 && endIndex > startIndex)
+                {
+                    var dataPartStart = startIndex + startMarker.Length;
+                    var dataPart = combinedQuestion[dataPartStart..endIndex].Trim();
+
+                    // Clean up and form a proper query
+                    if (!string.IsNullOrEmpty(dataPart))
+                    {
+                        // Add "هات" or "Get" prefix to make it a proper data query
+                        var isArabic = dataPart.Any(c => c >= '\u0600' && c <= '\u06FF');
+                        return isArabic ? $"هات {dataPart}" : $"Get {dataPart}";
+                    }
+                }
+            }
+
+            // Fallback: Try to extract time-based data references
+            var timePatterns = new[] { "اخر", "آخر", "السابق", "الماضي", "last", "previous", "past" };
+            foreach (var pattern in timePatterns)
+            {
+                var index = question.IndexOf(pattern, StringComparison.OrdinalIgnoreCase);
+                if (index >= 0)
+                {
+                    // Extract a reasonable chunk around the time pattern
+                    var startPos = Math.Max(0, index);
+                    var endPos = Math.Min(combinedQuestion.Length, index + 30);
+                    var chunk = combinedQuestion[startPos..endPos].Trim();
+
+                    var isArabic = chunk.Any(c => c >= '\u0600' && c <= '\u06FF');
+                    return isArabic ? $"هات بيانات {chunk}" : $"Get data for {chunk}";
+                }
+            }
+
+            // Ultimate fallback: return generic data request
+            return combinedQuestion.Any(c => c >= '\u0600' && c <= '\u06FF')
+                ? "هات البيانات المتاحة"
+                : "Get available data";
         }
 
         #endregion

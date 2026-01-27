@@ -33,6 +33,7 @@ public class IntentClassificationService : IIntentClassificationService
         ["DataRetrieval"] = IntentType.DataRetrieval,
         ["Analysis"] = IntentType.Analysis,
         ["Prediction"] = IntentType.Prediction,
+        ["PredictionWithDataFetch"] = IntentType.PredictionWithDataFetch,
         ["Chat"] = IntentType.Chat,
         ["Unknown"] = IntentType.Unknown
     };
@@ -40,6 +41,10 @@ public class IntentClassificationService : IIntentClassificationService
     // Phase 4: Prediction Keywords for fast detection (bypasses Vector Search)
     private static readonly string[] PredictionKeywordsAr = { "توقع", "تنبأ", "الشهر الجاي", "مستقبل", "هيحصل", "القادم", "الجاية", "هتبقى", "هيبقى" };
     private static readonly string[] PredictionKeywordsEn = { "predict", "forecast", "future", "next month", "will be", "will happen", "projection" };
+
+    // Phase 5: Combined Keywords - Data Fetch + Prediction (Multi-Step)
+    private static readonly string[] DataFetchContextAr = { "بناء على", "استناداً", "بناءً على", "من بيانات", "اخر", "آخر", "السابق", "الماضي" };
+    private static readonly string[] DataFetchContextEn = { "based on", "using data", "from last", "last", "previous", "past" };
 
     public IntentClassificationService(
         IAppVectorDbService vectorDb,
@@ -77,6 +82,21 @@ public class IntentClassificationService : IIntentClassificationService
             // Extract ONLY the current question for keyword detection
             // The userQuestion may contain conversation history prefix
             var currentQuestion = ExtractCurrentQuestion(userQuestion);
+
+            // Phase 5: Check for Combined (Data Fetch + Prediction) - Must come BEFORE simple Prediction check
+            if (CheckPredictionWithDataFetchKeywords(currentQuestion))
+            {
+                _logger.LogInformation("[IntentRouter] 🎯 KEYWORD MATCH: PredictionWithDataFetch - Multi-Step required");
+                stopwatch.Stop();
+                return new IntentClassificationResult
+                {
+                    Intent = IntentType.PredictionWithDataFetch,
+                    ConfidenceScore = 0.95f,
+                    MatchedExample = "Combined Keyword Detection",
+                    LatencyMs = stopwatch.ElapsedMilliseconds,
+                    QueryEmbedding = null
+                };
+            }
 
             // Phase 4: Keyword Pre-Check for Prediction (Fast Path)
             // IMPORTANT: Use currentQuestion only, not the full context
@@ -323,5 +343,66 @@ Respond with JSON only:");
 
         // No context enrichment, return as-is
         return fullPrompt;
+    }
+
+    /// <summary>
+    /// Checks if the question contains BOTH prediction keywords AND data context keywords.
+    /// This indicates a multi-step query: fetch data first, then predict.
+    /// Example: "بناء على بيانات اخر 5 شهور توقع لي المبيعات"
+    /// </summary>
+    private static bool CheckPredictionWithDataFetchKeywords(string question)
+    {
+        var lowerQuestion = question.ToLowerInvariant();
+
+        bool hasPrediction = false;
+        bool hasDataContext = false;
+
+        // Check for prediction keywords
+        foreach (var keyword in PredictionKeywordsAr)
+        {
+            if (question.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+            {
+                hasPrediction = true;
+                break;
+            }
+        }
+
+        if (!hasPrediction)
+        {
+            foreach (var keyword in PredictionKeywordsEn)
+            {
+                if (lowerQuestion.Contains(keyword))
+                {
+                    hasPrediction = true;
+                    break;
+                }
+            }
+        }
+
+        if (!hasPrediction) return false;
+
+        // Check for data context keywords
+        foreach (var keyword in DataFetchContextAr)
+        {
+            if (question.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+            {
+                hasDataContext = true;
+                break;
+            }
+        }
+
+        if (!hasDataContext)
+        {
+            foreach (var keyword in DataFetchContextEn)
+            {
+                if (lowerQuestion.Contains(keyword))
+                {
+                    hasDataContext = true;
+                    break;
+                }
+            }
+        }
+
+        return hasPrediction && hasDataContext;
     }
 }
