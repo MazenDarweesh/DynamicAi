@@ -230,8 +230,21 @@ public class IntentExampleManagementService : IIntentExampleManagementService
             },
             [IntentType.Prediction] = new[]
             {
+                // Original
                 "توقع مبيعات الشهر القادم",
-                "Predict next month's sales"
+                "Predict next month's sales",
+                // Enriched: Arabic variations
+                "توقع لي مبيعات الشهر الجاي",
+                "ايه توقعاتك للأرباح؟",
+                "تنبأ بالمبيعات",
+                "مستقبل المبيعات هيبقى ازاي؟",
+                "ايه اللي هيحصل الشهر الجاي؟",
+                "توقعات الربع القادم",
+                // Enriched: English variations
+                "Forecast future sales",
+                "What will happen next quarter?",
+                "Predict the trend",
+                "Project next year revenue"
             },
             [IntentType.Chat] = new[]
             {

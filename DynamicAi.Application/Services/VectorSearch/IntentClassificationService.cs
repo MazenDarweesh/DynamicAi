@@ -37,6 +37,10 @@ public class IntentClassificationService : IIntentClassificationService
         ["Unknown"] = IntentType.Unknown
     };
 
+    // Phase 4: Prediction Keywords for fast detection (bypasses Vector Search)
+    private static readonly string[] PredictionKeywordsAr = { "توقع", "تنبأ", "الشهر الجاي", "مستقبل", "هيحصل", "القادم", "الجاية", "هتبقى", "هيبقى" };
+    private static readonly string[] PredictionKeywordsEn = { "predict", "forecast", "future", "next month", "will be", "will happen", "projection" };
+
     public IntentClassificationService(
         IAppVectorDbService vectorDb,
         IEmbeddingGenerator<string, Embedding<float>> embeddingService,
@@ -69,6 +73,21 @@ public class IntentClassificationService : IIntentClassificationService
             _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
             _logger.LogInformation("[IntentRouter] User Question: \"{Question}\"",
                 userQuestion.Length > 80 ? userQuestion[..80] + "..." : userQuestion);
+
+            // Phase 4: Keyword Pre-Check for Prediction (Fast Path)
+            if (CheckPredictionKeywords(userQuestion))
+            {
+                _logger.LogInformation("[IntentRouter] 🎯 KEYWORD MATCH: Prediction intent detected via keywords");
+                stopwatch.Stop();
+                return new IntentClassificationResult
+                {
+                    Intent = IntentType.Prediction,
+                    ConfidenceScore = 0.95f, // High confidence for keyword match
+                    MatchedExample = "Keyword Detection",
+                    LatencyMs = stopwatch.ElapsedMilliseconds,
+                    QueryEmbedding = null
+                };
+            }
 
             // Ensure DB is ready (Delegated to Manager)
             await _intentManager.EnsureCollectionExistsAsync(cancellationToken);
@@ -237,5 +256,30 @@ Respond with JSON only:");
     {
         if (payload == null || !payload.TryGetValue(key, out var value)) return null;
         return value.KindCase == Value.KindOneofCase.StringValue ? value.StringValue : value.ToString();
+    }
+
+    /// <summary>
+    /// Phase 4: Fast keyword-based detection for Prediction intents.
+    /// Bypasses Vector Search for explicit prediction keywords.
+    /// </summary>
+    private static bool CheckPredictionKeywords(string question)
+    {
+        var lowerQuestion = question.ToLowerInvariant();
+
+        // Check Arabic keywords
+        foreach (var keyword in PredictionKeywordsAr)
+        {
+            if (question.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        // Check English keywords
+        foreach (var keyword in PredictionKeywordsEn)
+        {
+            if (lowerQuestion.Contains(keyword))
+                return true;
+        }
+
+        return false;
     }
 }
