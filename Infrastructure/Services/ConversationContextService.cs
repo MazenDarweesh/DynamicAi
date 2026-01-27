@@ -37,7 +37,7 @@ public class ConversationContextService : IConversationContextService
             if (resultData != null && intent != "Chat")
             {
                 var resultObj = (object)resultData;
-                _logger.LogInformation("ContextService: Processing resultData of type {Type}", resultObj.GetType().Name);
+                _logger.LogInformation("ContextService: Processing resultData of type {Type}", resultObj?.GetType()?.Name ?? "Null");
 
                 // We assume resultData is IEnumerable<dynamic> or similar
                 IEnumerable<dynamic> resultsEnumerable = resultData as IEnumerable<dynamic> ?? new List<dynamic>();
@@ -112,6 +112,29 @@ public class ConversationContextService : IConversationContextService
                 SlidingExpiration = TimeSpan.FromMinutes(30)
             });
 
+            // ✅ Enhanced Logging: Show what was stored
+            _logger.LogInformation(
+                "\n╔══════════════════════════════════════════════════════════════╗\n" +
+                "║         [CONTEXT SAVED] - Session: {SessionId}               ║\n" +
+                "╚══════════════════════════════════════════════════════════════╝",
+                sessionId.Length > 20 ? sessionId[..20] + "..." : sessionId);
+            _logger.LogInformation("[Context] 📝 Question: {Question}",
+                question.Length > 80 ? question[..80] + "..." : question);
+            _logger.LogInformation("[Context] 🎯 Intent: {Intent}", intent);
+            _logger.LogInformation("[Context] 💾 SQL Stored: {HasSql}",
+                !string.IsNullOrEmpty(sqlExecuted) ? "Yes (" + sqlExecuted.Length + " chars)" : "No");
+            _logger.LogInformation("[Context] 📊 Result Sample: {HasSample}",
+                !string.IsNullOrEmpty(sampleJson) ? "Yes (" + sampleJson.Length + " chars)" : "No");
+
+            // Show preview of first result if available
+            if (!string.IsNullOrEmpty(sampleJson) && sampleJson.Length > 0)
+            {
+                var preview = sampleJson.Length > 200 ? sampleJson[..200] + "..." : sampleJson;
+                _logger.LogInformation("[Context] 👁️ Sample Preview: {Preview}", preview);
+            }
+
+            _logger.LogInformation("[Context] 📚 Total Turns in Session: {Count}", history.Count);
+
             return Task.CompletedTask;
         }
         catch (Exception ex)
@@ -137,9 +160,36 @@ public class ConversationContextService : IConversationContextService
                 .OrderBy(x => x.CreatedAt)
                 .ToList();
 
+            // ✅ Enhanced Logging: Show what context is being retrieved
+            if (relevant.Count > 0)
+            {
+                _logger.LogInformation(
+                    "\n╔══════════════════════════════════════════════════════════════╗\n" +
+                    "║         [CONTEXT RETRIEVED] - {Count} Turn(s) Found          ║\n" +
+                    "╚══════════════════════════════════════════════════════════════╝",
+                    relevant.Count);
+
+                foreach (var turn in relevant)
+                {
+                    _logger.LogInformation("[Context] ─────────────────────────────────────");
+                    _logger.LogInformation("[Context] 📝 Q: {Question}",
+                        turn.Question.Length > 60 ? turn.Question[..60] + "..." : turn.Question);
+                    _logger.LogInformation("[Context] 💾 SQL: {HasSql}",
+                        !string.IsNullOrEmpty(turn.SqlExecuted) ? "✓ Available" : "✗ None");
+                    _logger.LogInformation("[Context] 📊 Result Sample: {HasSample}",
+                        !string.IsNullOrEmpty(turn.ResultSampleJson) ? "✓ Available (" + turn.ResultSampleJson.Length + " chars)" : "✗ None");
+                }
+                _logger.LogInformation("[Context] ─────────────────────────────────────");
+            }
+            else
+            {
+                _logger.LogInformation("[Context] ⚠️ No relevant context found for session: {SessionId}", sessionId);
+            }
+
             return Task.FromResult(relevant);
         }
 
+        _logger.LogInformation("[Context] ⚠️ No context cache exists for session: {SessionId}", sessionId);
         return Task.FromResult(new List<ConversationTurn>());
     }
 }

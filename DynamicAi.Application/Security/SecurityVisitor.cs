@@ -96,6 +96,10 @@ namespace DynamicAi.Application.Security
         }
 
         // ============================================================================
+        // NOTE: TOP + OFFSET validation is now handled in SqlValidatorService (STEP 2.5)
+        // This ensures tree-wide checking before SecurityVisitor runs.
+        // ============================================================================
+        // ============================================================================
         // DDL/DML Blocking - The Core Security Layer
         // ============================================================================
 

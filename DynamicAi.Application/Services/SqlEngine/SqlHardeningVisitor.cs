@@ -51,11 +51,15 @@ internal class SqlHardeningVisitor : TSqlFragmentVisitor
     }
 
     // --- 2. تحصين: حقن (TOP Clause) (لمنع سحب ملايين الصفوف) ---
+    // ⚠️ CRITICAL: Do NOT add TOP if OFFSET is present - they are mutually exclusive in T-SQL!
     public override void Visit(QuerySpecification node)
     {
-        if (node.TopRowFilter == null)
+        // Skip adding TOP if:
+        // 1. Query already has TOP
+        // 2. Query has OFFSET clause (OFFSET/FETCH is the paging mechanism, adding TOP would cause Error 10741)
+        if (node.TopRowFilter == null && node.OffsetClause == null)
         {
-            // (الـ AI لم يضف TOP، سنضيفها بالقوة)
+            // (الـ AI لم يضف TOP ولا OFFSET، سنضيف TOP بالقوة للحماية)
             node.TopRowFilter = new TopRowFilter
             {
                 Expression = new IntegerLiteral { Value = _topRows.ToString() }

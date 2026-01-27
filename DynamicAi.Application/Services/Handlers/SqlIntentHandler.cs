@@ -222,7 +222,29 @@ public class SqlIntentHandler : IIntentHandler
         }
         catch (Exception ex)
         {
-            return new QueryExecutionResult { ErrorMessage = $"SQL Validation Failed (Pipeline): {ex.Message}" };
+            // ============================================================================
+            // AUTO-INVALIDATION: If cached SQL fails validation, remove it from cache!
+            // ============================================================================
+            if (isCached && !string.IsNullOrEmpty(cacheId))
+            {
+                _logger.LogWarning("[SqlHandler] ⚠️ Cached SQL failed validation. Invalidating cache entry: {CacheId}", cacheId);
+
+                try
+                {
+                    await _queryCacheService.DeleteCacheEntryAsync(cacheId);
+                    _logger.LogInformation("[SqlHandler] ✓ Cache entry invalidated successfully.");
+                }
+                catch (Exception cacheEx)
+                {
+                    _logger.LogError(cacheEx, "[SqlHandler] Failed to invalidate cache entry.");
+                }
+            }
+
+            return new QueryExecutionResult
+            {
+                ErrorMessage = $"SQL Validation Failed: {ex.Message}. " +
+                    (isCached ? "Bad cache entry has been removed. Please retry your question." : "")
+            };
         }
 
         // 4. Layer 4: Rewriting (Security)

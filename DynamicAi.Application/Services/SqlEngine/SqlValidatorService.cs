@@ -34,7 +34,11 @@ namespace DynamicAi.Application.Services
 
             _logger.LogInformation("[SqlValidator] TenantId: {TenantId}", tenantId);
             _logger.LogInformation("[SqlValidator] SQL Length: {SqlLength} characters", rawSql.Length);
-            _logger.LogDebug("[SqlValidator] SQL Preview: {SqlPreview}...", rawSql.Substring(0, Math.Min(200, rawSql.Length)));
+
+            // DEBUG: Print full SQL for debugging TOP+OFFSET issue
+            _logger.LogDebug("[SqlValidator] ═══════════════════════ FULL SQL START ═══════════════════════");
+            _logger.LogDebug("[SqlValidator] {RawSql}", rawSql);
+            _logger.LogDebug("[SqlValidator] ═══════════════════════ FULL SQL END ═══════════════════════");
 
             // ============================================================================
             // STEP 1: تحديد المحلل (Parser)
@@ -79,6 +83,33 @@ namespace DynamicAi.Application.Services
             _logger.LogInformation("[SqlValidator] ✓ Syntax validation passed. SQL is well-formed.");
 
             // ============================================================================
+            // STEP 2.5: التحقق من TOP + OFFSET (Tree-Wide)
+            // SQL Server Error 10741: Cannot combine TOP with OFFSET in same query/subquery
+            // ============================================================================
+            _logger.LogInformation("[SqlValidator] STEP 2.5: Checking for illegal TOP + OFFSET combination...");
+
+            var topOffsetChecker = new TopOffsetChecker();
+            fragment.Accept(topOffsetChecker);
+
+            if (topOffsetChecker.HasTopAndOffset)
+            {
+                _logger.LogError("[SqlValidator] ✗ TOP + OFFSET VALIDATION FAILED!");
+                _logger.LogError("[SqlValidator] SQL contains both TOP and OFFSET clauses (possibly in nested queries).");
+                _logger.LogError("[SqlValidator] This combination is illegal in T-SQL (Error 10741).");
+
+                _logger.LogError("╔════════════════════════════════════════════════════════════════════════╗");
+                _logger.LogError("║           [Layer 3: SQL VALIDATOR] - TOP+OFFSET VIOLATION             ║");
+                _logger.LogError("╚════════════════════════════════════════════════════════════════════════╝");
+
+                throw new InvalidDataException(
+                    "SQL Validation Failed: The query contains both TOP and OFFSET clauses. " +
+                    "T-SQL does not allow combining TOP with OFFSET (even in nested queries). " +
+                    "Please use OFFSET/FETCH ONLY for paging.");
+            }
+
+            _logger.LogInformation("[SqlValidator] ✓ TOP + OFFSET check passed.");
+
+            // ============================================================================
             // STEP 3: التحقق الأمني (Security Validation) - ENABLED!
             // ============================================================================
             _logger.LogInformation("[SqlValidator] STEP 3: Performing security validation (Blacklist-Only)...");
@@ -116,6 +147,32 @@ namespace DynamicAi.Application.Services
             _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
             return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Visitor that scans the ENTIRE SQL tree for TOP and OFFSET usage.
+    /// Used to detect illegal combinations across nested queries.
+    /// </summary>
+    public class TopOffsetChecker : TSqlFragmentVisitor
+    {
+        public bool HasTop { get; private set; }
+        public bool HasOffset { get; private set; }
+        public bool HasTopAndOffset => HasTop && HasOffset;
+
+        public override void Visit(QuerySpecification node)
+        {
+            if (node.TopRowFilter != null)
+            {
+                HasTop = true;
+            }
+
+            if (node.OffsetClause != null)
+            {
+                HasOffset = true;
+            }
+
+            base.Visit(node);
         }
     }
 }
