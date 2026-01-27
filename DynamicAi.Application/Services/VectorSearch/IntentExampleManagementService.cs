@@ -438,6 +438,23 @@ public class IntentExampleManagementService : IIntentExampleManagementService
                 "Predict the trend",
                 "Project next year revenue"
             },
+            [IntentType.PredictionWithDataFetch] = new[]
+            {
+                // Arabic: Combined data fetch + prediction
+                "بناء على بيانات اخر 5 شهور توقع لي المبيعات",
+                "استناداً للسنة الماضية توقع الأرباح",
+                "من بيانات الربع الاول توقع الربع الجاي",
+                "بناءً على اخر 6 شهور توقع لي الايرادات",
+                "من مبيعات العام الماضي توقع مبيعات السنة الجاية",
+                "استخدم بيانات الشهر اللي فات وتوقع الشهر الجاي",
+                // English: Combined data fetch + prediction
+                "Based on last 5 months data, predict next month sales",
+                "Using previous year data, forecast Q2",
+                "From last quarter predict next quarter",
+                "Based on historical data predict future trends",
+                "Using last 6 months, project next quarter revenue",
+                "From past sales data forecast next year"
+            },
             [IntentType.Chat] = new[]
             {
                 "مرحباً", "Hello", "كيف حالك؟", "Thanks"
