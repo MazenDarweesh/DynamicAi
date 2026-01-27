@@ -48,4 +48,11 @@ public interface IIntentExampleManagementService
     /// Used to clean up incorrectly classified or poisoned examples.
     /// </summary>
     Task<bool> DeleteByEmbeddingSimilarityAsync(float[] embedding, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Seeds only NEW examples that don't already exist in Qdrant.
+    /// Smart incremental seeding for existing collections.
+    /// Returns the count of newly added examples.
+    /// </summary>
+    Task<int> SeedMissingExamplesAsync(CancellationToken cancellationToken = default);
 }

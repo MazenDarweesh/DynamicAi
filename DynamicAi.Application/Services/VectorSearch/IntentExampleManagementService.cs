@@ -339,4 +339,137 @@ public class IntentExampleManagementService : IIntentExampleManagementService
             return false;
         }
     }
+
+    /// <inheritdoc />
+    public async Task<int> SeedMissingExamplesAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("╔════════════════════════════════════════════════════════════╗");
+        _logger.LogInformation("║     [INCREMENTAL SEED] - Checking for missing examples     ║");
+        _logger.LogInformation("╚════════════════════════════════════════════════════════════╝");
+
+        var allExamples = GetDefaultExamples();
+        int addedCount = 0;
+        int skippedCount = 0;
+
+        foreach (var (intentType, examples) in allExamples)
+        {
+            foreach (var example in examples)
+            {
+                try
+                {
+                    // Check if example already exists using text-based search
+                    var exists = await ExampleExistsAsync(example, cancellationToken);
+
+                    if (exists)
+                    {
+                        skippedCount++;
+                        continue;
+                    }
+
+                    // Store new example
+                    await StoreIntentExampleAsync(
+                        example,
+                        null, // Generate embedding inside
+                        intentType,
+                        cancellationToken,
+                        IntentReviewStatus.Approved,
+                        "IncrementalSeed");
+
+                    addedCount++;
+                    _logger.LogInformation("[IncrementalSeed] ✓ Added: \"{Example}\" → {Intent}",
+                        example.Length > 40 ? example[..40] + "..." : example,
+                        intentType);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[IncrementalSeed] Failed to process example: {Example}", example);
+                }
+            }
+        }
+
+        _logger.LogInformation("═══════════════════════════════════════════════════════════════");
+        _logger.LogInformation("[IncrementalSeed] ✅ Complete: Added {Added}, Skipped {Skipped} (already exist)",
+            addedCount, skippedCount);
+        _logger.LogInformation("═══════════════════════════════════════════════════════════════");
+
+        return addedCount;
+    }
+
+    /// <summary>
+    /// Returns all default intent examples for seeding.
+    /// Central source of truth for both initial seed and incremental seed.
+    /// </summary>
+    private static Dictionary<IntentType, string[]> GetDefaultExamples()
+    {
+        return new Dictionary<IntentType, string[]>
+        {
+            [IntentType.DataRetrieval] = new[]
+            {
+                "هات مبيعات اليوم",
+                "Get all invoices from last month",
+                "Show me the customer list",
+                "كم رصيد المخزن؟"
+            },
+            [IntentType.Analysis] = new[]
+            {
+                "ما أكثر منتج مبيعاً؟",
+                "What is the top selling product?",
+                "قارن بين مبيعات شهر يناير وفبراير"
+            },
+            [IntentType.Prediction] = new[]
+            {
+                // Original
+                "توقع مبيعات الشهر القادم",
+                "Predict next month's sales",
+                // Enriched: Arabic variations
+                "توقع لي مبيعات الشهر الجاي",
+                "ايه توقعاتك للأرباح؟",
+                "تنبأ بالمبيعات",
+                "مستقبل المبيعات هيبقى ازاي؟",
+                "ايه اللي هيحصل الشهر الجاي؟",
+                "توقعات الربع القادم",
+                // Enriched: English variations
+                "Forecast future sales",
+                "What will happen next quarter?",
+                "Predict the trend",
+                "Project next year revenue"
+            },
+            [IntentType.Chat] = new[]
+            {
+                "مرحباً", "Hello", "كيف حالك؟", "Thanks"
+            }
+        };
+    }
+
+    /// <summary>
+    /// Checks if an example text already exists in the Qdrant collection.
+    /// Uses high-similarity vector search to detect duplicates.
+    /// </summary>
+    private async Task<bool> ExampleExistsAsync(string exampleText, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Generate embedding for the example
+            var embedding = await _embeddingService.GenerateAsync(exampleText);
+            var vector = embedding.Vector.ToArray();
+
+            // Search with very high threshold to find exact/near-exact matches
+            var results = await _vectorDb.SearchAsync(
+                collectionName: _intentCollectionName,
+                vector: vector,
+                limit: 1,
+                ct: cancellationToken);
+
+            var topMatch = results?.FirstOrDefault();
+            if (topMatch == null) return false;
+
+            // If similarity is very high (>0.95), consider it a duplicate
+            return topMatch.Score >= 0.95f;
+        }
+        catch
+        {
+            // On error, assume it doesn't exist (will try to add)
+            return false;
+        }
+    }
 }

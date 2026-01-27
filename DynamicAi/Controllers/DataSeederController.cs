@@ -13,14 +13,16 @@ namespace DynamicAi.Api.Controllers
     public class DataSeederController : ControllerBase
     {
         private readonly IDataSeederService _dataSeederService;
-
+        private readonly IIntentExampleManagementService _intentManager;
         private readonly ILogger<DataSeederController> _logger;
 
         public DataSeederController(
             IDataSeederService dataSeederService,
+            IIntentExampleManagementService intentManager,
             ILogger<DataSeederController> logger)
         {
             _dataSeederService = dataSeederService;
+            _intentManager = intentManager;
             _logger = logger;
         }
 
@@ -41,6 +43,30 @@ namespace DynamicAi.Api.Controllers
             }
         }
 
+        /// <summary>
+        /// Seeds only NEW intent examples that don't already exist in Qdrant.
+        /// Call this after adding new examples to the codebase.
+        /// </summary>
+        [HttpPost("seed-intents")]
+        public async Task<IActionResult> SeedMissingIntents()
+        {
+            _logger.LogInformation("Received incremental intent seed request");
 
+            try
+            {
+                var addedCount = await _intentManager.SeedMissingExamplesAsync();
+                return Ok(new
+                {
+                    Message = $"Incremental seed complete",
+                    AddedCount = addedCount,
+                    Status = addedCount > 0 ? "New examples added" : "All examples already exist"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to seed intent examples");
+                return StatusCode(500, new { Error = ex.Message });
+            }
+        }
     }
 }
