@@ -132,7 +132,8 @@ namespace DynamicAi.Application.Services
                         PreviousSql = previousSql,
                         QueryLogId = queryLogId,
                         TenantId = tenantId,
-                        CompanyId = comID
+                        CompanyId = comID,
+                        SessionId = sessionId  // Phase 4: For PredictIntentHandler context retrieval
                     };
 
                     result = await handler.HandleAsync(userQuestion, intentResult, context);

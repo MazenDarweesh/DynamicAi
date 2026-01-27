@@ -30,4 +30,10 @@ public class IntentHandlerContext
     /// Company ID for data isolation.
     /// </summary>
     public int? CompanyId { get; init; }
+
+    /// <summary>
+    /// Session ID for conversation context tracking.
+    /// Used by PredictIntentHandler to retrieve previous query results.
+    /// </summary>
+    public string? SessionId { get; init; }
 }

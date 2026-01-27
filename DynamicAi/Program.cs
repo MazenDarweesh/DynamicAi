@@ -138,6 +138,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddTransient<IIntentHandlerFactory, IntentHandlerFactory>(); // Phase 3: Handler Factory
     services.AddTransient<IIntentHandler, SqlIntentHandler>(); // Phase 3: SQL Handler
     services.AddTransient<IIntentHandler, ChatIntentHandler>(); // Phase 3: Chat Handler (Lightweight)
+    services.AddTransient<IIntentHandler, PredictIntentHandler>(); // Phase 4: Predict Handler
 
     // --- Repositories ---
     services.AddScoped<ITrainingExampleRepository, TrainingExampleRepository>();
