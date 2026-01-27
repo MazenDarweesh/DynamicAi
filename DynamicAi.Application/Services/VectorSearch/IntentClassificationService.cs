@@ -74,8 +74,13 @@ public class IntentClassificationService : IIntentClassificationService
             _logger.LogInformation("[IntentRouter] User Question: \"{Question}\"",
                 userQuestion.Length > 80 ? userQuestion[..80] + "..." : userQuestion);
 
+            // Extract ONLY the current question for keyword detection
+            // The userQuestion may contain conversation history prefix
+            var currentQuestion = ExtractCurrentQuestion(userQuestion);
+
             // Phase 4: Keyword Pre-Check for Prediction (Fast Path)
-            if (CheckPredictionKeywords(userQuestion))
+            // IMPORTANT: Use currentQuestion only, not the full context
+            if (CheckPredictionKeywords(currentQuestion))
             {
                 _logger.LogInformation("[IntentRouter] 🎯 KEYWORD MATCH: Prediction intent detected via keywords");
                 stopwatch.Stop();
@@ -88,6 +93,7 @@ public class IntentClassificationService : IIntentClassificationService
                     QueryEmbedding = null
                 };
             }
+
 
             // Ensure DB is ready (Delegated to Manager)
             await _intentManager.EnsureCollectionExistsAsync(cancellationToken);
@@ -281,5 +287,41 @@ Respond with JSON only:");
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Extracts the current user question from a context-enriched prompt.
+    /// The prompt may start with "CONVERSATION HISTORY..." and end with "Current question: X"
+    /// or just be the raw question.
+    /// </summary>
+    private static string ExtractCurrentQuestion(string fullPrompt)
+    {
+        // Check if prompt contains conversation history
+        if (fullPrompt.StartsWith("CONVERSATION HISTORY", StringComparison.OrdinalIgnoreCase))
+        {
+            // Look for "Current question:" marker
+            var marker = "Current question:";
+            var markerIndex = fullPrompt.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex >= 0)
+            {
+                return fullPrompt[(markerIndex + marker.Length)..].Trim();
+            }
+
+            // Alternative: Look for last "---" separator and take what's after
+            var lastSeparator = fullPrompt.LastIndexOf("---", StringComparison.Ordinal);
+            if (lastSeparator >= 0)
+            {
+                var afterSeparator = fullPrompt[(lastSeparator + 3)..].Trim();
+                // If there's a newline, take the last line
+                var lines = afterSeparator.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                if (lines.Length > 0)
+                {
+                    return lines[^1].Trim();
+                }
+            }
+        }
+
+        // No context enrichment, return as-is
+        return fullPrompt;
     }
 }
