@@ -59,6 +59,8 @@ public class PredictIntentHandler : IIntentHandler
         _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
         _logger.LogInformation("║              [PREDICT HANDLER] - STARTING PREDICTION                  ║");
         _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+        _logger.LogInformation("[PredictHandler] 📝 Question: \"{Question}\"",
+            userQuestion.Length > 60 ? userQuestion[..60] + "..." : userQuestion);
 
         var startTime = DateTime.UtcNow;
 
@@ -66,13 +68,14 @@ public class PredictIntentHandler : IIntentHandler
 
         var isArabic = DetectArabic(userQuestion);
         var languageHint = isArabic ? "ar" : "en";
-        _logger.LogInformation("[PredictHandler] Detected Language: {Language}", languageHint);
+        _logger.LogInformation("[PredictHandler] 🌐 Detected Language: {Language}", languageHint);
 
         #endregion
 
         #region Phase 2: Retrieve Conversation Context
 
-        _logger.LogInformation("[PredictHandler] Retrieving conversation context...");
+        _logger.LogInformation("");
+        _logger.LogInformation("═══════════════ CONTEXT RETRIEVAL ═══════════════");
 
         var sessionId = context?.SessionId ?? "default-session";
         var recentTurns = await _contextService.GetRecentContextAsync(sessionId, limit: 3, cancellationToken);
@@ -84,11 +87,23 @@ public class PredictIntentHandler : IIntentHandler
         else
         {
             _logger.LogInformation("[PredictHandler] ✓ Found {Count} previous turn(s) for context", recentTurns.Count);
+            foreach (var turn in recentTurns)
+            {
+                var hasData = !string.IsNullOrEmpty(turn.ResultSampleJson);
+                var dataSize = turn.ResultSampleJson?.Length ?? 0;
+                _logger.LogInformation("[PredictHandler]   └─ Q: \"{Question}\" | Data: {HasData} ({Size} chars)",
+                    turn.Question.Length > 40 ? turn.Question[..40] + "..." : turn.Question,
+                    hasData ? "✓" : "✗",
+                    dataSize);
+            }
         }
 
         #endregion
 
         #region Phase 3: Build Prediction Prompt
+
+        _logger.LogInformation("");
+        _logger.LogInformation("═══════════════ PROMPT CONSTRUCTION ═══════════════");
 
         var systemPrompt = BuildSystemPrompt(isArabic, recentTurns);
         var messages = new List<ChatMessage>
@@ -97,13 +112,20 @@ public class PredictIntentHandler : IIntentHandler
             new ChatMessage(ChatRole.User, userQuestion)
         };
 
-        _logger.LogInformation("[PredictHandler] Prompt built with {TurnCount} context turns", recentTurns.Count);
+        var promptTokens = EstimateTokens(systemPrompt);
+        var questionTokens = EstimateTokens(userQuestion);
+        _logger.LogInformation("[PredictHandler] 📊 Prompt Stats:");
+        _logger.LogInformation("[PredictHandler]   └─ System Prompt: ~{Tokens} tokens ({Chars} chars)", promptTokens, systemPrompt.Length);
+        _logger.LogInformation("[PredictHandler]   └─ User Question: ~{Tokens} tokens", questionTokens);
+        _logger.LogInformation("[PredictHandler]   └─ Context Turns Used: {Count}", recentTurns.Count);
 
         #endregion
 
         #region Phase 4: Call Gemini for Prediction
 
-        _logger.LogInformation("[PredictHandler] Calling Gemini for prediction...");
+        _logger.LogInformation("");
+        _logger.LogInformation("═══════════════ AI PREDICTION ═══════════════");
+        _logger.LogInformation("[PredictHandler] 🔮 Calling Gemini for prediction...");
 
         try
         {
@@ -113,6 +135,7 @@ public class PredictIntentHandler : IIntentHandler
             var responseText = response.Text ?? GetFallbackMessage(isArabic, "no_response");
 
             _logger.LogInformation("[PredictHandler] ✓ Prediction received in {Duration:F0}ms", duration);
+            _logger.LogInformation("[PredictHandler] 📤 Response Length: {Length} chars", responseText.Length);
 
             // Track cost
             var inputTokens = EstimateTokens(systemPrompt + userQuestion);
@@ -125,11 +148,13 @@ public class PredictIntentHandler : IIntentHandler
                 cachedTokens: 0
             );
 
-            _logger.LogInformation("[PredictHandler] Token usage - Input: {Input}, Output: {Output}", inputTokens, outputTokens);
+            _logger.LogInformation("[PredictHandler] 💰 Token Usage - Input: {Input}, Output: {Output}", inputTokens, outputTokens);
 
+            _logger.LogInformation("");
             _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
             _logger.LogInformation("║           [PREDICT HANDLER] - PREDICTION COMPLETED ✓                  ║");
             _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+            _logger.LogInformation("[PredictHandler] ⏱️ Total Duration: {Duration:F0}ms", duration);
 
             return new QueryExecutionResult
             {

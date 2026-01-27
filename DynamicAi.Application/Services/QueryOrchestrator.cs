@@ -317,14 +317,27 @@ namespace DynamicAi.Application.Services
             IntentClassificationResult intentResult,
             CancellationToken cancellationToken)
         {
-            _logger.LogInformation("[MultiStep] Step 1: Extracting data query from combined question...");
+            var pipelineStart = DateTime.UtcNow;
 
-            // Extract the data part from the question
+            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+            _logger.LogInformation("║     [MULTI-STEP PIPELINE] PredictionWithDataFetch - Starting          ║");
+            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+            _logger.LogInformation("[MultiStep] 📝 Original Question: \"{UserQuestion}\"", userQuestion);
+            _logger.LogInformation("[MultiStep] 🆔 Session: {SessionId}", sessionId);
+
+            // Step 1: Extract data query
+            _logger.LogInformation("");
+            _logger.LogInformation("═══════════════ STEP 1: QUERY EXTRACTION ═══════════════");
+            var extractStart = DateTime.UtcNow;
             var dataQuery = ExtractDataQueryFromCombined(userQuestion);
-            _logger.LogInformation("[MultiStep] Extracted Data Query: \"{DataQuery}\"", dataQuery);
+            var extractDuration = (DateTime.UtcNow - extractStart).TotalMilliseconds;
+            _logger.LogInformation("[MultiStep] ✓ Extracted Data Query: \"{DataQuery}\"", dataQuery);
+            _logger.LogInformation("[MultiStep] ⏱️ Extraction Time: {Duration:F0}ms", extractDuration);
 
-            // Step 1: Call SqlIntentHandler to fetch data
-            _logger.LogInformation("[MultiStep] Step 2: Fetching data via SqlIntentHandler...");
+            // Step 2: Fetch data via SqlIntentHandler
+            _logger.LogInformation("");
+            _logger.LogInformation("═══════════════ STEP 2: DATA RETRIEVAL ═══════════════");
+            var fetchStart = DateTime.UtcNow;
 
             if (!_handlerFactory.TryGetHandler(IntentType.DataRetrieval, out var sqlHandler))
             {
@@ -350,16 +363,26 @@ namespace DynamicAi.Application.Services
             };
 
             var dataResult = await sqlHandler!.HandleAsync(dataQuery, sqlIntentResult, sqlContext, cancellationToken);
+            var fetchDuration = (DateTime.UtcNow - fetchStart).TotalMilliseconds;
 
             if (!dataResult.IsSuccess || dataResult.Data == null)
             {
                 _logger.LogWarning("[MultiStep] ⚠️ Data fetch failed. Proceeding with prediction anyway...");
+                _logger.LogWarning("[MultiStep] Error: {Error}", dataResult.ErrorMessage ?? "Unknown");
             }
             else
             {
-                _logger.LogInformation("[MultiStep] ✓ Data fetched successfully. Saving to context...");
+                // Log data statistics
+                var dataCount = GetDataCount(dataResult.Data);
+                var sqlLength = dataResult.RewrittenSql?.Length ?? 0;
 
-                // Step 2: Save the data to conversation context for the prediction handler
+                _logger.LogInformation("[MultiStep] ✓ Data fetched successfully in {Duration:F0}ms", fetchDuration);
+                _logger.LogInformation("[MultiStep] 📊 Data Statistics:");
+                _logger.LogInformation("[MultiStep]   └─ Rows Retrieved: {Count}", dataCount);
+                _logger.LogInformation("[MultiStep]   └─ SQL Length: {SqlLength} chars", sqlLength);
+
+                // Save to context
+                _logger.LogInformation("[MultiStep] 💾 Saving data to conversation context...");
                 await _contextService.SaveTurnAsync(
                     sessionId,
                     dataQuery,
@@ -367,10 +390,13 @@ namespace DynamicAi.Application.Services
                     dataResult.RewrittenSql,
                     dataResult.Data,
                     cancellationToken);
+                _logger.LogInformation("[MultiStep] ✓ Context saved for session: {SessionId}", sessionId);
             }
 
-            // Step 3: Call PredictIntentHandler with the context now populated
-            _logger.LogInformation("[MultiStep] Step 3: Executing prediction with fetched context...");
+            // Step 3: Execute Prediction
+            _logger.LogInformation("");
+            _logger.LogInformation("═══════════════ STEP 3: PREDICTION GENERATION ═══════════════");
+            var predictStart = DateTime.UtcNow;
 
             if (!_handlerFactory.TryGetHandler(IntentType.Prediction, out var predictHandler))
             {
@@ -395,13 +421,39 @@ namespace DynamicAi.Application.Services
                 SessionId = sessionId
             };
 
+            _logger.LogInformation("[MultiStep] 🔮 Calling PredictIntentHandler...");
             var predictionResult = await predictHandler!.HandleAsync(userQuestion, predictIntentResult, predictContext, cancellationToken);
+            var predictDuration = (DateTime.UtcNow - predictStart).TotalMilliseconds;
 
+            // Final Summary
+            var totalDuration = (DateTime.UtcNow - pipelineStart).TotalMilliseconds;
+            _logger.LogInformation("");
             _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-            _logger.LogInformation("║           [MULTI-STEP] PredictionWithDataFetch - Completed ✓          ║");
+            _logger.LogInformation("║     [MULTI-STEP PIPELINE] PredictionWithDataFetch - Completed ✓       ║");
             _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+            _logger.LogInformation("[MultiStep] ═══════════════ TIMING BREAKDOWN ═══════════════");
+            _logger.LogInformation("[MultiStep]   Step 1 (Extraction):   {Duration,8:F0}ms", extractDuration);
+            _logger.LogInformation("[MultiStep]   Step 2 (Data Fetch):   {Duration,8:F0}ms", fetchDuration);
+            _logger.LogInformation("[MultiStep]   Step 3 (Prediction):   {Duration,8:F0}ms", predictDuration);
+            _logger.LogInformation("[MultiStep]   ─────────────────────────────────────");
+            _logger.LogInformation("[MultiStep]   TOTAL PIPELINE:        {Duration,8:F0}ms", totalDuration);
 
             return predictionResult;
+        }
+
+        /// <summary>
+        /// Helper to count rows in data result
+        /// </summary>
+        private static int GetDataCount(object? data)
+        {
+            if (data == null) return 0;
+            if (data is System.Collections.IEnumerable enumerable)
+            {
+                var count = 0;
+                foreach (var _ in enumerable) count++;
+                return count;
+            }
+            return 1;
         }
 
         /// <summary>
