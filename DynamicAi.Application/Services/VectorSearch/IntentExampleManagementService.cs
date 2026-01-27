@@ -347,9 +347,13 @@ public class IntentExampleManagementService : IIntentExampleManagementService
         _logger.LogInformation("║     [INCREMENTAL SEED] - Checking for missing examples     ║");
         _logger.LogInformation("╚════════════════════════════════════════════════════════════╝");
 
+        // Safety: Ensure collection exists and indexes are created
+        await EnsureCollectionExistsAsync(cancellationToken);
+
         var allExamples = GetDefaultExamples();
         int addedCount = 0;
         int skippedCount = 0;
+
 
         foreach (var (intentType, examples) in allExamples)
         {
