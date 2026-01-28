@@ -85,7 +85,8 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
             }
         }, 15000);
 
-        this.apiService.ask('Hello').subscribe({
+        const sessionId = this.chatSignal.getOrCreateSessionId();
+        this.apiService.ask('Hello', undefined, undefined, sessionId).subscribe({
             next: (res) => {
                 clearTimeout(timeoutId);
                 this.status = 'Connected! ✅';
@@ -137,7 +138,8 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         this.loading = true;
         this.cdr.detectChanges();
 
-        this.apiService.ask(currentQ, this.lastQuestion, this.lastSql).subscribe({
+        const sessionId = this.chatSignal.getOrCreateSessionId();
+        this.apiService.ask(currentQ, this.lastQuestion, this.lastSql, sessionId).subscribe({
             next: (res) => {
                 this.loading = false;
                 console.log('API Response:', res);
@@ -194,6 +196,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                 newMessage.cacheId = cacheId;
                 newMessage.isLogged = false;
                 newMessage.queryLogId = res.queryLogId || res.QueryLogId;
+                newMessage.intent = res.intent ?? res.Intent;
 
                 this.messages.push(newMessage);
 

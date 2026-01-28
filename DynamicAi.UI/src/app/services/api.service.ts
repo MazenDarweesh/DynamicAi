@@ -16,14 +16,16 @@ export class ApiService {
         return this.http.get(`${this.apiUrl}/Test/ping`);
     }
 
-    ask(question: string, previousQuestion?: string, previousSql?: string): Observable<any> {
-        return this.http.post(`${this.apiUrl}/Test/ask`, {
-            question: question,
+    ask(question: string, previousQuestion?: string, previousSql?: string, sessionId?: string): Observable<any> {
+        const body: Record<string, unknown> = {
+            question,
             tenantId: 'default',
             comID: 1,
-            previousQuestion: previousQuestion,
-            previousSql: previousSql
-        });
+            previousQuestion: previousQuestion ?? null,
+            previousSql: previousSql ?? null
+        };
+        if (sessionId) body.sessionId = sessionId;
+        return this.http.post(`${this.apiUrl}/Test/ask`, body);
     }
 
     dislike(request: DislikeRequest): Observable<DislikeResponse> {

@@ -118,6 +118,11 @@ export class DashboardComponent implements OnInit {
         };
     }
 
+    /** Palette for Intent Distribution (Phase 1: DataRetrieval, Analysis, Prediction, etc.) */
+    private readonly intentChartColors = [
+        '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#E0E0E0'
+    ];
+
     updateIntentChart(data: IntentDistribution[]) {
         if (!data || data.length === 0) {
             this.pieChartData = {
@@ -130,11 +135,12 @@ export class DashboardComponent implements OnInit {
             return;
         }
 
+        const colors = data.map((_, i) => this.intentChartColors[i % this.intentChartColors.length]);
         this.pieChartData = {
             labels: data.map(d => d.intent),
             datasets: [{
                 data: data.map(d => d.count),
-                backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
+                backgroundColor: colors
             }]
         };
     }

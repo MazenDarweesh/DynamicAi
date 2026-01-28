@@ -51,4 +51,9 @@ public class QueryExecutionResult
     /// The AI's confidence score in the generated SQL.
     /// </summary>
     public float? ConfidenceScore { get; set; }
+
+    /// <summary>
+    /// Classified intent (Phase 1: The Brain). e.g. DataRetrieval, Analysis, Prediction, Chat, Unknown.
+    /// </summary>
+    public string? Intent { get; set; }
 }

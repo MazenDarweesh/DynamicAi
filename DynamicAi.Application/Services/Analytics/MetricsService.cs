@@ -50,6 +50,10 @@ public class MetricsService : IMetricsService
         };
     }
 
+    /// <summary>
+    /// Aggregates intent distribution by HandlerType (IntentType stored in QueryLog).
+    /// Phase 1: DataRetrieval, Analysis, Prediction, PredictionWithDataFetch, Chat, Unknown.
+    /// </summary>
     public async Task<List<IntentDistributionItem>> GetIntentDistributionAsync(
         string? tenantId, TimeSpan window, CancellationToken cancellationToken = default)
     {
@@ -59,18 +63,32 @@ public class MetricsService : IMetricsService
         var total = logs.Count;
         if (total == 0) return new List<IntentDistributionItem>();
 
-        var sql = logs.Count(l => l.HandlerType == "SQL");
-        var predict = logs.Count(l => l.HandlerType == "Predict");
-        var chat = logs.Count(l => l.HandlerType == "Chat");
-        var unknown = logs.Count(l => l.HandlerType != "SQL" && l.HandlerType != "Predict" && l.HandlerType != "Chat");
+        var grouped = logs
+            .Where(l => !string.IsNullOrEmpty(l.HandlerType))
+            .GroupBy(l => l.HandlerType!)
+            .Select(g => new IntentDistributionItem
+            {
+                Intent = g.Key,
+                Count = g.Count(),
+                Percentage = (double)g.Count() / total * 100
+            })
+            .OrderByDescending(x => x.Count)
+            .ToList();
 
-        return new List<IntentDistributionItem>
+        var knownCount = grouped.Sum(x => x.Count);
+        var unknownCount = total - knownCount;
+        if (unknownCount > 0)
         {
-            new IntentDistributionItem { Intent = "SQL", Count = sql, Percentage = (double)sql / total * 100 },
-            new IntentDistributionItem { Intent = "Predict", Count = predict, Percentage = (double)predict / total * 100 },
-            new IntentDistributionItem { Intent = "Chat", Count = chat, Percentage = (double)chat / total * 100 },
-            new IntentDistributionItem { Intent = "Unknown", Count = unknown, Percentage = (double)unknown / total * 100 }
-        };
+            grouped.Add(new IntentDistributionItem
+            {
+                Intent = "Unknown",
+                Count = unknownCount,
+                Percentage = (double)unknownCount / total * 100
+            });
+        }
+
+        _logger.LogInformation("📊 [Metrics] Intent Distribution: {Count} intents, {Total} total", grouped.Count, total);
+        return grouped;
     }
 
     public async Task<CostBreakdown> GetCostBreakdownAsync(

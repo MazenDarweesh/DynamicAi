@@ -18,5 +18,7 @@ export interface ChatMessage {
     isLiked?: boolean;
     showSql?: boolean; // Toggle state for SQL display
     suggestionTips?: string[];
+    /** Classified intent (Phase 1: The Brain). e.g. DataRetrieval, Analysis, Prediction, Chat */
+    intent?: string;
 }
 

@@ -1,4 +1,4 @@
-﻿namespace DynamicAi.Domain.Entities
+namespace DynamicAi.Domain.Entities
 {
     public class QueryLog
     {
@@ -24,7 +24,7 @@
         /// <summary>وقت تنفيذ الطلب بالمللي ثانية</summary>
         public int LatencyMs { get; set; }
 
-        /// <summary>نوع المعالج: "SQL" | "Predict" | "Chat"</summary>
+        /// <summary>Intent type (Phase 1: The Brain). e.g. DataRetrieval, Analysis, Prediction, Chat, Unknown, PredictionWithDataFetch.</summary>
         public string? HandlerType { get; set; }
 
         /// <summary>تكلفة استدعاء Gemini API</summary>

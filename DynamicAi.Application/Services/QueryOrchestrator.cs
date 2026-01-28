@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Exceptions;
@@ -229,6 +229,7 @@ namespace DynamicAi.Application.Services
 
                 #endregion
 
+                result.Intent = intentResult.Intent.ToString();
                 return result;
 
                 #endregion
@@ -447,6 +448,7 @@ namespace DynamicAi.Application.Services
             _logger.LogInformation("[MultiStep]   ─────────────────────────────────────");
             _logger.LogInformation("[MultiStep]   TOTAL PIPELINE:        {Duration,8:F0}ms", totalDuration);
 
+            predictionResult.Intent = intentResult.Intent.ToString();
             return predictionResult;
         }
 

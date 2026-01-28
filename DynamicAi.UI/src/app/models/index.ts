@@ -9,3 +9,4 @@ export * from './ask-request.model';
 export * from './like-request.model';
 export * from './like-response.model';
 export * from './dashboard-metrics.model';
+export * from './intent-review.model';
