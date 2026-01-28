@@ -19,56 +19,60 @@ The system follows **Clean Architecture** principles with a **7-Layer Query Pipe
                              │                 │
             ┌────────────────▼────────────────┐│
             │       Query Orchestrator        ││
-            │    (7-Layer Pipeline)           ││
-            └───────┬────────────────────────-┘│
-                    │                          │
-        ┌───────────▼───────────┐              │
-        │  🆕 Layer 0:          │              │
-        │  Intent Router        │              │
-        │  (Qdrant + LLM Loop)  │              │
-        │  [Auto-Seeding]       │              │
-        └───────────┬───────────┘              │
-                    │                          │
-        ┌───────────▼───────────┐              │
-        │  Layer 0.5:           │              │
-        │  Query Condenser      │              │
-        │  (ActionType Logic)   │              │
-        └───────────┬───────────┘              │
-                    │                          │
-        ┌───────────▼───────────┐              │
-        │  Layer 1: Query Cache │              │
-        │  (Semantic Similarity)│              │
-        └───────────┬───────────┘              │
-                    │                          │
-        ┌───────────▼───────────┐              │
-        │  Layer 2: RAG Context │              │
-        │  (Qdrant + Schema)    │              │
-        └───────────┬───────────┘              │
-                    │                          │
-        ┌───────────▼───────────┐              │
-        │  Layer 3: SQL Gen     │              │
-        │  (Gemini + Prompt)    │              │
-        └───────────┬───────────┘              │
-                    │                          │
-        ┌───────────▼───────────┐              │
-        │  Layer 4: Validation  │              │
-        │  (Security + Rewrite) │              │
-        └───────────┬───────────┘              │
-                    │                          │
-        ┌───────────▼───────────┐              │
-        │  Layer 5: Execution   │              │
-        │  (SQL Server)         │              │
-        └───────────┬───────────┘              │
-                    ↕                          │
-             [(SQL DB)]                        │
-                                               │
-                         ┌─────────────────────▼──┐
-                         │   Feedback Service     │
-                         │ (Like/Dislike → Golden │
-                         │    Dataset Pipeline)   │
-                         └────────────┬───────────┘
-                                      ↕
-                            [TrainingExamples DB]
+            │    (Pipeline Coordinator)       ││
+            └───────────────┬─────────────────┘│
+                            │                  │
+            ┌───────────────▼───────────────┐  │
+            │   Layer 0: Intent Router      │  │
+            │ (Vector + LLM Classification) │  │
+            └───────┬───────┬───────┬───────┘  │
+                    │       │       │          │
+    ┌───────────────┘       │       └──────────┼────────┐
+    │ 'Chat'                │ 'SQL'            │ 'Predict'
+    ▼                       ▼                  ▼
+┌────────────┐    ┌──────────────────┐  ┌──────────────┐
+│Chat Handler│    │   SQL Handler    │  │PredictHandler│
+│ (No DB)    │    │ (Deep Pipeline)  │  │(Extrapolate) │
+└────────────┘    └─────────┬────────┘  └──────┬───────┘
+                            │                  │
+                ┌───────────▼───────────┐      │
+                │  Layer 0.5:           │      │
+                │  Query Condenser      │      │
+                │  (ActionType Logic)   │      │
+                └───────────┬───────────┘      │
+                            │                  │
+                ┌───────────▼───────────┐      │
+                │  Layer 1: Query Cache │      │
+                │  (Semantic Similarity)│      │
+                └───────────┬───────────┘      │
+                            │                  │
+                ┌───────────▼───────────┐      │
+                │  Layer 2: RAG Context │      │
+                │  (Qdrant + Schema)    │      │
+                └───────────┬───────────┘      │
+                            │                  │
+                ┌───────────▼───────────┐      │
+                │  Layer 3: SQL Gen     │      │
+                │  (Gemini + Prompt)    │      │
+                └───────────┬───────────┘      │
+                            │                  │
+                ┌───────────▼───────────┐      │
+                │  Layer 4: Validation  │      │
+                │  (Security + Rewrite) │      │
+                └───────────┬───────────┘      │
+                            │                  │
+                ┌───────────▼───────────┐      │
+                │  Layer 5: Execution   │◄─────┘
+                │  (SQL Server)         │  (Multi-Step
+                └───────────┬───────────┘    Fetches)
+                            ↕
+                     [(SQL DB)]
+                           
+                                 ┌─────────────────────▼──┐
+                                 │   Context Loop         │
+                                 │ ConversationContext    │
+                                 │(Passes Data to Predict)│
+                                 └────────────┬───────────┘
 ```
 
 ### 🛠️ Technology Stack
@@ -143,82 +147,56 @@ A standalone **6-Phase Checkpointed Knowledge Ingestion Pipeline** that bootstra
 
 ---
 
-### 2. 🆕 Intent Router Layer 0 (`IntentClassificationService`)
-A **Semantic Router** that classifies user questions to determine the correct pipeline path before ANY processing.
+## 🧠 The Self-Evolving Hybrid Router
 
-**Key Capabilities:**
-*   **Zero-Shot Classification:** Uses Qdrant vector search to match questions against seeded examples.
-*   **Auto-Creation & Seeding:** Automatically creates `intent_examples` collection and seeds 32+ default examples (Arabic/English) on first run.
-*   **🧠 Self-Learning (Hybrid Loop):**
-    *   If Qdrant finds a match → Uses it (Fast path).
-    *   If NO match found → Calls LLM to classify → **Automatically seeds** the new example to Qdrant for future use.
-    *   *Result:* The system gets smarter with every question!
+The core of Dynamic AI is its **Intelligent Intent Orchestrator**, which evolves from zero data to highly accurate vector-based routing through 4 strategic phases:
 
-### 3. Query Condenser Layer 0.5 (`QueryCondenserService`)
+### Phase 0: "The Cold Start Solution"
+*   **Problem:** LLMs don't know the specific patterns of your database.
+*   **Solution:** **Incremental Intent Seeding**. On startup, the system checks for missing intent examples and seeds them automatically using `IIntentExampleManagementService.SeedMissingExamplesAsync()`.
+*   **Impact:** Ensures the system is functional from the very first query.
 
-A **pre-processing layer** that intelligently handles follow-up questions and determines the optimal SQL generation strategy.
+### Phase 1: "The Brain" (IntentClassificationService)
+*   **Mechanism:** A **Semantic Router** that uses vector embeddings (Qdrant) to match questions against known intents.
+*   **Self-Learning Loop:** If no match is found (Low Confidence < 0.75), it falls back to the LLM to classify and **automatically seeds** the result back to Qdrant for future instant matching.
 
-**The Problem Solved:**
-```text
-User: "هات آخر 5 فواتير"                  → SQL: SELECT TOP 5 ... ORDER BY Date DESC
-User: "رتبهم تنازلياً"                    → ???
+### Phase 2: "The Safety Net" (Admin Review & Caching)
+*   **Low Confidence Handling:** Queries that fail the confidence threshold are saved to `intent_examples` with `Status=Pending` for admin review.
+*   **Cache Management:** Admins can clear specific cache entries or review intents via dedicated endpoints.
 
-Without Layer 0.5: LLM doesn't know what "them" refers to!
-With Layer 0.5: Condenses to "هات آخر 5 فواتير ورتبهم تنازلياً" + ActionType=WrapPrevious
-```
+### Phase 3: "The Handlers" (Specialized Execution)
+1.  **`SqlIntentHandler`**: For `DataRetrieval` and `Analysis`. Manages the full SQL pipeline: Condensing → RAG → Generation → Validation.
+2.  **`ChatIntentHandler`**: For casual greetings and general questions (No DB access).
+3.  **`PredictIntentHandler`**: For future insights. Uses **Conversation Context** to predict trends based on previously fetched data.
+4.  **`PredictionWithDataFetch`**: A **Multi-Step Pipeline** that extracts a data-query first, executes it, and then feeds the result into the prediction engine.
 
-**ActionType System:**
-| ActionType | When Used | SQL Strategy |
-|:---|:---|:---|
-| **New** | Completely new/unrelated question | Generate fresh SQL from scratch |
-| **WrapPrevious** | Simple modification (sort, filter, limit) | Wrap previous SQL in subquery |
-| **Regenerate** | Related context but needs new logic | Use context, generate new SQL |
+---
 
-**Key Files:**
-| File | Purpose |
-|:---|:---|
-| `CondenserResult.cs` | Model + QueryActionType enum |
-| `IQueryCondenserService.cs` | Interface definition |
-| `QueryCondenserService.cs` | LLM-based implementation |
-| `QueryCondenserServiceTests.cs` | 20+ unit tests |
+## 🔄 Context-Aware Data Loop ("Memory Task")
 
-**Flow Diagram:**
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│         Query Condenser Service (Layer 0.5)                     │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  INPUT:                                                         │
-│  ├── currentQuestion: "رتبهم تنازلياً"                          │
-│  ├── previousQuestion: "هات آخر 5 فواتير"                       │
-│  └── previousSql: "SELECT TOP 5 ... ORDER BY Date DESC"        │
-│                                                                 │
-│  PROCESS:                                                       │
-│  ├── 1. If no previous → Return ActionType.New (skip LLM)      │
-│  ├── 2. Build smart prompt with WRAP/REGENERATE/NEW rules      │
-│  ├── 3. Call LLM (Gemini)                                       │
-│  └── 4. Parse response: "ACTION: WRAP\nQUESTION: ..."          │
-│                                                                 │
-│  OUTPUT: CondenserResult                                        │
-│  ├── ActionType: WrapPrevious                                   │
-│  └── CondensedQuestion: "هات آخر 5 فواتير ورتبهم تنازلياً"      │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+Dynamic AI doesn't just answer isolated questions; it remembers the conversation context using a specialized loop:
+
+*   **`ConversationContextService`**: Manages the state using `IMemoryCache` and persistent logs.
+*   **`ConversationTurn` System**: Stores each turn with:
+    *   **Question**: The original user query.
+    *   **SQL Executed**: The query that ran.
+    *   **Result Sample JSON**: A smart summary of the result set (to stay within token limits).
+*   **Context Injection**: Injected at "Layer -1" of the Orchestrator, allowing handlers (like Predict) to "see" what was just discussed or fetched.
 
 ---
 
 ### 4. Dynamic AI Core (`DynamicAi.Application`)
 The brain of the operation, containing the business logic.
 
-*   **`QueryOrchestrator`:** Manages the pipeline. 🆕 Now starts with Layer 0 (Intent Router) → Layer 0.5 (Condenser) → Caching.
-*   **`IntentClassificationService`:** 🆕 Layer 0 service that classifies intent (DataRetrieval, Analysis, Prediction, Chat) and effectively handles "Chat" intents without touching the DB.
-*   **`SqlGenerationService`:** Constructs precise SQL queries based on user prompts and retrieved schema context. 🆕 Now accepts `ActionType` to handle WRAP vs REGENERATE modes.
-*   **`SqlValidatorService`:** Parses generated SQL with `ScriptDom` to strictly enforce security policies (No DML/DDL) and syntactic correctness before execution.
-*   **`QueryCacheService`:** *[MVP Feature]* Checks Qdrant for semantically similar past questions to return cached SQL instantly, bypassing the LLM for faster responses.
-*   **`GeminiCostTracker`:** Centralized service that tracks token usage and calculates costs for Chat and Embedding models in real-time.
-
----
+*   **`QueryOrchestrator`**: Coordinates the entire pipeline. Delegates to Handlers based on detected Intent.
+*   **`IntentClassificationService`**: The "Router" that determines if the user wants SQL, Chat, or Prediction.
+*   **`PredictIntentHandler`**: 🆕 Uses recently fetched data results to provide intelligent extrapolations (e.g., "Will this continue next month?").
+*   **`ConversationContextService`**: 🆕 Enables the "Data Loop" by storing and retrieving sampled query results for subsequent steps.
+*   **`SqlGenerationService`**: Constructs precise SQL Queries. Accepts `ActionType` (NEW/WRAP/REGENERATE) from the Condenser.
+*   **`QueryCondenserService`**: Handles Layer 0.5 (Follow-up logic).
+*   **`SqlValidatorService`**: Security layer using **ScriptDom** to prevent DML/DDL operations.
+*   **`GeminiCostTracker`**: Precise USD cost calculation (8 decimal places) per request.
+*   **`IntentExampleManagementService`**: 🆕 Handles index creation and **Incremental Seeding** of missing intent examples.
 
 ### 5. Dynamic AI UI (`DynamicAi.UI`)
 A modern, responsive web interface built with **Angular (Latest)**.
@@ -325,6 +303,22 @@ npm install  # Install dependencies
 npm start    # Runs 'ng serve'
 ```
 Navigate to `http://localhost:4200` to use the application.
+
+---
+
+## 📡 API Reference (Notable Endpoints)
+
+### 🧩 Intent & Data Seeding
+*   `POST /api/dataseeder/seed`: Full database seeding.
+*   `POST /api/DataSeeder/seed-intents`: **Incremental Seeding**. Injects missing intent examples without duplicates.
+
+### 🧠 Intent Review (The Safety Net)
+*   `POST /api/intent-review/clear-by-question`: Remove specific intent examples.
+
+### ⚡ Query Cache
+*   `POST /api/query-cache/clear-by-question`: Clear specific cached SQL result by question.
+*   `DELETE /api/query-cache/{id}`: Delete specific cache entry.
+
 
 ### 🐳 Docker Deployment (Optional)
 
@@ -528,26 +522,20 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 
 ## 📝 Changelog
 
-### v1.3.0 (2026-01-20) - The Brain & Observability 🆕
+### v1.4.0 (2026-01-28) - The Self-Evolving Hybrid Router 🚀
 
-**Layer 0: Intent Router**
-- ✅ **Semantic Classification:** Using Qdrant (3072 dim) to distinguish SQL vs. Chat vs. Predict.
-- ✅ **Self-Learning Loop:** Hybrid fallback (Vector → LLM → Auto-Seed).
-- ✅ **Auto-Seeding:** Automatically injects 32+ default examples on startup.
-- ✅ **Chat Handler:** Immediate response for casual chat (No SQL generated).
+**Major Architectural Shift**
+- ✅ **Hybrid Router (Phases 0-3):** Implementation of the 4-Phase maturation strategy for intent routing.
+- ✅ **Specialized Intent Handlers:** Decoupled `SqlIntentHandler`, `ChatIntentHandler`, and `PredictIntentHandler`.
+- ✅ **Context-Aware Data Loop:** New `ConversationContextService` storing sampled results for trend analysis.
+- ✅ **Multi-Step Prediction Pipeline:** `PredictionWithDataFetch` logic in Orchestrator for complex "Fetch-then-Predict" queries.
 
-**Observability & Dashboard (Phases A-J):**
-- ✅ **Dashboard UI:** Glassmorphism dashboard with Chart.js visualization.
-- ✅ **Deep Metrics:** P95 Latency, CSAT Score, Clarification Rate.
-- ✅ **Cost Precision:** Tracking Gemini costs to 8 decimal places.
-- ✅ **Token Counter:** Upgraded to Google.GenAI SDK for accuracy.
-- ✅ **QueryLog Extension:** Added `LatencyMs`, `HandlerType`, `ConfidenceScore`, `IsAmbiguous`.
+**Management & Incremental Seeding**
+- ✅ **Incremental Intent Seeding:** `SeedMissingExamplesAsync` ensures new system intents are seeded without data loss.
+- ✅ **New Controllers:** `QueryCacheController`, `DataSeederController` (Refactored), and updated `IntentReviewController`.
+- ✅ **Admin Controls:** Endpoints for clearing cache and intent examples by natural question.
 
-**New Files:**
-- `IntentClassificationService.cs` - Layer 0 Logic
-- `MetricsService.cs` & `MetricsController.cs` - Observability Backend
-- `GeminiTokenCounter.cs` - Accurate Token Counting
-- `DashboardComponent` (Angular) - Real-time Visualization
+**v1.3.0 (2026-01-20) - The Brain & Observability**
 
 ### v1.2.0 (2026-01-07) - Query Condensing Release
 
