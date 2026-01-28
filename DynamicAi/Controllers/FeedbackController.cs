@@ -285,13 +285,13 @@ public class FeedbackController : ControllerBase
         try
         {
             var verifiedCount = await _trainingRepo.GetVerifiedCountAsync();
-            var unverified = await _trainingRepo.GetUnverifiedAsync(1);
-            var unverifiedCount = unverified.Count; // Approximate
+            var totalCount = await _trainingRepo.GetTotalCountAsync();
 
             return Ok(new
             {
                 verified = verifiedCount,
-                pendingReview = unverifiedCount,
+                total = totalCount,
+                pendingReview = totalCount - verifiedCount,
                 targetForFineTuning = 500,
                 progress = Math.Round((double)verifiedCount / 500 * 100, 1)
             });

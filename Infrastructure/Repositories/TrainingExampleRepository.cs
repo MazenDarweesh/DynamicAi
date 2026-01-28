@@ -46,6 +46,11 @@ public class TrainingExampleRepository : ITrainingExampleRepository
         return await _context.TrainingExamples.CountAsync(e => e.IsVerified, cancellationToken);
     }
 
+    public async Task<int> GetTotalCountAsync(CancellationToken cancellationToken = default)
+    {
+        return await _context.TrainingExamples.CountAsync(cancellationToken);
+    }
+
     public async Task MarkAsVerifiedAsync(Guid id, string? correctedSql = null, CancellationToken cancellationToken = default)
     {
         var example = await _context.TrainingExamples.FindAsync(new object[] { id }, cancellationToken);

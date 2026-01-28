@@ -19,6 +19,9 @@ public interface ITrainingExampleRepository
     /// <summary>عدد الأمثلة المعتمدة (لمعرفة متى نصل لـ 500)</summary>
     Task<int> GetVerifiedCountAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>العدد الكلي لجميع أمثلة التدريب</summary>
+    Task<int> GetTotalCountAsync(CancellationToken cancellationToken = default);
+
     /// <summary>اعتماد مثال بعد المراجعة</summary>
     Task MarkAsVerifiedAsync(Guid id, string? correctedSql = null, CancellationToken cancellationToken = default);
 
