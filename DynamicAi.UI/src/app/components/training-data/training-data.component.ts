@@ -21,6 +21,11 @@ export class TrainingDataComponent implements OnInit {
     error: string | null = null;
     exportMessage: string | null = null;
 
+    // Pending examples properties
+    pendingExamples: any[] = [];
+    loadingPending = false;
+    processingId: string | null = null;
+
     // Manual form properties
     manualForm: ManualTrainingRequest = {
         naturalQuery: '',
@@ -32,6 +37,7 @@ export class TrainingDataComponent implements OnInit {
 
     ngOnInit() {
         this.loadStats();
+        this.loadPendingExamples();
     }
 
     loadStats() {
@@ -134,5 +140,58 @@ export class TrainingDataComponent implements OnInit {
         if (this.stats.progress >= 80) return '#10b981';
         if (this.stats.progress >= 50) return '#f59e0b';
         return '#ef4444';
+    }
+
+    loadPendingExamples() {
+        this.loadingPending = true;
+        this.trainingService.getPendingExamples().subscribe({
+            next: (data) => {
+                this.pendingExamples = data;
+                this.loadingPending = false;
+                this.cdr.detectChanges();
+            },
+            error: (err) => {
+                console.error('Error loading pending examples:', err);
+                this.loadingPending = false;
+                this.cdr.detectChanges();
+            }
+        });
+    }
+
+    verifyExample(id: string) {
+        this.processingId = id;
+        this.trainingService.verifyExample(id).subscribe({
+            next: () => {
+                this.processingId = null;
+                this.loadPendingExamples();
+                this.loadStats();
+                this.cdr.detectChanges();
+            },
+            error: (err) => {
+                console.error('Error verifying example:', err);
+                this.processingId = null;
+                this.cdr.detectChanges();
+            }
+        });
+    }
+
+    rejectExample(id: string) {
+        if (!confirm('هل أنت متأكد من حذف هذا المثال؟')) {
+            return;
+        }
+        this.processingId = id;
+        this.trainingService.rejectExample(id).subscribe({
+            next: () => {
+                this.processingId = null;
+                this.loadPendingExamples();
+                this.loadStats();
+                this.cdr.detectChanges();
+            },
+            error: (err) => {
+                console.error('Error rejecting example:', err);
+                this.processingId = null;
+                this.cdr.detectChanges();
+            }
+        });
     }
 }

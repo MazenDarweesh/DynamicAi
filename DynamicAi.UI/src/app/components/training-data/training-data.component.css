@@ -307,3 +307,22 @@
     border-radius: 16px;
     box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
 }
+/* Pending Examples Table */
+.pending-section { padding: 1.5rem; border-radius: 16px; margin-bottom: 2rem; }
+.pending-section h3 { font-size: 1.25rem; font-weight: 600; color: #ccc; margin: 0 0 0.5rem 0; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 0.5rem; }
+.empty-state { text-align: center; padding: 2rem; color: #888; }
+.table-container { overflow-x: auto; margin-top: 1rem; }
+.examples-table { width: 100%; border-collapse: collapse; }
+.examples-table thead { background: rgba(79, 172, 254, 0.1); }
+.examples-table th { padding: 0.75rem 1rem; text-align: left; font-weight: 600; color: #4facfe; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px; }
+.examples-table td { padding: 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.examples-table tbody tr { transition: background 0.2s; }
+.examples-table tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
+.query-cell { max-width: 300px; color: #e0e0e0; }
+.sql-cell code { background: rgba(0, 0, 0, 0.3); padding: 0.5rem; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #86efac; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 350px; }
+.source-cell { color: #94a3b8; font-size: 0.85rem; }
+.actions-cell { text-align: center; white-space: nowrap; }
+.btn.approve { background: rgba(46, 213, 115, 0.2); color: #86efac; border: 1px solid rgba(46, 213, 115, 0.5); margin-right: 0.5rem; padding: 0.5rem 1rem; }
+.btn.approve:hover:not(:disabled) { background: rgba(46, 213, 115, 0.3); }
+.btn.reject { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.5); padding: 0.5rem 1rem; }
+.btn.reject:hover:not(:disabled) { background: rgba(239, 68, 68, 0.3); }

@@ -37,4 +37,25 @@ export class TrainingService {
     addManualExample(request: ManualTrainingRequest): Observable<FeedbackResponse> {
         return this.http.post<FeedbackResponse>(`${this.baseUrl}/manual`, request);
     }
+
+    /**
+     * Get pending (unverified) training examples
+     */
+    getPendingExamples(): Observable<any[]> {
+        return this.http.get<any[]>(`${this.baseUrl}/pending`);
+    }
+
+    /**
+     * Verify (approve) a training example
+     */
+    verifyExample(id: string): Observable<FeedbackResponse> {
+        return this.http.post<FeedbackResponse>(`${this.baseUrl}/verify/${id}`, {});
+    }
+
+    /**
+     * Reject (delete) a training example
+     */
+    rejectExample(id: string): Observable<FeedbackResponse> {
+        return this.http.delete<FeedbackResponse>(`${this.baseUrl}/${id}`);
+    }
 }

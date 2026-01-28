@@ -305,5 +305,110 @@ public class FeedbackController : ControllerBase
 
     #endregion
 
+    #region Pending Examples Management
+
+    /// <summary>
+    /// جلب أمثلة التدريب الغير معتمدة للمراجعة.
+    /// </summary>
+    [HttpGet("training/pending")]
+    public async Task<IActionResult> GetPendingExamples()
+    {
+        _logger.LogInformation("╔═══════════════════════════════════════════════════════════╗");
+        _logger.LogInformation("║          GET PENDING TRAINING EXAMPLES 📋                 ║");
+        _logger.LogInformation("╚═══════════════════════════════════════════════════════════╝");
+
+        try
+        {
+            var examples = await _trainingRepo.GetUnverifiedAsync(50);
+
+            _logger.LogInformation("[Training] Found {Count} pending examples", examples.Count);
+
+            return Ok(examples.Select(e => new
+            {
+                id = e.Id,
+                naturalQuery = e.NaturalQuery,
+                generatedSql = e.GeneratedSql,
+                feedbackSource = e.FeedbackSource,
+                createdAt = e.CreatedAt,
+                correctionNotes = e.CorrectionNotes
+            }));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Training] ❌ Error getting pending examples");
+            return StatusCode(500, new { error = "حدث خطأ" });
+        }
+    }
+
+    /// <summary>
+    /// اعتماد مثال تدريب بعد المراجعة.
+    /// </summary>
+    [HttpPost("training/verify/{id}")]
+    public async Task<IActionResult> VerifyExample(Guid id, [FromBody] VerifyRequest? request = null)
+    {
+        _logger.LogInformation("╔═══════════════════════════════════════════════════════════╗");
+        _logger.LogInformation("║          VERIFY TRAINING EXAMPLE ✅                       ║");
+        _logger.LogInformation("╚═══════════════════════════════════════════════════════════╝");
+        _logger.LogInformation("[Training] Verifying example: {Id}", id);
+
+        try
+        {
+            await _trainingRepo.MarkAsVerifiedAsync(id, request?.CorrectedSql);
+
+            _logger.LogInformation("[Training] ✅ Example verified successfully");
+
+            return Ok(new FeedbackResponse
+            {
+                Success = true,
+                Message = "تم اعتماد المثال! 💎"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Training] ❌ Error verifying example");
+            return StatusCode(500, new FeedbackResponse
+            {
+                Success = false,
+                Message = "فشل في الاعتماد"
+            });
+        }
+    }
+
+    /// <summary>
+    /// حذف مثال تدريب غير صالح.
+    /// </summary>
+    [HttpDelete("training/{id}")]
+    public async Task<IActionResult> DeleteExample(Guid id)
+    {
+        _logger.LogInformation("╔═══════════════════════════════════════════════════════════╗");
+        _logger.LogInformation("║          DELETE TRAINING EXAMPLE 🗑️                      ║");
+        _logger.LogInformation("╚═══════════════════════════════════════════════════════════╝");
+        _logger.LogInformation("[Training] Deleting example: {Id}", id);
+
+        try
+        {
+            await _trainingRepo.DeleteAsync(id);
+
+            _logger.LogInformation("[Training] ✅ Example deleted successfully");
+
+            return Ok(new FeedbackResponse
+            {
+                Success = true,
+                Message = "تم حذف المثال! 🗑️"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Training] ❌ Error deleting example");
+            return StatusCode(500, new FeedbackResponse
+            {
+                Success = false,
+                Message = "فشل في الحذف"
+            });
+        }
+    }
+
+    #endregion
+
 }
 

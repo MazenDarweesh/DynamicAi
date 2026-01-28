@@ -50,6 +50,50 @@
         </p>
     </div>
 
+    <!-- Pending Examples Table -->
+    <div class="pending-section glass">
+        <h3>📋 Pending Training Examples</h3>
+        <p class="hint">Review and approve pending examples to add them to the Golden Dataset</p>
+
+        <div *ngIf="loadingPending" class="loading">⏳ Loading pending examples...</div>
+
+        <div *ngIf="!loadingPending && pendingExamples.length === 0" class="empty-state">
+            <p>✨ No pending examples! All caught up.</p>
+        </div>
+
+        <div *ngIf="!loadingPending && pendingExamples.length > 0" class="table-container">
+            <table class="examples-table">
+                <thead>
+                    <tr>
+                        <th>Question</th>
+                        <th>SQL</th>
+                        <th>Source</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr *ngFor="let example of pendingExamples">
+                        <td class="query-cell">{{ example.naturalQuery }}</td>
+                        <td class="sql-cell">
+                            <code>{{ example.generatedSql.substring(0, 100) }}{{ example.generatedSql.length > 100 ? '...' : '' }}</code>
+                        </td>
+                        <td class="source-cell">{{ example.feedbackSource }}</td>
+                        <td class="actions-cell">
+                            <button class="btn approve" (click)="verifyExample(example.id)"
+                                [disabled]="processingId === example.id">
+                                {{ processingId === example.id ? '⏳' : '✅' }}
+                            </button>
+                            <button class="btn reject" (click)="rejectExample(example.id)"
+                                [disabled]="processingId === example.id">
+                                {{ processingId === example.id ? '⏳' : '❌' }}
+                            </button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     <!-- Manual Training Example Form -->
     <div class="manual-form-section glass">
         <h3>💎 Add Manual Training Example</h3>
