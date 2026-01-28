@@ -12,3 +12,4 @@ export * from './dashboard-metrics.model';
 export * from './intent-review.model';
 export * from './intent-type.enum';
 export * from './clear-cache-request.model';
+export * from './training-stats.model';

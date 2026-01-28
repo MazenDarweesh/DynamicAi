@@ -1,0 +1,70 @@
+<div class="training-container">
+    <div class="header">
+        <h1>📚 Training Data Management</h1>
+        <span class="refresh-badge" (click)="loadStats()">🔄 Refresh</span>
+    </div>
+
+    <p class="subtitle">Manage your Golden Dataset for Fine-Tuning</p>
+
+    <div *ngIf="error" class="error-banner">{{ error }}</div>
+    <div *ngIf="exportMessage" class="success-banner">{{ exportMessage }}</div>
+
+    <!-- Statistics Cards -->
+    <div class="stats-grid">
+        <div class="stat-card glass">
+            <div class="icon">✅</div>
+            <div class="value">{{ stats?.verified || '-' }}</div>
+            <div class="label">Verified Examples</div>
+        </div>
+
+        <div class="stat-card glass">
+            <div class="icon">⏳</div>
+            <div class="value">{{ stats?.pendingReview || '-' }}</div>
+            <div class="label">Pending Review</div>
+        </div>
+
+        <div class="stat-card glass">
+            <div class="icon">🎯</div>
+            <div class="value">{{ stats?.targetForFineTuning || '-' }}</div>
+            <div class="label">Target Goal</div>
+        </div>
+
+        <div class="stat-card glass">
+            <div class="icon">📊</div>
+            <div class="value">{{ stats?.progress?.toFixed(1) || '-' }}%</div>
+            <div class="label">Progress</div>
+        </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="progress-section glass" *ngIf="stats">
+        <h3>📈 Progress to Fine-Tuning Goal</h3>
+        <div class="progress-bar-container">
+            <div class="progress-bar-fill" [style.width.%]="stats.progress"
+                [style.background-color]="getProgressColor()">
+            </div>
+        </div>
+        <p class="progress-text">
+            {{ stats.verified }} / {{ stats.targetForFineTuning }} examples
+            ({{ stats.progress.toFixed(1) }}%)
+        </p>
+    </div>
+
+    <!-- Export Section -->
+    <div class="export-section glass">
+        <h3>📤 Export Training Data</h3>
+        <p class="hint">Download your training data in JSONL format for fine-tuning.</p>
+
+        <div class="export-buttons">
+            <button class="btn primary" (click)="exportTrainingData(true)" [disabled]="exporting || loading">
+                {{ exporting ? '⏳ Exporting...' : '✅ Export Verified Only' }}
+            </button>
+
+            <button class="btn secondary" (click)="exportTrainingData(false)" [disabled]="exporting || loading">
+                {{ exporting ? '⏳ Exporting...' : '📦 Export All' }}
+            </button>
+        </div>
+    </div>
+
+    <div *ngIf="loading" class="loading">Loading...</div>
+</div>

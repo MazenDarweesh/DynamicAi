@@ -1,0 +1,91 @@
+import { Component, OnInit, inject, ChangeDetectorRef } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { TrainingService } from '../../services/training.service';
+import { TrainingStats } from '../../models';
+
+@Component({
+    selector: 'app-training-data',
+    standalone: true,
+    imports: [CommonModule],
+    templateUrl: './training-data.component.html',
+    styleUrls: ['./training-data.component.css']
+})
+export class TrainingDataComponent implements OnInit {
+    private readonly trainingService = inject(TrainingService);
+    private readonly cdr = inject(ChangeDetectorRef);
+
+    stats: TrainingStats | null = null;
+    loading = true;
+    exporting = false;
+    error: string | null = null;
+    exportMessage: string | null = null;
+
+    ngOnInit() {
+        this.loadStats();
+    }
+
+    loadStats() {
+        this.loading = true;
+        this.error = null;
+        this.trainingService.getStats().subscribe({
+            next: (data) => {
+                this.stats = data;
+                this.loading = false;
+                this.cdr.detectChanges();
+            },
+            error: (err) => {
+                this.error = err?.message || 'Failed to load statistics';
+                this.loading = false;
+                this.cdr.detectChanges();
+            }
+        });
+    }
+
+    exportTrainingData(verifiedOnly: boolean) {
+        this.exporting = true;
+        this.exportMessage = null;
+        this.error = null;
+
+        this.trainingService.exportData(verifiedOnly).subscribe({
+            next: (blob) => {
+                // Create download link
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `training_data_${this.getCurrentDate()}.jsonl`;
+                link.click();
+                window.URL.revokeObjectURL(url);
+
+                this.exportMessage = `✅ Exported successfully!`;
+                this.exporting = false;
+                this.cdr.detectChanges();
+
+                // Clear message after 3 seconds
+                setTimeout(() => {
+                    this.exportMessage = null;
+                    this.cdr.detectChanges();
+                }, 3000);
+            },
+            error: (err) => {
+                this.error = err?.message || 'Export failed';
+                this.exporting = false;
+                this.cdr.detectChanges();
+            }
+        });
+    }
+
+    private getCurrentDate(): string {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        return `${year}${month}${day}`;
+    }
+
+    getProgressColor(): string {
+        if (!this.stats) return '#6b7280';
+        if (this.stats.progress >= 80) return '#10b981';
+        if (this.stats.progress >= 50) return '#f59e0b';
+        return '#ef4444';
+    }
+}
