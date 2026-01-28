@@ -346,72 +346,50 @@ docker-compose up
 
 ---
 
-## 🌟 Current Phase: Smart Query Condensing & Context Awareness
+## 🌟 Current Phase: The Self-Evolving Hybrid Router (v1.4.0)
 
-We are currently implementing **Query Condensing (Layer 0.5)** with **Smart ActionType** and **Dislike Context Rollback** features.
-
-## 🌟 Current Phase: The Brain (Intent Classification)
-
-We are currently implementing **Phase 1: The Brain**, focusing on intelligent routing and self-learning intent classification.
+We have successfully implemented the **4-Phase Hybrid Router Architecture**, transforming Dynamic AI from a monolithic SQL pipeline into an intelligent, multi-modal system.
 
 ### ✅ Implemented Features
 
-#### 1. 🆕 Intent Router (Layer 0)
-*   **Semantic Classification:** Vector-based routing (Qdrant) to distinguish `DataRetrieval`, `Analysis`, `Prediction`, and `Chat`.
-*   **Self-Learning Loop:** Falls back to LLM if no match found, then **auto-seeds** the result to Qdrant.
-*   **Auto-Configuration:** `EnsureCollectionExistsAsync` creates collection (3072 dim) and seeds defaults automatically.
-*   **Chat Handling:** Direct response for specific intents (e.g., greetings) bypassing SQL generation.
+#### 1. 🧠 The Hybrid Router (Phases 0-3)
+*   **Phase 0 - Cold Start:** Incremental Intent Seeding ensures zero-downtime bootstrapping.
+*   **Phase 1 - The Brain:** Vector-based classification (Qdrant) with LLM fallback and auto-seeding.
+*   **Phase 2 - Safety Net:** Low-confidence queries saved for admin review; cache management endpoints.
+*   **Phase 3 - Handlers:** Decoupled execution paths for SQL, Chat, Prediction, and Multi-Step queries.
 
-#### 2. Query Condensing (Layer 0.5)
-*   **Smart Follow-up Handling:** Understands "رتبهم" refers to previous results.
-*   **ActionType System:** NEW / WRAP_PREVIOUS / REGENERATE modes for optimal SQL generation.
-*   **Subquery Wrapping:** For WRAP mode, previous SQL is wrapped in subquery for modifications.
-*   **SQL Server Compliance:** Handles ORDER BY in subqueries correctly (requires TOP/OFFSET).
+#### 2. 🎯 Specialized Intent Handlers
+*   **`SqlIntentHandler`**: Full 7-layer pipeline (Condensing → Cache → RAG → Generation → Validation → Execution).
+*   **`ChatIntentHandler`**: Lightweight LLM responses for greetings and casual questions (No DB access).
+*   **`PredictIntentHandler`**: Context-aware predictions using previously fetched data from `ConversationContext`.
+*   **`PredictionWithDataFetch`**: Multi-step orchestration: Extract data query → Execute via SQL Handler → Feed to Predict Handler.
 
-#### 2. 🆕 Dislike Context Rollback  
-*   **Two-Tier State:** Tracks both current and confirmed (rollback) context.
-*   **Seamless Retry:** Clicking Dislike reverts to last successful state for clean retry.
-*   **Frontend Integration:** Implemented in `app.ts` with `confirmedQuestion`/`confirmedSql`.
+#### 3. 🔄 Context-Aware Data Loop
+*   **`ConversationContextService`**: In-memory + persistent storage of conversation turns.
+*   **`ConversationTurn` Model**: Stores Question, SQL, and Result Sample JSON for each interaction.
+*   **Smart Sampling**: Automatically truncates large result sets to stay within token limits.
+*   **Cross-Handler Context**: Predict Handler can "see" data fetched by SQL Handler in the same session.
 
-#### 3. Core Logic & Caching
-*   **Semantic Caching:** Queries are hashed and compared using vector similarity (Qdrant).
-*   **Context-Aware SQL Generation:** Retrieves relevant tables/views to reduce token usage.
-*   **Clean Architecture:** Strict separation of concerns (Domain, Application, Infrastructure, API).
+#### 4. 🛠️ Management & Admin Tools
+*   **Incremental Seeding**: `POST /api/DataSeeder/seed-intents` adds missing intent examples without duplicates.
+*   **Cache Control**: Clear specific queries via `POST /api/query-cache/clear-by-question`.
+*   **Intent Review**: Admin endpoints for managing low-confidence classifications.
 
-#### 4. Reliability & Safety
-*   **Clarification Loop:** AI now asks "Clarification Needed" questions for ambiguous queries instead of hallucinating answers.
-*   **Prompt Diet & Smart Context:**
-    *   **Prompt Compression:** Reduced system prompt by **60%** (from ~10k to ~4k tokens) using specialized aliasing and syntax removal.
-    *   **Explicit Gemini Caching:** Leverages semantic caching on the LLM side for identical prompts.
-*   **SQL Validation Layer:** `SecurityVisitor` & `Rewriter` ensure generated SQL is safe and optimized. **(Verified by 82 Unit Tests ✅)**.
-*   **Retry Policies:** Polly integration for resilient API calls.
+#### 5. 🔐 Reliability & Safety (Unchanged)
+*   **Clarification Loop**: AI asks for clarification instead of guessing.
+*   **SQL Validation**: `ScriptDom`-based AST parsing blocks DML/DDL operations.
+*   **Prompt Optimization**: 60% token reduction with aliasing and caching.
+*   **82 Unit Tests**: Comprehensive coverage of validators, generators, and condensers.
 
-#### 5. User-Centric Observability & Dashboard
-*   **Performance Metrics:** Tracks P95/P99 latency and error rates across all handlers.
-*   **User Satisfaction (CSAT):** Calculates real-time CSAT score based on Like/Dislike feedback ratio.
-*   **Cost Precision:** Tracks `GeminiCost` with high precision (8 decimal places) using `GeminiTokenCounter` (Google.GenAI SDK).
-*   **Intent Distribution:** Visualizes the breakdown of traffic (SQL vs. Chat vs. Predict).
-*   **Structured Logging:** Extended `QueryLog` with `HandlerType`, `ConfidenceScore`, `LatencyMs`, and `WasFallback`.
+#### 6. 📊 User-Centric Observability (Unchanged)
+*   **Dashboard**: Real-time metrics (P95 Latency, CSAT, Cost, Intent Distribution).
+*   **Structured Logging**: `QueryLog` extended with `HandlerType`, `ConfidenceScore`, `LatencyMs`.
+*   **Cost Tracking**: Precise USD calculation (8 decimal places) via `GeminiTokenCounter`.
 
-#### 6. Testing Strategy
-*   **Unit Tests:** **82 tests** covering `SqlValidatorService`, `SqlRewriterService`, `SqlGenerationService`, `QueryCondenserService`, and `CondenserResult`.
-*   **Integration Tests:** Verifies the full pipeline from `QueryOrchestrator` to `Gemini`.
-*   **Mocking:** Uses `FakeItEasy` for reliable dependency simulation.
-
-#### 7. Feedback & Training Data Collection
-*   **Like/Dislike System:** Frontend buttons trigger `FeedbackController` endpoints.
-*   **QueryLog Tracking:** Every query execution is logged with:
-    *   `SchemaContext` - JSON of the page/view context used
-    *   `TenantId` - Multi-tenant support
-    *   `CompanyId` - Company identifier
-    *   `ErrorMessage` - For failed executions
-*   **TrainingExamples Table:** Stores verified (Like) and unverified (Dislike) examples.
-*   **Golden Dataset Pipeline:** Verified examples → JSONL export → Fine-tuning ready.
-
-### 🚧 Caching Logic Details
-*   **Similarity Threshold:** Configurable (default `0.92`).
-*   **TTL (Time To Live):** Cache entries expire after 7 days (default).
-*   **Payload:** Stores `original_question`, `generated_sql`, and `tenant_id` to ensure data isolation.
+#### 7. 🎓 Golden Dataset Pipeline (Unchanged)
+*   **Like/Dislike System**: Captures user feedback for fine-tuning.
+*   **TrainingExamples Table**: Stores verified and unverified query-SQL pairs.
+*   **JSONL Export**: Ready for Gemini fine-tuning workflows.
 
 ---
 
@@ -419,29 +397,65 @@ We are currently implementing **Phase 1: The Brain**, focusing on intelligent ro
 
 ```text
 DynamicAi/
-├── DynamicAi.Application/          # Business Logic Layer
+├── DynamicAi.Domain/                    # Core Domain Layer
+│   ├── Entities/
+│   │   ├── ConversationTurn.cs          # 🆕 v1.4.0 Context storage
+│   │   └── IntentType.cs                # 🆕 v1.4.0 Intent enum
+│   └── Enums/
+│       └── QueryActionType.cs           # ActionType (NEW/WRAP/REGENERATE)
+│
+├── DynamicAi.Application/               # Business Logic Layer
 │   ├── Interfaces/
 │   │   ├── IQueryOrchestrator.cs
+│   │   ├── IIntentClassificationService.cs      # 🆕 v1.4.0 Router
+│   │   ├── IConversationContextService.cs       # 🆕 v1.4.0 Context
+│   │   ├── IIntentHandler.cs                    # 🆕 v1.4.0 Handler base
 │   │   ├── ISqlGenerationService.cs
-│   │   └── IQueryCondenserService.cs    # 🆕 Layer 0.5
+│   │   └── IQueryCondenserService.cs
 │   ├── Models/
-│   │   ├── AskRequest.cs                # 🆕 previousQuestion/previousSql
-│   │   └── CondenserResult.cs           # 🆕 ActionType enum + result
+│   │   ├── IntentClassificationResult.cs        # 🆕 v1.4.0
+│   │   ├── CondenserResult.cs
+│   │   └── AskRequest.cs
 │   └── Services/
-│       ├── QueryOrchestrator.cs         # 🆕 Integrates Layer 0.5
-│       ├── SqlGenerationService.cs      # 🆕 WRAP/REGENERATE modes
-│       └── QueryCondenserService.cs     # 🆕 LLM-based condensing
-├── DynamicAi.Infrastructure/       # Data Access Layer
-├── DynamicAi.Api/                  # API Layer (Controllers)
-├── DynamicAi.UI/                   # Angular Frontend
+│       ├── QueryOrchestrator.cs                 # 🆕 Multi-step pipeline
+│       ├── Handlers/                            # 🆕 v1.4.0
+│       │   ├── SqlIntentHandler.cs              # SQL pipeline (Layers 0.5-5)
+│       │   ├── ChatIntentHandler.cs             # Chat responses
+│       │   └── PredictIntentHandler.cs          # Prediction + Context
+│       ├── VectorSearch/
+│       │   ├── IntentClassificationService.cs   # 🆕 v1.4.0 The Brain
+│       │   └── IntentExampleManagementService.cs # 🆕 v1.4.0 Seeding
+│       ├── ConversationContextService.cs        # 🆕 v1.4.0 Memory
+│       ├── SqlGenerationService.cs
+│       └── QueryCondenserService.cs
+│
+├── DynamicAi.Infrastructure/            # Data Access Layer
+│   └── VectorDb/
+│       └── QdrantDbService.cs
+│
+├── DynamicAi.Api/                       # API Layer (Controllers)
+│   ├── Controllers/
+│   │   ├── QueryController.cs
+│   │   ├── DataSeederController.cs              # 🆕 v1.4.0 Incremental seeding
+│   │   ├── QueryCacheController.cs              # 🆕 v1.4.0 Cache mgmt
+│   │   └── IntentReviewController.cs            # 🆕 v1.4.0 Admin review
+│
+├── DynamicAi.UI/                        # Angular Frontend
 │   └── src/app/
-│       └── app.ts                       # 🆕 Context rollback logic
-└── DynamicAI.Tests/                # Unit Tests
+│       ├── components/
+│       │   ├── chat/
+│       │   └── dashboard/                       # 🆕 v1.3.0 Observability
+│       └── services/
+│           └── query.service.ts
+│
+└── DynamicAI.Tests/                     # Unit Tests (82 tests)
     ├── Services/
-    │   ├── QueryCondenserServiceTests.cs  # 🆕 13 tests
+    │   ├── IntentClassificationServiceTests.cs  # 🆕 v1.4.0
+    │   ├── PredictIntentHandlerTests.cs         # 🆕 v1.4.0
+    │   ├── QueryCondenserServiceTests.cs
     │   └── SqlGenerationServiceTests.cs
     └── Models/
-        └── CondenserResultTests.cs        # 🆕 7 tests
+        └── CondenserResultTests.cs
 ```
 
 ---
@@ -454,13 +468,17 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 
 | Feature | Status | Impact |
 |:---|:---:|:---|
-| **🆕 Query Condenser Layer 0.5** | ✅ Done | Smart follow-up handling + ActionType system |
-| **🆕 Dislike Context Rollback** | ✅ Done | Seamless retry after dislike |
-| **🆕 Subquery Wrapping (WRAP mode)** | ✅ Done | Efficient modifications on previous results |
+| **🆕 Hybrid Router (Layer 0)** | ✅ Done | 4-Phase Architecture (Vector+LLM) & Auto-Seeding |
+| **🆕 Context Data Loop** | ✅ Done | `ConversationContext` & Multi-step Prediction support |
+| **🆕 Specialized Handlers** | ✅ Done | Decoupled SQL, Chat, Predict, & Fetch logic |
+| **Incremental Seeding** | ✅ Done | Smart seeding of missing intents without duplicates |
+| **Admin Tools** | ✅ Done | Cache clear & Intent Review endpoints |
+| **Query Condenser (Layer 0.5)** | ✅ Done | Smart follow-up handling + ActionType system |
+| **Dislike Context Rollback** | ✅ Done | Seamless retry after dislike |
+| **Subquery Wrapping** | ✅ Done | Efficient modifications on previous results |
 | **Golden Dataset Pipeline** | ✅ Done | Like/Dislike → TrainingExamples → Fine-tuning ready |
 | **QueryLog Tracking** | ✅ Done | SchemaContext, TenantId, CompanyId, ErrorMessage |
 | **Docker Support** | ✅ Done | CORS for localhost:8080, static file serving |
-| **Prompt Diet (ListName Fix)** | ✅ Done | Fixed column-to-table mapping in AI prompts |
 
 ### 🗺️ Development Phases
 
@@ -475,12 +493,8 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 *   **Goal:** Higher Recall & Context Quality
 *   **Key Features:**
     *   **Hybrid Search:** Combine Vector Search + Keyword Search for exact matches (improves recall by ~20%).
-    *   **Semantic Column Chunking:** Split large tables by semantic column groups in `SchemaReaderService.ChunkTableScript()`:
-        *   **Financial Columns:** `ContractAmount`, `Tax`, `TotalWithTax` → One Document
-        *   **Temporal Columns:** `ContractDate`, `ExpireDate`, `DeliveryDate` → One Document
-        *   **Identity Columns:** `ContractId`, `ClientId`, `ContractNumber` → One Document
-        *   Inspired by LangChain's `SQLDatabase` component for schema-aware splitting.
-    *   **Confidence Scoring:** Expose AI confidence levels to the user.
+    *   **Semantic Column Chunking:** Split large tables by semantic column groups in `SchemaReaderService.ChunkTableScript()`.
+    *   **Predictive Analytics:** Enhance `PredictIntentHandler` with time-series forecasting models.
 
 #### 3️⃣ Phase 4: Advanced Observability (Months 4-5) 🟡
 *   **Goal:** Deep Production Monitoring
@@ -500,15 +514,16 @@ Based on the **RAG Production Evaluation** (7 Layers & 6 Pillars), here is the p
 
 | Axis | Status | Score | Notes |
 |:---|:---:|:---:|:---|
-| **Intent Routing** | ✅✅✅ | 10/10 | 🆕 **Complete:** Layer 0 with Self-Learning & Auto-Seeding. |
-| **Observability** | ✅✅✅ | 10/10 | 🆕 **Complete:** CSAT, Cost, Latency, & Dashboard implemented. |
+| **Intent Routing** | ✅✅✅ | 10/10 | 🆕 **Complete:** Phases 0-3 (Hybrid Router + Handlers). |
+| **Context Awareness** | ✅✅✅ | 10/10 | 🆕 **Complete:** Multi-turn memory & Data Loop. |
+| **Observability** | ✅✅✅ | 10/10 | **Complete:** CSAT, Cost, Latency, & Dashboard. |
 | **Query Condensing** | ✅✅✅ | 10/10 | **Complete:** Layer 0.5 with ActionType system. |
-| **Silent Failures** | ✅✅✅ | 10/10 | **Solved:** "Clarification Loop" + Validation Layer prevents almost all guessing. |
-| **Prompt Engineering** | ✅✅✅ | 9/10 | **Optimized:** "Prompt Diet" + ListName fix. Strict Static Rules. |
-| **Feedback System** | ✅✅✅ | 9/10 | **Complete:** Like/Dislike → TrainingExamples + Context Rollback. |
+| **Silent Failures** | ✅✅✅ | 10/10 | **Solved:** "Clarification Loop" + Validation. |
+| **Prompt Engineering** | ✅✅✅ | 10/10 | **Optimized:** "Prompt Diet" & Context-Aware Prompts. |
+| **Feedback System** | ✅✅✅ | 9/10 | **Complete:** TrainingExamples + Rollback. |
 | **Vector DB** | ✅✅✅ | 9/10 | Qdrant with proper payload indexing is solid. |
-| **Architecture** | ✅✅✅ | 9/10 | Clean Arch + Semantic Kernel + Explicit Caching Support. |
-| **Cost Control** | ✅✅ | 8/10 | **Improved:** 60% less input tokens + Caching. |
+| **Architecture** | ✅✅✅ | 10/10 | Clean Arch + Decoupled Handlers + Semantic Kernel. |
+| **Cost Control** | ✅✅ | 9/10 | **Improved:** Intent Handlers avoid SQL calls for Chat/Predict. |
 | **Embedding** | ✅✅ | 8/10 | Gemini models are performing well. |
 | **Containerization** | ✅✅ | 8/10 | Docker support with CORS and static files. |
 | **Doc Parsing** | ✅ | 6/10 | SMO-based SQL parsing is accurate but limited to SQL. |
