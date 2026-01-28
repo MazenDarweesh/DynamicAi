@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { TrainingStats } from '../models';
+import { TrainingStats, ManualTrainingRequest, FeedbackResponse } from '../models';
 
 /**
  * Service for Training Data Management API
@@ -29,5 +29,12 @@ export class TrainingService {
             params: { verifiedOnly: verifiedOnly.toString() },
             responseType: 'blob'
         });
+    }
+
+    /**
+     * Manually add training example to Golden Dataset
+     */
+    addManualExample(request: ManualTrainingRequest): Observable<FeedbackResponse> {
+        return this.http.post<FeedbackResponse>(`${this.baseUrl}/manual`, request);
     }
 }

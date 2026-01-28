@@ -1,12 +1,13 @@
 import { Component, OnInit, inject, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { TrainingService } from '../../services/training.service';
-import { TrainingStats } from '../../models';
+import { TrainingStats, ManualTrainingRequest } from '../../models';
 
 @Component({
     selector: 'app-training-data',
     standalone: true,
-    imports: [CommonModule],
+    imports: [CommonModule, FormsModule],
     templateUrl: './training-data.component.html',
     styleUrls: ['./training-data.component.css']
 })
@@ -19,6 +20,15 @@ export class TrainingDataComponent implements OnInit {
     exporting = false;
     error: string | null = null;
     exportMessage: string | null = null;
+
+    // Manual form properties
+    manualForm: ManualTrainingRequest = {
+        naturalQuery: '',
+        sql: '',
+        notes: ''
+    };
+    submitting = false;
+    formMessage: string | null = null;
 
     ngOnInit() {
         this.loadStats();
@@ -69,6 +79,43 @@ export class TrainingDataComponent implements OnInit {
             error: (err) => {
                 this.error = err?.message || 'Export failed';
                 this.exporting = false;
+                this.cdr.detectChanges();
+            }
+        });
+    }
+
+    submitManualExample() {
+        if (!this.manualForm.naturalQuery.trim() || !this.manualForm.sql.trim()) {
+            this.formMessage = '⚠️ يجب إدخال السؤال والـ SQL';
+            return;
+        }
+
+        this.submitting = true;
+        this.formMessage = null;
+
+        this.trainingService.addManualExample(this.manualForm).subscribe({
+            next: (response) => {
+                if (response.success) {
+                    this.formMessage = response.message;
+                    // Reset form
+                    this.manualForm = { naturalQuery: '', sql: '', notes: '' };
+                    // Reload stats
+                    this.loadStats();
+                } else {
+                    this.formMessage = response.message;
+                }
+                this.submitting = false;
+                this.cdr.detectChanges();
+
+                // Clear message after 5 seconds
+                setTimeout(() => {
+                    this.formMessage = null;
+                    this.cdr.detectChanges();
+                }, 5000);
+            },
+            error: (err) => {
+                this.formMessage = err?.error?.message || err?.message || 'فشل في إضافة المثال';
+                this.submitting = false;
                 this.cdr.detectChanges();
             }
         });
