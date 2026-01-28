@@ -24,7 +24,7 @@ export class ApiService {
             previousQuestion: previousQuestion ?? null,
             previousSql: previousSql ?? null
         };
-        if (sessionId) body.sessionId = sessionId;
+        if (sessionId) body['sessionId'] = sessionId;
         return this.http.post(`${this.apiUrl}/Test/ask`, body);
     }
 

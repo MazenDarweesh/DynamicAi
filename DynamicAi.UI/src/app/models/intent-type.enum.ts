@@ -1,5 +1,3 @@
-# 🎯 IntentType Enum(Frontend TypeScript)
-
 /**
  * Intent types for user question classification
  * Matches Backend: IntentType.cs (DynamicAi.Domain.Entities)
