@@ -50,6 +50,44 @@
         </p>
     </div>
 
+    <!-- Manual Training Example Form -->
+    <div class="manual-form-section glass">
+        <h3>💎 Add Manual Training Example</h3>
+        <p class="hint">Manually add verified examples to Golden Dataset (for developers).</p>
+
+        <div *ngIf="formMessage" class="form-message"
+            [class.success]="formMessage.includes('✅') || formMessage.includes('تم')"
+            [class.error]="formMessage.includes('⚠️') || formMessage.includes('فشل')">
+            {{ formMessage }}
+        </div>
+
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Natural Language Question *</label>
+                <input type="text" [(ngModel)]="manualForm.naturalQuery" placeholder="e.g. هات المبيعات من شهر يناير"
+                    class="input" [disabled]="submitting">
+            </div>
+
+            <div class="form-group full-width">
+                <label>SQL Code *</label>
+                <textarea [(ngModel)]="manualForm.sql" placeholder="SELECT * FROM Sales WHERE Month = 'January'"
+                    class="textarea" rows="4" [disabled]="submitting">
+                </textarea>
+            </div>
+
+            <div class="form-group full-width">
+                <label>Notes (Optional)</label>
+                <input type="text" [(ngModel)]="manualForm.notes" placeholder="Additional notes about this example"
+                    class="input" [disabled]="submitting">
+            </div>
+        </div>
+
+        <button class="btn primary full-width-btn" (click)="submitManualExample()"
+            [disabled]="submitting || !manualForm.naturalQuery.trim() || !manualForm.sql.trim()">
+            {{ submitting ? '⏳ Adding...' : '💎 Add to Golden Dataset' }}
+        </button>
+    </div>
+
     <!-- Export Section -->
     <div class="export-section glass">
         <h3>📤 Export Training Data</h3>
