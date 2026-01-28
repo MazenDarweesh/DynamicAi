@@ -22,22 +22,28 @@
         <h3>🧹 Clear intent by question</h3>
         <p class="hint">Remove similar intent examples by question text (similarity search).</p>
         <div class="form-row">
-            <input
-                type="text"
-                [(ngModel)]="clearQuestion"
-                placeholder="e.g. هات المبيعات"
-                class="input"
-                [disabled]="clearLoading"
-            />
-            <button
-                class="btn primary"
-                (click)="clearByQuestion()"
-                [disabled]="clearLoading || !clearQuestion?.trim()"
-            >
+            <input type="text" [(ngModel)]="clearQuestion" placeholder="e.g. هات المبيعات" class="input"
+                [disabled]="clearLoading" />
+            <button class="btn primary" (click)="clearByQuestion()" [disabled]="clearLoading || !clearQuestion?.trim()">
                 {{ clearLoading ? '...' : 'Clear' }}
             </button>
         </div>
         <div *ngIf="clearMessage" class="clear-message">{{ clearMessage }}</div>
+    </div>
+
+    <!-- Clear cache by question -->
+    <div class="glass card clear-form">
+        <h3>💾 Clear cache by question</h3>
+        <p class="hint">Remove similar cached SQL queries by question text (similarity search).</p>
+        <div class="form-row">
+            <input type="text" [(ngModel)]="clearCacheQuestion" placeholder="e.g. هات المبيعات" class="input"
+                [disabled]="clearCacheLoading" />
+            <button class="btn primary" (click)="clearCacheByQuestion()"
+                [disabled]="clearCacheLoading || !clearCacheQuestion?.trim()">
+                {{ clearCacheLoading ? '...' : 'Clear' }}
+            </button>
+        </div>
+        <div *ngIf="clearCacheMessage" class="clear-message">{{ clearCacheMessage }}</div>
     </div>
 
     <!-- Pending table -->

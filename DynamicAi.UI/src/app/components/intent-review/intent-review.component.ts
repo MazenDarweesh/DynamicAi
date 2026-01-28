@@ -2,7 +2,7 @@ import { Component, OnInit, inject, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { IntentReviewService } from '../../services/intent-review.service';
-import { IntentReviewItemDto, ClearIntentRequest } from '../../models';
+import { IntentReviewItemDto, ClearIntentRequest, ClearCacheRequest } from '../../models';
 
 @Component({
     selector: 'app-intent-review',
@@ -21,6 +21,12 @@ export class IntentReviewComponent implements OnInit {
     clearQuestion = '';
     clearLoading = false;
     clearMessage: string | null = null;
+
+    // Cache clearing
+    clearCacheQuestion = '';
+    clearCacheLoading = false;
+    clearCacheMessage: string | null = null;
+
     error: string | null = null;
 
     ngOnInit() {
@@ -90,6 +96,27 @@ export class IntentReviewComponent implements OnInit {
             error: (err) => {
                 this.clearMessage = err?.error?.error || err?.message || 'Clear failed';
                 this.clearLoading = false;
+                this.cdr.detectChanges();
+            }
+        });
+    }
+
+    clearCacheByQuestion() {
+        const q = (this.clearCacheQuestion || '').trim();
+        if (!q) return;
+        this.clearCacheLoading = true;
+        this.clearCacheMessage = null;
+        const req: ClearCacheRequest = { question: q };
+        this.intentReview.clearCacheByQuestion(req).subscribe({
+            next: (res) => {
+                this.clearCacheMessage = res.message || 'Done';
+                this.clearCacheQuestion = '';
+                this.clearCacheLoading = false;
+                this.cdr.detectChanges();
+            },
+            error: (err) => {
+                this.clearCacheMessage = err?.error?.error || err?.message || 'Clear failed';
+                this.clearCacheLoading = false;
                 this.cdr.detectChanges();
             }
         });

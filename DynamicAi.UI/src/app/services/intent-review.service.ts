@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import {
     IntentReviewItemDto,
     ClearIntentRequest,
+    ClearCacheRequest,
     IntentReviewStats
 } from '../models';
 
@@ -37,6 +38,13 @@ export class IntentReviewService {
     clearByQuestion(request: ClearIntentRequest): Observable<{ message: string; question: string }> {
         return this.http.post<{ message: string; question: string }>(
             `${this.baseUrl}/clear-by-question`,
+            request
+        );
+    }
+
+    clearCacheByQuestion(request: ClearCacheRequest): Observable<{ message: string; question: string }> {
+        return this.http.post<{ message: string; question: string }>(
+            '/api/query-cache/clear-by-question',
             request
         );
     }
