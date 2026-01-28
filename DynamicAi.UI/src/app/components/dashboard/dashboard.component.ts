@@ -7,7 +7,7 @@ import { Chart, ChartConfiguration, ChartOptions, registerables } from 'chart.js
 import { MetricsService } from '../../services/metrics.service';
 import {
     PerformanceMetrics,
-    IntentDistribution,
+    IntentDistributionItem,
     CostBreakdown,
     UserExperienceMetrics,
     ProblematicQuery
@@ -30,7 +30,7 @@ export class DashboardComponent implements OnInit {
     performance: PerformanceMetrics | null = null;
     experience: UserExperienceMetrics | null = null;
     costs: CostBreakdown | null = null;
-    intents: IntentDistribution[] = [];
+    intents: IntentDistributionItem[] = [];
     problematicQueries: ProblematicQuery[] = [];
 
     // Charts Config
@@ -66,7 +66,7 @@ export class DashboardComponent implements OnInit {
                 catchError((err: any) => { console.error('[Dashboard] Costs error:', err); return of(null); })
             ),
             intents: this.metricsService.getIntentDistribution('30d').pipe(
-                catchError((err: any) => { console.error('[Dashboard] Intents error:', err); return of([] as IntentDistribution[]); })
+                catchError((err: any) => { console.error('[Dashboard] Intents error:', err); return of([] as IntentDistributionItem[]); })
             ),
             queries: this.metricsService.getProblematicQueries().pipe(
                 catchError((err: any) => { console.error('[Dashboard] Queries error:', err); return of([] as ProblematicQuery[]); })
@@ -123,7 +123,7 @@ export class DashboardComponent implements OnInit {
         '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#E0E0E0'
     ];
 
-    updateIntentChart(data: IntentDistribution[]) {
+    updateIntentChart(data: IntentDistributionItem[]) {
         if (!data || data.length === 0) {
             this.pieChartData = {
                 labels: ['No Data'],

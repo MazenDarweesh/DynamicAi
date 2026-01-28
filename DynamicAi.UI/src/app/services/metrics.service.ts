@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 
 import {
     PerformanceMetrics,
-    IntentDistribution,
+    IntentDistributionItem,
     CostBreakdown,
     UserExperienceMetrics,
     ProblematicQuery
@@ -23,9 +23,9 @@ export class MetricsService {
         return this.http.get<PerformanceMetrics>(`${this.baseUrl}/performance`, { params: { hours } });
     }
 
-    getIntentDistribution(period: string = '24h'): Observable<IntentDistribution[]> {
+    getIntentDistribution(period: string = '24h'): Observable<IntentDistributionItem[]> {
         const days = this.parsePeriodToDays(period);
-        return this.http.get<IntentDistribution[]>(`${this.baseUrl}/intent-distribution`, { params: { days } });
+        return this.http.get<IntentDistributionItem[]>(`${this.baseUrl}/intent-distribution`, { params: { days } });
     }
 
     getCostBreakdown(period: string = '24h'): Observable<CostBreakdown> {

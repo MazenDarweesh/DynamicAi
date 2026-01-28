@@ -9,10 +9,16 @@ export interface PerformanceMetrics {
     totalQueries: number;
 }
 
-export interface IntentDistribution {
-    // Backend: IntentDistributionItem -> intent, count, percentage
+/**
+ * Item in Intent Distribution breakdown.
+ * Matches Backend: IntentDistributionItem.cs
+ */
+export interface IntentDistributionItem {
+    /** Type of Intent (e.g., DataRetrieval, Analysis, Prediction, Chat, Unknown) */
     intent: string;
+    /** Number of queries with this intent */
     count: number;
+    /** Percentage of total queries */
     percentage: number;
 }
 

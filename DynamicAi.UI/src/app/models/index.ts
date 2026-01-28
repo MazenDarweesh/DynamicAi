@@ -10,3 +10,4 @@ export * from './like-request.model';
 export * from './like-response.model';
 export * from './dashboard-metrics.model';
 export * from './intent-review.model';
+export * from './intent-type.enum';
