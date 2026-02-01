@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 
 namespace DynamicAi.Application.Services
 {
@@ -21,6 +22,7 @@ namespace DynamicAi.Application.Services
         private readonly ILogger<SqlGenerationService> _logger;
         private readonly IGeminiCostTracker _costTracker;
         private readonly IGeminiCacheManager _cacheManager;
+        private readonly IConfiguration _config;
 
         // ============================================================================
         // GEMINI EXPLICIT CACHE OPTIMIZATION
@@ -34,12 +36,14 @@ namespace DynamicAi.Application.Services
             IChatCompletionService chatService,
             ILogger<SqlGenerationService> logger,
             IGeminiCostTracker costTracker,
-            IGeminiCacheManager cacheManager)
+            IGeminiCacheManager cacheManager,
+            IConfiguration configuration)
         {
             _chatService = chatService;
             _logger = logger;
             _costTracker = costTracker;
             _cacheManager = cacheManager;
+            _config = configuration;
         }
 
         /// <summary>
@@ -279,6 +283,14 @@ namespace DynamicAi.Application.Services
             _logger.LogInformation("[TokenMetrics]   TOTAL PROMPT:               {Size,8:N0} chars (~{Tokens,6:N0} tokens)", totalChars, estimatedTokens);
             _logger.LogInformation("[TokenMetrics]   Est. Input Cost:            ${Cost:F6}", estimatedInputCost);
             _logger.LogInformation("[TokenMetrics] ════════════════════════════════════════════════════════");
+
+            // ============================================================================
+            // DIAGNOSTIC LOGGING (TEMPORARY - Development Only)
+            // ============================================================================
+            if (_config.GetValue<bool>("Logging:EnableContextAnalysisLogs"))
+            {
+                LogDetailedPromptAnalysis(contextBundle, fullPrompt);
+            }
 
             _logger.LogInformation("[SqlGeneration] ✓ Prompt built successfully in {Duration:F0}ms", promptDuration);
             _logger.LogDebug("[SqlGeneration] Prompt size: {Size} characters (~{Tokens} tokens)", fullPrompt.Length, estimatedTokens);
@@ -520,6 +532,80 @@ namespace DynamicAi.Application.Services
             _staticRulesTokenCount = result.Length / 4; // ~4 chars per token
 
             return result;
+        }
+
+        /// <summary>
+        /// Diagnostic logging method to analyze context structure and size (DEV ONLY)
+        /// </summary>
+        private void LogDetailedPromptAnalysis(RetrievalContextBundle contextBundle, string fullPrompt)
+        {
+            _logger.LogWarning("╔═══════════════════════════════════════════════════════════════════╗");
+            _logger.LogWarning("║      🔍 CONTEXT ANALYSIS MODE (DIAGNOSTIC LOGS ENABLED)          ║");
+            _logger.LogWarning("╚═══════════════════════════════════════════════════════════════════╝");
+
+            // 1. Schema Context Sample
+            if (!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))
+            {
+                _logger.LogWarning("\n[ContextAnalysis] 📊 UNIFIED SCHEMA CONTEXT:");
+                _logger.LogWarning("[ContextAnalysis] Size: {Size:N0} chars (~{Tokens:N0} tokens)",
+                    contextBundle.UnifiedPageContext.Length,
+                    contextBundle.UnifiedPageContext.Length / 4);
+
+                // Pretty-print first 2000 chars
+                var schemaSample = contextBundle.UnifiedPageContext.Length > 2000
+                    ? contextBundle.UnifiedPageContext.Substring(0, 2000) + "\n... [TRUNCATED]"
+                    : contextBundle.UnifiedPageContext;
+                _logger.LogWarning("[ContextAnalysis] Content:\n{Content}", schemaSample);
+            }
+
+            // 2. Dictionary Entries Sample (First 5)
+            if (contextBundle.DictionaryEntries != null && contextBundle.DictionaryEntries.Any())
+            {
+                _logger.LogWarning("\n[ContextAnalysis] 📙 DICTIONARY ENTRIES (Showing first 5 of {Total}):",
+                    contextBundle.DictionaryEntries.Count);
+
+                foreach (var entry in contextBundle.DictionaryEntries.Take(5))
+                {
+                    _logger.LogWarning("[ContextAnalysis]   {Entry}", entry);
+                }
+
+                // Calculate total dictionary size
+                var totalDictSize = contextBundle.DictionaryEntries.Sum(e => e?.Length ?? 0);
+                _logger.LogWarning("[ContextAnalysis] Total Dictionary Size: {Size:N0} chars (~{Tokens:N0} tokens)",
+                    totalDictSize, totalDictSize / 4);
+            }
+
+            // 3. Business Rules Sample
+            if (contextBundle.BusinessRules != null && contextBundle.BusinessRules.Any())
+            {
+                _logger.LogWarning("\n[ContextAnalysis] 📋 BUSINESS RULES (Showing first 2 of {Total}):",
+                    contextBundle.BusinessRules.Count);
+
+                foreach (var rule in contextBundle.BusinessRules.Take(2))
+                {
+                    var ruleSample = rule.Length > 500 ? rule.Substring(0, 500) + "..." : rule;
+                    _logger.LogWarning("[ContextAnalysis]   {Rule}", ruleSample);
+                }
+            }
+
+            // 4. Save Full Prompt to File for Deep Inspection
+            try
+            {
+                var tempDir = Path.Combine(Directory.GetCurrentDirectory(), "temp_prompts");
+                Directory.CreateDirectory(tempDir);
+
+                var filename = $"prompt_{DateTime.Now:yyyyMMdd_HHmmss}.txt";
+                var filepath = Path.Combine(tempDir, filename);
+
+                File.WriteAllText(filepath, fullPrompt);
+                _logger.LogWarning("\n[ContextAnalysis] 💾 Full Prompt saved to: {Path}", filepath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[ContextAnalysis] Failed to save prompt to file");
+            }
+
+            _logger.LogWarning("╚═══════════════════════════════════════════════════════════════════╝\n");
         }
     }
 }

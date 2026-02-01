@@ -8,6 +8,7 @@ using Microsoft.SemanticKernel.ChatCompletion;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 
 namespace DynamicAI.Tests.Services;
 
@@ -26,7 +27,8 @@ public class SqlGenerationServiceTests
         var logger = A.Fake<ILogger<SqlGenerationService>>();
         var costTracker = A.Fake<IGeminiCostTracker>();
         var cacheManager = A.Fake<IGeminiCacheManager>();
-        _sut = new SqlGenerationService(_chatService, logger, costTracker, cacheManager);
+        var config = A.Fake<IConfiguration>();
+        _sut = new SqlGenerationService(_chatService, logger, costTracker, cacheManager, config);
     }
 
     [Fact]
