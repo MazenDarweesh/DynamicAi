@@ -144,13 +144,6 @@
                         <pre class="sql-code">{{ msg.sql }}</pre>
                     </div>
 
-                    <!-- Query Insights Panel (NEW) -->
-                    <div *ngIf="msg.queryInsights" (click)="toggleInsights(msg)">
-                        <app-query-insight-panel [insights]="msg.queryInsights"
-                            [isExpanded]="msg.showInsights || false">
-                        </app-query-insight-panel>
-                    </div>
-
                     <!-- Suggestion Tips (from Dislike Response) -->
                     <div *ngIf="msg.suggestionTips && msg.suggestionTips.length > 0" class="suggestion-tips">
                         <div class="tips-header">💡 نصائح لتحسين السؤال:</div>

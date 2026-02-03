@@ -5,12 +5,11 @@ import { ApiService } from '../../services/api.service';
 import { ChatSignalService } from '../../services/chat-signal.service';
 import { environment } from '../../../environments/environment';
 import { ChatMessage } from '../../models';
-import { QueryInsightPanelComponent } from '../query-insight-panel/query-insight-panel.component';
 
 @Component({
     selector: 'app-chat',
     standalone: true,
-    imports: [CommonModule, FormsModule, QueryInsightPanelComponent],
+    imports: [CommonModule, FormsModule],
     templateUrl: './chat.component.html',
     styleUrls: ['./chat.component.css']
 })
@@ -360,8 +359,5 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         });
     }
 
-    toggleInsights(msg: ChatMessage) {
-        msg.showInsights = !msg.showInsights;
-        this.cdr.detectChanges();
-    }
+
 }

@@ -39,10 +39,10 @@ export class QueryInsightsPageComponent implements OnInit {
             .filter((msg: ChatMessage) => msg.queryInsights)
             .map((msg: ChatMessage) => ({
                 date: new Date(),
-                question: msg.text || 'N/A',
-                context: msg.queryInsights?.retrievedContext || [],  // Fix: use retrievedContext
+                question: msg.originalQuestion || msg.text || 'No question recorded',
+                context: msg.queryInsights?.retrievedContext || [],
                 reasoning: msg.queryInsights?.reasoning || 'No reasoning provided',
-                isReadOnly: msg.queryInsights?.isReadOnly ?? true    // Fix: use isReadOnly
+                isReadOnly: msg.queryInsights?.isReadOnly ?? true
             }));
 
         this.loading = false;
