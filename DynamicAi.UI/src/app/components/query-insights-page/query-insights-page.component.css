@@ -1,0 +1,246 @@
+/* Using BRAND COLORS - NO GREEN! */
+.insights-container {
+    padding: 40px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Header */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.header h1 {
+    font-size: 2rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text-main);
+}
+
+.refresh-badge {
+    font-size: 0.9rem;
+    padding: 8px 16px;
+    border-radius: 20px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--glass-border);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.refresh-badge:hover {
+    background: rgba(99, 102, 241, 0.1);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    padding: 80px 20px;
+    color: var(--text-muted);
+}
+
+.empty-icon {
+    font-size: 4rem;
+    margin-bottom: 20px;
+    opacity: 0.5;
+}
+
+.empty-state h2 {
+    font-size: 1.5rem;
+    color: var(--text-main);
+    margin-bottom: 10px;
+}
+
+.empty-state p {
+    font-size: 1rem;
+}
+
+/* Insights Grid */
+.insights-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
+    gap: 20px;
+}
+
+/* Card Styling */
+.insight-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 20px;
+    transition: all 0.3s ease;
+}
+
+.insight-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--primary);
+    box-shadow: 0 8px 24px var(--primary-glow);
+}
+
+/* Card Header */
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.question-badge {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+    color: var(--text-main);
+}
+
+.question-badge .icon {
+    font-size: 1.2rem;
+}
+
+.question-badge .text {
+    font-size: 0.95rem;
+    line-height: 1.4;
+}
+
+.safety-indicator {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    background: rgba(255, 204, 0, 0.1);
+    color: #ffcc00;
+    border: 1px solid #ffcc00;
+}
+
+.safety-indicator.safe {
+    background: rgba(99, 102, 241, 0.1);
+    /* PRIMARY COLOR - NOT GREEN! */
+    color: var(--primary);
+    border: 1px solid var(--primary);
+}
+
+/* Card Sections */
+.card-section {
+    margin-bottom: 16px;
+}
+
+.card-section:last-child {
+    margin-bottom: 0;
+}
+
+.card-section h4 {
+    margin: 0 0 10px 0;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.card-section p {
+    margin: 0;
+    color: var(--text-main);
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+.no-data {
+    color: var(--text-muted) !important;
+    font-style: italic;
+}
+
+/* Context Tags */
+.context-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.tag {
+    display: inline-block;
+    padding: 6px 14px;
+    background: rgba(99, 102, 241, 0.1);
+    /* PRIMARY COLOR - NOT GREEN! */
+    border: 1px solid var(--primary);
+    border-radius: 20px;
+    font-size: 0.85rem;
+    color: var(--primary);
+    transition: all 0.2s;
+}
+
+.tag:hover {
+    background: rgba(99, 102, 241, 0.2);
+    transform: scale(1.05);
+}
+
+/* Reasoning Text */
+.reasoning-text {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 12px;
+    border-radius: 8px;
+    border-left: 3px solid var(--primary);
+    /* PRIMARY COLOR accent */
+}
+
+/* Loading State */
+.loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 20px;
+    color: var(--text-muted);
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--glass-border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 16px;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .insights-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+    }
+}

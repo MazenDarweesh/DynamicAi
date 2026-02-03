@@ -1,0 +1,50 @@
+<div class="insights-container fade-in">
+    <div class="header">
+        <h1>📊 Query Insights</h1>
+        <span class="refresh-badge" (click)="refresh()">🔄 Refresh</span>
+    </div>
+
+    <!-- Empty State -->
+    <div class="empty-state" *ngIf="!loading && insights.length === 0">
+        <div class="empty-icon">🔍</div>
+        <h2>No Insights Yet</h2>
+        <p>Start asking questions in the chat to see how the AI generates SQL queries</p>
+    </div>
+
+    <!-- Insights Cards -->
+    <div class="insights-grid" *ngIf="!loading && insights.length > 0">
+        <div class="insight-card glass" *ngFor="let insight of insights">
+            <!-- Card Header -->
+            <div class="card-header">
+                <div class="question-badge">
+                    <span class="icon">💬</span>
+                    <span class="text">{{ insight.question }}</span>
+                </div>
+                <div class="safety-indicator" [class.safe]="insight.isReadOnly">
+                    <span>{{ insight.isReadOnly ? '✅ Read-Only' : '⚠️ Write Query' }}</span>
+                </div>
+            </div>
+
+            <!-- Context Section -->
+            <div class="card-section">
+                <h4>📚 Retrieved Context</h4>
+                <div class="context-tags" *ngIf="insight.context.length > 0">
+                    <span class="tag" *ngFor="let ctx of insight.context">{{ ctx }}</span>
+                </div>
+                <p class="no-data" *ngIf="insight.context.length === 0">No context retrieved</p>
+            </div>
+
+            <!-- Reasoning Section -->
+            <div class="card-section">
+                <h4>🧠 AI Reasoning</h4>
+                <p class="reasoning-text">{{ insight.reasoning }}</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading State -->
+    <div class="loading-container" *ngIf="loading">
+        <div class="spinner"></div>
+        <p>Loading insights...</p>
+    </div>
+</div>
