@@ -27,8 +27,9 @@ public class SqlGenerationServiceTests
         var logger = A.Fake<ILogger<SqlGenerationService>>();
         var costTracker = A.Fake<IGeminiCostTracker>();
         var cacheManager = A.Fake<IGeminiCacheManager>();
+        var geminiPageCache = A.Fake<IGeminiPageContextCache>();
         var config = A.Fake<IConfiguration>();
-        _sut = new SqlGenerationService(_chatService, logger, costTracker, cacheManager, config);
+        _sut = new SqlGenerationService(_chatService, logger, costTracker, cacheManager, geminiPageCache, config);
     }
 
     [Fact]

@@ -18,12 +18,18 @@ namespace DynamicAi.Application.Services
     /// </summary>
     public class SqlGenerationService : ISqlGenerationService
     {
+        #region Dependencies
+
         private readonly IChatCompletionService _chatService;
         private readonly ILogger<SqlGenerationService> _logger;
         private readonly IGeminiCostTracker _costTracker;
         private readonly IGeminiCacheManager _cacheManager;
         private readonly IConfiguration _config;
         private readonly IGeminiPageContextCache _geminiPageCache;
+
+        #endregion
+
+        #region Static Cache Optimization
 
         // ============================================================================
         // GEMINI EXPLICIT CACHE OPTIMIZATION
@@ -32,6 +38,10 @@ namespace DynamicAi.Application.Services
         // ============================================================================
         private static readonly Lazy<string> _cachedStaticRules = new Lazy<string>(() => BuildStaticSystemRules());
         private static int _staticRulesTokenCount = 0;
+
+        #endregion
+
+        #region Constructor
 
         public SqlGenerationService(
             IChatCompletionService chatService,
@@ -49,6 +59,10 @@ namespace DynamicAi.Application.Services
             _config = configuration;
         }
 
+        #endregion
+
+        #region Properties
+
         /// <summary>
         /// Gets the cached static system rules (built once, reused for all requests)
         /// </summary>
@@ -58,6 +72,10 @@ namespace DynamicAi.Application.Services
         /// Gets the estimated token count for static rules
         /// </summary>
         public static int StaticRulesTokenCount => _staticRulesTokenCount;
+
+        #endregion
+
+        #region Main Methods
 
         /// <param name="actionType">نوع الإجراء المقرر من Condenser (New/WrapPrevious/Regenerate)</param>
         public async Task<SqlGenerationResult> GenerateSqlAsync(
@@ -556,6 +574,10 @@ namespace DynamicAi.Application.Services
             return result;
         }
 
+        #endregion
+
+        #region Helper Methods
+
         /// <summary>
         /// Extracts SQL and confidence from LLM response (supports both JSON and plain SQL formats)
         /// </summary>
@@ -751,5 +773,7 @@ namespace DynamicAi.Application.Services
 
             _logger.LogWarning("╚═══════════════════════════════════════════════════════════════════╝\n");
         }
+
+        #endregion
     }
 }
