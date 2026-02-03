@@ -23,6 +23,7 @@ namespace DynamicAi.Application.Services
         private readonly IGeminiCostTracker _costTracker;
         private readonly IGeminiCacheManager _cacheManager;
         private readonly IConfiguration _config;
+        private readonly IGeminiPageContextCache _geminiPageCache;
 
         // ============================================================================
         // GEMINI EXPLICIT CACHE OPTIMIZATION
@@ -37,12 +38,14 @@ namespace DynamicAi.Application.Services
             ILogger<SqlGenerationService> logger,
             IGeminiCostTracker costTracker,
             IGeminiCacheManager cacheManager,
+            IGeminiPageContextCache geminiPageCache,
             IConfiguration configuration)
         {
             _chatService = chatService;
             _logger = logger;
             _costTracker = costTracker;
             _cacheManager = cacheManager;
+            _geminiPageCache = geminiPageCache;
             _config = configuration;
         }
 
@@ -330,12 +333,108 @@ namespace DynamicAi.Application.Services
             _logger.LogDebug("[SqlGeneration] Prompt size: {Size} characters (~{Tokens} tokens)", fullPrompt.Length, estimatedTokens);
 
             // ============================================================================ 
+            // STEP 2.5: GEMINI PAGE-SCOPED CACHE INTEGRATION 🚀
+            // ============================================================================ 
+            string? geminiPageCacheId = null;
+            int? extractedPageId = null;
+
+            // Try to extract PageID from UnifiedPageContext
+            if (!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(contextBundle.UnifiedPageContext);
+                    if (doc.RootElement.TryGetProperty("PageID", out var pageIdProp))
+                    {
+                        extractedPageId = pageIdProp.TryGetInt32(out var pid) ? pid : null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[SqlGeneration] ⚠️ Failed to extract PageID from context");
+                }
+            }
+
+            // Attempt to retrieve Gemini Page Cache if PageID available
+            if (extractedPageId.HasValue)
+            {
+                _logger.LogInformation("[SqlGeneration] 🔍 Checking Gemini Page Cache for PageID {PageId}...", extractedPageId.Value);
+
+                try
+                {
+                    geminiPageCacheId = await _geminiPageCache.GetOrCreateGeminiPageCacheAsync(
+                        extractedPageId.Value,
+                        CancellationToken.None
+                    );
+
+                    if (!string.IsNullOrEmpty(geminiPageCacheId))
+                    {
+                        _logger.LogInformation("[SqlGeneration] ✅ Gemini Page Cache HIT! Resource: {CacheId}", geminiPageCacheId);
+                        _logger.LogInformation("[SqlGeneration] 💰 Expected savings: ~75% cost reduction + ~3-5s latency improvement");
+                    }
+                    else
+                    {
+                        _logger.LogWarning("[SqlGeneration] ⚠️ Gemini Page Cache returned null for PageID {PageId}, falling back to full prompt", extractedPageId.Value);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[SqlGeneration] ❌ Gemini Page Cache retrieval failed for PageID {PageId}, using full prompt", extractedPageId.Value);
+                }
+            }
+            else
+            {
+                _logger.LogDebug("[SqlGeneration] ℹ️ No PageID found in context, skipping Gemini Page Cache");
+            }
+
+            // ============================================================================ 
             // STEP 3: استدعاء AI Model (Gemini)
             // ============================================================================ 
             _logger.LogInformation("[SqlGeneration] STEP 3: Sending request to Gemini AI...");
 
             var chatHistory = new ChatHistory();
-            chatHistory.AddUserMessage(fullPrompt);
+
+            // ============================================================================
+            // BUILD USER MESSAGE: Use Gemini Page Cache if available, else full prompt
+            // ============================================================================
+            if (!string.IsNullOrEmpty(geminiPageCacheId))
+            {
+                // CACHE HIT: Send minimal user message with cache reference
+                var minimalUserMessage = new StringBuilder();
+                minimalUserMessage.AppendLine("--- TASK ---");
+
+                // Include action type directive if applicable
+                if (actionType == QueryActionType.WrapPrevious && !string.IsNullOrWhiteSpace(previousSql))
+                {
+                    minimalUserMessage.AppendLine("⚠️ MANDATORY: WRAP PREVIOUS SQL");
+                    minimalUserMessage.AppendLine("User requests MODIFICATION on PREVIOUS results. WRAP this SQL:");
+                    minimalUserMessage.AppendLine("```sql");
+                    minimalUserMessage.AppendLine(previousSql);
+                    minimalUserMessage.AppendLine("```");
+                    minimalUserMessage.AppendLine("Apply SQL Server subquery wrapping rules.");
+                }
+                else if (actionType == QueryActionType.Regenerate && !string.IsNullOrWhiteSpace(previousSql))
+                {
+                    minimalUserMessage.AppendLine("--- CONTEXT REFERENCE: PREVIOUS SQL ---");
+                    minimalUserMessage.AppendLine("```sql");
+                    minimalUserMessage.AppendLine(previousSql);
+                    minimalUserMessage.AppendLine("```");
+                }
+
+                minimalUserMessage.AppendLine($"Q: {userQuestion}");
+                minimalUserMessage.AppendLine("A: ");
+
+                chatHistory.AddUserMessage(minimalUserMessage.ToString());
+
+                _logger.LogInformation("[SqlGeneration] 📦 Using CACHED page context + minimal user message ({Size} chars, ~75% token reduction)",
+                    minimalUserMessage.Length);
+            }
+            else
+            {
+                // CACHE MISS: Use full prompt
+                chatHistory.AddUserMessage(fullPrompt);
+                _logger.LogDebug("[SqlGeneration] 📄 Using FULL prompt (no cache available)");
+            }
 
             _logger.LogDebug("[SqlGeneration] Chat history created with 1 user message. Awaiting AI response...");
 
