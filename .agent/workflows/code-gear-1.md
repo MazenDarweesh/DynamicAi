@@ -64,6 +64,19 @@ description: بروتوكول ترس الشفرة-1 - الهندسة الموج�
     - `Infrastructure` ← ينفذ واجهات Application
     - `Api` ← نقطة الدخول، يستخدم جميع الطبقات عبر Dependency Injection
 
+- **القاعدة 7: التسمية الواضحة والتعبيرية (Expressive Naming Convention):** اجعل الأسماء تعبّر عن طبيعة المكون بوضوح:
+    - **Vendor-Specific (خاص بمزود معين):** إذا كان الكود/الخدمة/الـ Interface خاص بـ vendor محدد (مثل Gemini, OpenAI, Qdrant)، يجب أن يحتوي الاسم على اسم الـ vendor بشكل واضح.
+        - ✅ **أمثلة صحيحة:** `IGeminiPageContextCache`, `GeminiCacheManager`, `QdrantRetrievalService`
+        - ❌ **أمثلة خاطئة:** `IPageCache` (غير واضح: هل هو Gemini؟ Redis؟ Generic؟)
+    - **Generic (عام):** إذا كان الكود قابل للاستخدام مع أي LLM أو مزود، استخدم أسماء عامة مثل `Llm`, `VectorDb`, `Cache`.
+        - ✅ **أمثلة صحيحة:** `ILlmContextCache`, `BuildLlmPrompt`, `VectorSearchResult`
+    - **Method Names (أسماء الدوال):** يجب أن تكون وصفية وواضحة.
+        - ✅ **أمثلة صحيحة:** `GetFullPageContextForLlmCachingAsync()`, `BuildGeminiPageContextContentAsync()`
+        - ❌ **أمثلة خاطئة:** `GetContext()`, `Build()` (غامضة جداً)
+    - **Model Names:** نفس المنطق - وضّح الغرض والـ vendor إذا كان خاص.
+        - ✅ **أمثلة صحيحة:** `GeminiCachedPageContext`, `QdrantSearchFilter`
+        - ❌ **أمثلة خاطئة:** `CachedContext` (غير واضح المصدر)
+
 ---
 
 ## **3. قيود وتفضيلات المستخدم (USER CONSTRAINTS)**
@@ -79,6 +92,7 @@ description: بروتوكول ترس الشفرة-1 - الهندسة الموج�
 | **فصل الاهتمامات (Separation of Concerns)** | فصل الموديلات (Models) والمستندات (Requests/DTOs) في ملفات مستقلة فورًا؛ التكدس داخل ملف واحد ممنوع. |
 | **Async/Await** | جميع عمليات الـ I/O يجب أن تكون async |
 | **Model Separation** | ضع الموديلات (Models/DTOs/Requests) دائمًا في ملفات منفصلة في المجلد المناسب. يمنع منعًا باتًا كتابة الكلاسات داخل ملف الـ Controller. |
+| **Expressive Naming** | اتبع **القاعدة 7**: أسماء واضحة تميّز بين Vendor-Specific (مثل `Gemini...`, `Qdrant...`) و Generic (مثل `Llm...`, `VectorDb...`). |
 
 ### **التفضيلات القوية:**
 
