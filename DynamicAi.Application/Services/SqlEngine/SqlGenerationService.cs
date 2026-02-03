@@ -84,6 +84,8 @@ namespace DynamicAi.Application.Services
             string? previousSql = null,
             QueryActionType actionType = QueryActionType.Regenerate)
         {
+            #region Initialization and Logging
+
             _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
             _logger.LogInformation("║              [Layer 2: SQL GENERATION] - STARTING                      ║");
             _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
@@ -94,6 +96,10 @@ namespace DynamicAi.Application.Services
                 !string.IsNullOrEmpty(contextBundle.UnifiedPageContext),
                 contextBundle.DictionaryEntries?.Count ?? 0,
                 contextBundle.BusinessRules?.Count ?? 0);
+
+            #endregion
+
+            #region STEP 1: Context Bundle Analysis
 
             // ============================================================================ 
             // STEP 1: تحليل محتويات Context Bundle
@@ -126,6 +132,10 @@ namespace DynamicAi.Application.Services
             {
                 _logger.LogWarning("[SqlGeneration] ⚠ No Business Rules provided");
             }
+
+            #endregion
+
+            #region STEP 2: Prompt Building
 
             // ============================================================================ 
             // STEP 2: بناء الـ Prompt الاحترافي
@@ -162,7 +172,7 @@ namespace DynamicAi.Application.Services
             promptBuilder.AppendLine("\n--- DICTIONARY CONTEXT (User Labels to DB Columns) ---");
 
             // Unit 2: Compact Dictionary Format - Add header explaining the format
-            promptBuilder.AppendLine("Format: [Index] ListName | SearchName | ColumnName | InsertType | arColumnLabel | enColumnLabel | DroModel:DroValue:DroText (if dropdown)");
+            promptBuilder.AppendLine("Format: [Index] ListName | SearchName | ColumnName | InsertType | arColumnLabel | enColumnLabel | Vis | DroModel:DroValue:DroText (if dropdown)");
             promptBuilder.AppendLine("---");
 
             if (contextBundle.DictionaryEntries != null && contextBundle.DictionaryEntries.Any())
@@ -183,8 +193,10 @@ namespace DynamicAi.Application.Services
                         var arLabel = root.TryGetProperty("arColumnLabel", out var ar) ? ar.GetString() ?? "" : "";
                         var enLabel = root.TryGetProperty("enColumnLabel", out var en) ? en.GetString() ?? "" : "";
 
+                        var visible = root.TryGetProperty("visible", out var v) && v.ValueKind == System.Text.Json.JsonValueKind.True;
+
                         // Build compact entry
-                        var compactEntry = $"[{dictIndex}] {listName} | {searchName} | {columnName} | {insertType} | {arLabel} | {enLabel}";
+                        var compactEntry = $"[{dictIndex}] {listName} | {searchName} | {columnName} | {insertType} | {arLabel} | {enLabel} | Vis:{visible}";
 
                         // Add dropdown info if applicable
                         if (insertType == "dropdown")
@@ -350,6 +362,10 @@ namespace DynamicAi.Application.Services
             _logger.LogInformation("[SqlGeneration] ✓ Prompt built successfully in {Duration:F0}ms", promptDuration);
             _logger.LogDebug("[SqlGeneration] Prompt size: {Size} characters (~{Tokens} tokens)", fullPrompt.Length, estimatedTokens);
 
+            #endregion
+
+            #region STEP 2.5: Gemini Page Cache Integration
+
             // ============================================================================ 
             // STEP 2.5: GEMINI PAGE-SCOPED CACHE INTEGRATION 🚀
             // ============================================================================ 
@@ -404,6 +420,10 @@ namespace DynamicAi.Application.Services
             {
                 _logger.LogDebug("[SqlGeneration] ℹ️ No PageID found in context, skipping Gemini Page Cache");
             }
+
+            #endregion
+
+            #region STEP 3: AI Model Invocation
 
             // ============================================================================ 
             // STEP 3: استدعاء AI Model (Gemini)
@@ -538,6 +558,10 @@ namespace DynamicAi.Application.Services
             _logger.LogInformation("[GeminiCache]   TOTAL COST:        ${TotalCost:F6}", totalCost);
             _logger.LogInformation("[GeminiCache] ════════════════════════════════════════════════════════");
 
+            #endregion
+
+            #region STEP 4: SQL Extraction and Cleaning
+
             // ============================================================================ 
             // STEP 4: استخراج وتنظيف SQL
             // ============================================================================ 
@@ -546,6 +570,41 @@ namespace DynamicAi.Application.Services
             var extractStart = DateTime.UtcNow;
             var result = ExtractSqlResult(response.Content);
             var extractDuration = (DateTime.UtcNow - extractStart).TotalMilliseconds;
+
+            // ============================================================================
+            // [INSIGHTS] Populate Query Insights for Frontend
+            // ============================================================================
+            result.RetrievedContext = new List<string>();
+
+            // 1. Schema Context
+            if (!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))
+            {
+                result.RetrievedContext.Add("📄 Unified Page Schema (Active Page)");
+            }
+
+            // 2. Dictionary Context
+            if (contextBundle.DictionaryEntries != null && contextBundle.DictionaryEntries.Any())
+            {
+                result.RetrievedContext.Add($"📚 Dictionary: {contextBundle.DictionaryEntries.Count} entries used");
+            }
+
+            // 3. Business Rules Context
+            if (contextBundle.BusinessRules != null && contextBundle.BusinessRules.Any())
+            {
+                result.RetrievedContext.Add($"📋 Business Rules: {contextBundle.BusinessRules.Count} rules applied");
+            }
+
+            // 4. Update Reasoning if Legacy
+            if (result.Reasoning == "Legacy response format (no self-evaluation)")
+            {
+                result.Reasoning = $"Generated SQL using {actionType} mode based on the provided schema and user constraints.";
+            }
+
+            // 5. Append Cache Info to Reasoning
+            if (cachedTokens > 0)
+            {
+                result.Reasoning += $" (⚡ accelerated by Gemini Cache, saved {savings:C6})";
+            }
 
             _logger.LogInformation("[SqlGeneration] ✓ SQL extracted and cleaned in {Duration:F0}ms", extractDuration);
             _logger.LogInformation("[SqlGeneration] Final SQL length: {Length} characters", result.Sql.Length);
@@ -560,6 +619,10 @@ namespace DynamicAi.Application.Services
             _logger.LogWarning("\n[Generated SQL]:\n{Sql}\n", result.Sql);
             _logger.LogWarning("╚════════════════════════════════════════════════════════════════════════╝\n");
 
+            #endregion
+
+            #region Final Logging and Return
+
             // ============================================================================ 
             // [LOGGING] نهاية عملية SQL Generation
             // ============================================================================ 
@@ -572,6 +635,8 @@ namespace DynamicAi.Application.Services
             result.RetrievedContext = retrievedContext;
 
             return result;
+
+            #endregion
         }
 
         #endregion
@@ -687,7 +752,7 @@ namespace DynamicAi.Application.Services
             sb.AppendLine("SECURITY(ABSOLUTE):1)SELECT ONLY. FORBIDDEN: INSERT,UPDATE,DELETE,MERGE,DROP,ALTER,CREATE,TRUNCATE,EXEC,sp_,xp_,GRANT,REVOKE. If requested→Output SQL='' and reasoning='REFUSED: Security Violation'. 2)MULTI-TENANT: EVERY query MUST include AND ComID=@CurrentCompanyId. No exceptions.");
             sb.AppendLine("DATA SOURCES(NO HALLUCINATION):3)ALLOWED TABLES ONLY: Master=PageAttribute.TableName, Detail=PageDetail.TableName, Lookup=ListSetups.DroModel ONLY if InsertType='dropdown'. Any other table/view=FORBIDDEN. 4)COLUMN SOURCE OF TRUTH: Resolve columns ONLY via ListSetups. Match arColumnLabel/enColumnLabel. If not found→needs_clarification=true. NEVER GUESS.");
             sb.AppendLine("SYSTEM CYCLE:5)Identify Page from HIERARCHY. 6)FROM=Master. 7)If details requested→JOIN Detail ON PageAttribute.Primary=PageDetail.ForeignKey.");
-            sb.AppendLine("COLUMN RESOLUTION(ALGORITHM):8)For EVERY column: A)find ListSetups entry. B)read ColumnName,SearchName,InsertType,DroModel,DroValue,DroText. C)Logic: InsertType!=dropdown→select ColumnName(NO JOIN). InsertType=dropdown: if SearchName!=ColumnName→select ColumnName(NO JOIN). if SearchName==ColumnName: if DroText exists in current view→select it(NO JOIN) else JOIN DroModel ON SearchName=DroValue select DroText. D)CRITICAL: ALIAS with [arColumnLabel] (AS [العربية]). 9)All columns/show table→NEVER SELECT *. Select ONLY Visible=1 and resolve EACH column using rule(8).");
+            sb.AppendLine("COLUMN RESOLUTION(ALGORITHM):8)For EVERY column: A)find ListSetups entry. B)read ColumnName,SearchName,InsertType,DroModel,DroValue,DroText,Vis. C)Logic: InsertType!=dropdown→select ColumnName(NO JOIN). InsertType=dropdown: if SearchName!=ColumnName→select ColumnName(NO JOIN). if SearchName==ColumnName: if DroText exists in current view→select it(NO JOIN) else JOIN DroModel ON SearchName=DroValue select DroText. D)CRITICAL: ALIAS with [arColumnLabel] (AS [العربية]). 9)All columns/show table→NEVER SELECT *. Select ONLY columns where Vis=true and resolve EACH column using rule(8).");
             sb.AppendLine("QUERY RULES:10)STRICT FORMAT: Alias Tables(T1..), Prefix Columns(T1.Col), and ALIAS OUTPUTS (AS [ArabicName]) ALWAYS. 11)TEXT: LIKE N'%Value%'. 12)DATES: MONTH(DateCol)=X if year not specified. 13)MATH: ISNULL(Column,0). 14)PAGING: FATAL ERROR if TOP used with OFFSET. If OFFSET is required -> YOU MUST DELETE 'TOP'. Usage: [ORDER BY ... OFFSET X ROWS FETCH NEXT Y ROWS ONLY]. If no offset -> Use TOP 100. 15)NO CTEs EVER.");
             sb.AppendLine("ORDERING:16)If no user order→ORDER BY DESC priority: ID/DocNo→Date→Numeric→Text. If user asks sort→respect.");
             sb.AppendLine("COMMENTS(MANDATORY):17)Every SELECT column and JOIN must have comment: --SRC:Table.Col|LIST:ListName|DRO:DroModel/NA|RULE:Step|IDX:i|MSG:Info. 18)Comma BEFORE comment (e.g., \"Col, -- Msg\").");
