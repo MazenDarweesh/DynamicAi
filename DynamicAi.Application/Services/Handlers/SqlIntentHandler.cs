@@ -110,13 +110,19 @@ public class SqlIntentHandler : IIntentHandler
             {
                 _logger.LogInformation("[SqlHandler] ✓ Cache HIT! Returing cached SQL.");
 
+                // For cached results, provide minimal insights indicating cache source
+                var cachedInsights = new List<string> { "⚡ Retrieved from Query Cache" };
+                var cachedReasoning = $"This query was previously executed with {cachedResult.Score:P0} similarity. Serving cached SQL for faster response.";
+
                 return await ExecutePipelineFromValidationAsync(
                     cachedResult.Sql,
                     context,
                     cachedResult.CacheId,
                     true, // isCached
                     cachedResult.Score,
-                    null);
+                    null, // schemaContext
+                    cachedInsights, // NEW: Pass cache-specific insights
+                    cachedReasoning); // NEW: Pass cache explanation
             }
         }
 
