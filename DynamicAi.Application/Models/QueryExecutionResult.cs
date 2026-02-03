@@ -56,4 +56,30 @@ public class QueryExecutionResult
     /// Classified intent (Phase 1: The Brain). e.g. DataRetrieval, Analysis, Prediction, Chat, Unknown.
     /// </summary>
     public string? Intent { get; set; }
+
+    /// <summary>
+    /// Insight data for debugging and transparency (Query Insight Panel).
+    /// </summary>
+    public QueryInsightData? QueryInsights { get; set; }
+}
+
+/// <summary>
+/// Debugging and transparency data for Query Insight Panel.
+/// </summary>
+public class QueryInsightData
+{
+    /// <summary>
+    /// Context items retrieved from Vector DB (tables, columns, similarity scores).
+    /// </summary>
+    public List<string>? RetrievedContext { get; set; }
+
+    /// <summary>
+    /// AI's reasoning or explanation for the generated query.
+    /// </summary>
+    public string? Reasoning { get; set; }
+
+    /// <summary>
+    /// Indicates if the operation is read-only (safety check).
+    /// </summary>
+    public bool IsReadOnly { get; set; } = true;
 }

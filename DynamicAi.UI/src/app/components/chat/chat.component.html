@@ -48,7 +48,8 @@
                 </div>
                 <div class="bubble">
                     <div *ngIf="msg.text" class="text-content">{{ msg.text }}</div>
-                    <span *ngIf="msg.isAi && msg.intent" class="intent-badge" [title]="'Intent: ' + msg.intent">{{ msg.intent }}</span>
+                    <span *ngIf="msg.isAi && msg.intent" class="intent-badge" [title]="'Intent: ' + msg.intent">{{
+                        msg.intent }}</span>
                     <div *ngIf="msg.data" class="json-content">
                         <div class="json-label">Data Response:</div>
                         <pre>{{ msg.data | json }}</pre>
@@ -141,6 +142,13 @@
                             </button>
                         </div>
                         <pre class="sql-code">{{ msg.sql }}</pre>
+                    </div>
+
+                    <!-- Query Insights Panel (NEW) -->
+                    <div *ngIf="msg.queryInsights" (click)="toggleInsights(msg)">
+                        <app-query-insight-panel [insights]="msg.queryInsights"
+                            [isExpanded]="msg.showInsights || false">
+                        </app-query-insight-panel>
                     </div>
 
                     <!-- Suggestion Tips (from Dislike Response) -->

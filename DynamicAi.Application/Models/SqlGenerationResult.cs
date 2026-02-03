@@ -30,4 +30,10 @@ public class SqlGenerationResult
     /// The clarification question if NeedsClarification is true.
     /// </summary>
     public string? ClarificationQuestion { get; set; }
+
+    /// <summary>
+    /// List of context items retrieved from Vector DB with similarity scores.
+    /// Example: "Products Table (98%)", "Sales Table (95%)"
+    /// </summary>
+    public List<string>? RetrievedContext { get; set; }
 }

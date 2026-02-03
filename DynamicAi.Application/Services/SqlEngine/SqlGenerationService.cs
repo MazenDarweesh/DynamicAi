@@ -194,6 +194,40 @@ namespace DynamicAi.Application.Services
                 promptBuilder.AppendLine("(No dictionary context available)");
             }
 
+            // ============================================================================
+            // CAPTURE CONTEXT FOR QUERY INSIGHTS PANEL
+            // ============================================================================
+            var retrievedContext = new List<string>();
+
+            // Capture schema context
+            if (!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(contextBundle.UnifiedPageContext);
+                    var pageName = doc.RootElement.TryGetProperty("PageName", out var pn)
+                        ? pn.GetString()
+                        : "Unknown Page";
+                    retrievedContext.Add($"📄 {pageName} Schema");
+                }
+                catch
+                {
+                    retrievedContext.Add("📄 Schema Context");
+                }
+            }
+
+            // Capture dictionary entries count
+            if (contextBundle.DictionaryEntries != null && contextBundle.DictionaryEntries.Any())
+            {
+                retrievedContext.Add($"📚 {contextBundle.DictionaryEntries.Count} Dictionary Entries");
+            }
+
+            // Capture business rules count
+            if (contextBundle.BusinessRules != null && contextBundle.BusinessRules.Any())
+            {
+                retrievedContext.Add($"📋 {contextBundle.BusinessRules.Count} Business Rules");
+            }
+
             _logger.LogDebug("[SqlGeneration] Building prompt section: BUSINESS RULES...");
             promptBuilder.AppendLine("\n--- BUSINESS RULES (Must be included) ---");
             if (contextBundle.BusinessRules != null && contextBundle.BusinessRules.Any())
@@ -416,6 +450,9 @@ namespace DynamicAi.Application.Services
             _logger.LogInformation("║            [Layer 2: SQL GENERATION] - COMPLETED ✓                     ║");
             _logger.LogInformation("║            Total Time: {TotalTime:F0}ms                                               ║", (DateTime.UtcNow - (aiStart - TimeSpan.FromMilliseconds(aiDuration + promptDuration))).TotalMilliseconds);
             _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+
+            // Populate RetrievedContext for Query Insights Panel
+            result.RetrievedContext = retrievedContext;
 
             return result;
         }

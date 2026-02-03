@@ -1,0 +1,32 @@
+<div *ngIf="insights" class="insight-panel" [class.expanded]="isExpanded">
+  <div class="insight-header">
+    <span class="icon">📊</span>
+    <span>Query Insights</span>
+    <span class="chevron"  [class.rotated]="isExpanded">▼</span>
+  </div>
+  
+  <div *ngIf="isExpanded" class="insight-body">
+    <!-- Section 1: Context Retrieved -->
+    <div class="insight-section" *ngIf="insights.retrievedContext && insights.retrievedContext.length > 0">
+      <h4>🔍 Context Retrieved</h4>
+      <div class="context-tags">
+        <span *ngFor="let ctx of insights.retrievedContext" class="tag">{{ ctx }}</span>
+      </div>
+    </div>
+
+    <!-- Section 2: Reasoning -->
+    <div class="insight-section" *ngIf="insights.reasoning">
+      <h4>🧠 Reasoning</h4>
+      <p>{{ insights.reasoning }}</p>
+    </div>
+
+    <!-- Section 3: Safety -->
+    <div class="insight-section">
+      <h4>🛡️ Safety</h4>
+      <div class="safety-badge" [class.safe]="insights.isReadOnly">
+        <span *ngIf="insights.isReadOnly">✅ Verified: Read-Only Access</span>
+        <span *ngIf="!insights.isReadOnly">⚠️ Warning: Write Operation</span>
+      </div>
+    </div>
+  </div>
+</div>

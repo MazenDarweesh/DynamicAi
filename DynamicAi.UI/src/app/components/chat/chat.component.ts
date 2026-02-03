@@ -5,11 +5,12 @@ import { ApiService } from '../../services/api.service';
 import { ChatSignalService } from '../../services/chat-signal.service';
 import { environment } from '../../../environments/environment';
 import { ChatMessage } from '../../models';
+import { QueryInsightPanelComponent } from '../query-insight-panel/query-insight-panel.component';
 
 @Component({
     selector: 'app-chat',
     standalone: true,
-    imports: [CommonModule, FormsModule],
+    imports: [CommonModule, FormsModule, QueryInsightPanelComponent],
     templateUrl: './chat.component.html',
     styleUrls: ['./chat.component.css']
 })
@@ -198,6 +199,12 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                 newMessage.queryLogId = res.queryLogId || res.QueryLogId;
                 newMessage.intent = res.intent ?? res.Intent;
 
+                // Capture Query Insights (NEW)
+                if (res.queryInsights || res.QueryInsights) {
+                    newMessage.queryInsights = res.queryInsights || res.QueryInsights;
+                    newMessage.showInsights = false; // Initially collapsed
+                }
+
                 this.messages.push(newMessage);
 
                 this.confirmedQuestion = this.lastQuestion;
@@ -351,5 +358,10 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         }).catch(err => {
             console.error('❌ Failed to copy SQL:', err);
         });
+    }
+
+    toggleInsights(msg: ChatMessage) {
+        msg.showInsights = !msg.showInsights;
+        this.cdr.detectChanges();
     }
 }

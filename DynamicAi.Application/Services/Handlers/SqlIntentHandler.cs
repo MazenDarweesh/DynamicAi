@@ -198,7 +198,9 @@ public class SqlIntentHandler : IIntentHandler
             null, // cacheId
             false, // isCached
             sqlResult.Confidence,
-            retrievalResult.UnifiedPageContext);
+            retrievalResult.UnifiedPageContext,
+            sqlResult.RetrievedContext, // NEW: Pass context for insights
+            sqlResult.Reasoning); // NEW: Pass reasoning for insights
 
         #endregion
     }
@@ -213,7 +215,9 @@ public class SqlIntentHandler : IIntentHandler
         string? cacheId,
         bool isCached,
         float? confidence,
-        string? schemaContext)
+        string? schemaContext,
+        List<string>? retrievedContext = null,
+        string? reasoning = null)
     {
         // Double-check validation
         try
@@ -268,7 +272,15 @@ public class SqlIntentHandler : IIntentHandler
             CacheId = cacheId,
             QueryLogId = context?.QueryLogId,
             SchemaContext = schemaContext,
-            ConfidenceScore = confidence
+            ConfidenceScore = confidence,
+            QueryInsights = retrievedContext != null || reasoning != null
+                ? new QueryInsightData
+                {
+                    RetrievedContext = retrievedContext,
+                    Reasoning = reasoning ?? $"Generated SQL with {confidence:P0} confidence.",
+                    IsReadOnly = true // SQL Handler always reads data
+                }
+                : null
         };
     }
 
