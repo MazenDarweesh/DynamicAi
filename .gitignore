@@ -367,6 +367,11 @@ SECRETS_GUIDE.md
 # Allow logs folder visibility but ignore content
 logs/*
 !logs/.gitkeep
+prompts/*
+!prompts/.gitkeep
+# Temporary prompts (for AI interaction context)
+DynamicAi/temp_prompts/*
+!DynamicAi/temp_prompts/.gitkeep   
 
 # Docker environment files (contains secrets!)
 .env

@@ -399,7 +399,15 @@ namespace DynamicAi.Application.Services
             _logger.LogInformation("[SqlGeneration] ✓ SQL extracted and cleaned in {Duration:F0}ms", extractDuration);
             _logger.LogInformation("[SqlGeneration] Final SQL length: {Length} characters", result.Sql.Length);
             _logger.LogInformation("[SqlGeneration] LLM Confidence: {Confidence:P0}", result.Confidence);
-            _logger.LogDebug("[SqlGeneration] Final SQL: {Sql}", result.Sql);
+
+            // ============================================================================
+            // [DIAGNOSTIC] طباعة الـ SQL المولد مباشرة
+            // ============================================================================
+            _logger.LogWarning("\n╔════════════════════════════════════════════════════════════════════════╗");
+            _logger.LogWarning("║         🤖 [SQL GENERATION] - RAW SQL OUTPUT FROM LLM                 ║");
+            _logger.LogWarning("╚════════════════════════════════════════════════════════════════════════╝");
+            _logger.LogWarning("\n[Generated SQL]:\n{Sql}\n", result.Sql);
+            _logger.LogWarning("╚════════════════════════════════════════════════════════════════════════╝\n");
 
             // ============================================================================ 
             // [LOGGING] نهاية عملية SQL Generation

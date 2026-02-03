@@ -316,9 +316,20 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("[RagRetrieval] ✓ Linked {DetailsCount} PageDetail(s) across {AttrCount} attribute(s).", totalDetailsLinked, allAttributeIds.Count);
             }
 
+
             // ============================================================================
             // DICTIONARY FILTERING (Module 4 Unit 1) - Reduce prompt size
             // ============================================================================
+
+            // ⚠️ BLACKLIST: أعمدة قديمة لم تعد موجودة في الـ Database
+            var blacklistedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "SalesNote1",
+                "SalesNote2",
+                "SalesNote3"
+                //"EDate" // اسم قديم تغير في الـ Schema
+            };
+
             int originalCount = contextBundle.DictionaryEntries.Count;
             if (originalCount > 0)
             {
@@ -332,14 +343,24 @@ namespace DynamicAi.Application.Services
                 contextBundle.DictionaryEntries = contextBundle.DictionaryEntries
                     .Where(entry =>
                     {
-                        // Keep if visible=true
+                        // ✅ STEP 1: استبعاد الأعمدة المحظورة (Blacklist)
+                        foreach (var blacklisted in blacklistedColumns)
+                        {
+                            if (entry.Contains($"\"ColumnName\":\"{blacklisted}\"", StringComparison.OrdinalIgnoreCase) ||
+                                entry.Contains($"\"SearchName\":\"{blacklisted}\"", StringComparison.OrdinalIgnoreCase))
+                            {
+                                return false; // استبعد هذا العمود
+                            }
+                        }
+
+                        // ✅ STEP 2: Keep if visible=true
                         if (entry.Contains("\"visible\":true", StringComparison.OrdinalIgnoreCase) ||
                             entry.Contains("\"visible\":1", StringComparison.OrdinalIgnoreCase))
                         {
                             return true;
                         }
 
-                        // Keep if arColumnLabel or enColumnLabel matches any question keyword
+                        // ✅ STEP 3: Keep if arColumnLabel or enColumnLabel matches any question keyword
                         foreach (var keyword in questionKeywords)
                         {
                             if (entry.Contains(keyword, StringComparison.OrdinalIgnoreCase))
@@ -360,7 +381,7 @@ namespace DynamicAi.Application.Services
                     (originalCount - filteredCount) * 100 / Math.Max(originalCount, 1));
             }
 
-            contextBundle.UnifiedPageContext = pageNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+            contextBundle.UnifiedPageContext = BuildMinimalSchemaContext(pageNode);
 
             // ============================================================================
             // النتيجة النهائية
@@ -403,6 +424,87 @@ namespace DynamicAi.Application.Services
             }
 
             return contextBundle;
+        }
+
+        /// <summary>
+        /// Builds a minimal schema context containing only essential fields for LLM (90% size reduction)
+        /// </summary>
+        private string BuildMinimalSchemaContext(JsonNode fullPageNode)
+        {
+            var minimal = new JsonObject
+            {
+                ["PageID"] = CloneValue(fullPageNode["PageID"]),
+                ["PageName"] = CloneValue(fullPageNode["PageName"]),
+                ["EnName"] = CloneValue(fullPageNode["EnName"]),
+
+                ["ModuleContext"] = new JsonObject
+                {
+                    ["MName"] = CloneValue(fullPageNode["ModuleContext"]?["MName"]),
+                    ["MEnName"] = CloneValue(fullPageNode["ModuleContext"]?["MEnName"])
+                },
+
+                ["MenuMasterContext"] = new JsonObject
+                {
+                    ["MName"] = CloneValue(fullPageNode["MenuMasterContext"]?["MName"]),
+                    ["MEnName"] = CloneValue(fullPageNode["MenuMasterContext"]?["MEnName"])
+                },
+
+                ["PageAttributes"] = new JsonArray()
+            };
+
+            foreach (var attr in fullPageNode["PageAttributes"]?.AsArray() ?? [])
+            {
+                var minimalAttr = new JsonObject
+                {
+                    ["ListName"] = CloneValue(attr["ListName"]),
+                    ["TableName"] = CloneValue(attr["TableName"]),
+                    ["Primary"] = CloneValue(attr["Primary"]),
+                    ["IsCompany"] = CloneValue(attr["IsCompany"]),
+                    ["CompanyName"] = CloneValue(attr["CompanyName"]),
+                    ["TailCondition"] = CloneValue(attr["TailCondition"]),
+                    ["IsDepartment"] = CloneValue(attr["IsDepartment"]),
+                    ["DepartmentCoulmn"] = CloneValue(attr["DepartmentCoulmn"]),
+
+                    // ✅ HYBRID CONTEXT: إضافة SchemaScript لمعرفة الأعمدة الحقيقية
+                    ["SchemaScript"] = CloneValue(attr["SchemaScript"]),
+
+                    ["PageDetails"] = new JsonArray()
+                };
+
+                foreach (var detail in attr["PageDetails"]?.AsArray() ?? [])
+                {
+                    var minimalDetail = new JsonObject
+                    {
+                        ["ListName"] = CloneValue(detail["ListName"]),
+                        ["TableName"] = CloneValue(detail["TableName"]),
+                        ["Primary"] = CloneValue(detail["Primary"]),
+                        ["ForeignKey"] = CloneValue(detail["ForeignKey"]),
+                        ["DisplayArabic"] = CloneValue(detail["DisplayArabic"]),
+                        ["IsCompany"] = CloneValue(detail["IsCompany"]),
+                        ["CompanyName"] = CloneValue(detail["CompanyName"])
+                    };
+
+                    minimalAttr["PageDetails"]!.AsArray().Add(minimalDetail);
+                }
+
+                minimal["PageAttributes"]!.AsArray().Add(minimalAttr);
+            }
+
+            // Return as compact JSON (no indentation to save more space)
+            return minimal.ToJsonString(new JsonSerializerOptions
+            {
+                WriteIndented = false,
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            });
+        }
+
+        /// <summary>
+        /// Helper to clone JsonNode values to avoid "node already has a parent" exception
+        /// </summary>
+        private JsonNode? CloneValue(JsonNode? node)
+        {
+            if (node == null) return null;
+            return JsonNode.Parse(node.ToJsonString());
         }
 
         private void AppendCompanyFilterRule(
