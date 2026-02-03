@@ -19,5 +19,17 @@ namespace DynamicAi.Application.Interfaces
             string userQuestion,
             string tenantId
         );
+
+        /// <summary>
+        /// Retrieves FULL page context for LLM caching (used by Gemini Page Cache Service).
+        /// Returns ALL dictionary entries grouped by ListName + minimal schema context.
+        /// </summary>
+        /// <param name="pageId">The page ID to retrieve full context for</param>
+        /// <param name="tenantId">Tenant ID for data isolation</param>
+        /// <returns>Complete page context for Gemini caching</returns>
+        Task<FullPageContextForLlmCache> GetFullPageContextForLlmCachingAsync(
+            int pageId,
+            string tenantId
+        );
     }
 }

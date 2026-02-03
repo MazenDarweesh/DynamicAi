@@ -157,7 +157,9 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddSingleton<IFailedQueryLogger, FailedQueryLogger>();
     services.AddSingleton<IGeminiCostTracker, GeminiCostTracker>(); // Phase 1: Observability
     services.AddSingleton<IGeminiCacheManager, GeminiCacheManager>(); // Gemini Context Caching
+    services.AddSingleton<IGeminiPageContextCache, GeminiPageContextCacheService>(); // Gemini Page-Scoped Context Caching
     services.AddSingleton<ITokenCounter, GeminiTokenCounter>(); // Phase E: Token Counter
+
 
     // --- تسجيل عميل Qdrant ---
     var qdrantHost = configuration["Qdrant:Host"]!;

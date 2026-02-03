@@ -810,5 +810,108 @@ namespace DynamicAi.Application.Services
 
             return results;
         }
+
+        /// <summary>
+        /// Retrieves FULL page context for LLM caching (used by Gemini Page Cache Service).
+        /// Returns ALL dictionary entries grouped by ListName + minimal schema context.
+        /// </summary>
+        public async Task<FullPageContextForLlmCache> GetFullPageContextForLlmCachingAsync(
+            int pageId,
+            string tenantId)
+        {
+            _logger.LogInformation("[LLM Cache] Retrieving FULL page context for PageID {PageId}...", pageId);
+
+            try
+            {
+                // [1] Generate embedding for page schema search
+                var pageEmbedding = await _embeddingService.GenerateAsync($"Page schema for PageID {pageId}");
+
+                // [2] Retrieve FULL Page Node (schema context)
+                var pageNodeFilter = CreateFilter(
+                    tenantId,
+                    QdrantConstants.SourceTypeData,
+                    DbTables.Pages,
+                    (QdrantConstants.PageId, pageId)
+                );
+
+                var pageNodesRaw = await SearchQdrantAsync(
+                    pageEmbedding,
+                    pageNodeFilter,
+                    limit: 1,
+                    stepName: "Page Schema for Cache"
+                );
+
+                if (pageNodesRaw.Count == 0)
+                {
+                    _logger.LogWarning("[LLM Cache] ⚠️ No page node found for PageID {PageId}", pageId);
+                    return new FullPageContextForLlmCache
+                    {
+                        PageId = pageId,
+                        PageName = $"Page_{pageId}",
+                        SchemaContextJson = "{}",
+                        DictionaryByListName = new()
+                    };
+                }
+
+                var pageNodeJson = pageNodesRaw[0];
+                var fullPageNode = JsonNode.Parse(pageNodeJson)!;
+                var pageName = fullPageNode["PageName"]?.ToString() ?? $"Page_{pageId}";
+
+                // Build minimal schema context (same logic as RetrieveContextAsync)
+                var minimalSchemaContext = BuildMinimalSchemaContext(fullPageNode);
+
+                // [3] Generate embedding for dictionary search
+                var dictionaryEmbedding = await _embeddingService.GenerateAsync($"Dictionary data for PageID {pageId}");
+
+                // [4] Retrieve ALL Dictionary entries for this page
+                var dictionaryFilter = CreateFilter(
+                    tenantId,
+                    QdrantConstants.SourceTypeData,
+                    null, // no specific table filter - get all data for this page
+                    (QdrantConstants.PageId, pageId)
+                );
+
+                var allDictionaryRaw = await SearchQdrantAsync(
+                    dictionaryEmbedding,
+                    dictionaryFilter,
+                    limit: 1000, // Fetch ALL dictionary entries (adjust as needed)
+                    stepName: "Full Dictionary for Cache"
+                );
+
+                _logger.LogInformation("[LLM Cache] Retrieved {Count} dictionary entries for PageID {PageId}",
+                    allDictionaryRaw.Count, pageId);
+
+                // [5] Group dictionary by ListName
+                var grouped = new Dictionary<string, List<string>>();
+
+                foreach (var dataRaw in allDictionaryRaw)
+                {
+                    var dataNode = JsonNode.Parse(dataRaw);
+                    var listName = dataNode?["ListName"]?.ToString() ?? "Unknown";
+
+                    if (!grouped.ContainsKey(listName))
+                    {
+                        grouped[listName] = new List<string>();
+                    }
+
+                    grouped[listName].Add(dataRaw);
+                }
+
+                _logger.LogInformation("[LLM Cache] ✅ Grouped into {Count} unique ListNames", grouped.Count);
+
+                return new FullPageContextForLlmCache
+                {
+                    PageId = pageId,
+                    PageName = pageName,
+                    SchemaContextJson = minimalSchemaContext.ToString(),
+                    DictionaryByListName = grouped
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[LLM Cache] ❌ Failed to retrieve full page context for PageID {PageId}", pageId);
+                throw;
+            }
+        }
     }
 }
