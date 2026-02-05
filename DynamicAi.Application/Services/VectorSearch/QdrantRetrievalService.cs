@@ -121,7 +121,7 @@ namespace DynamicAi.Application.Services
             Filter pageFilter;
             if (explicitPageId.HasValue)
             {
-                pageFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.Pages, (QdrantConstants.PageId, explicitPageId.Value));
+                pageFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.Pages, filterVisibleOnly: false, (QdrantConstants.PageId, explicitPageId.Value));
                 _logger.LogInformation("[RagRetrieval] Using EXACT filter for PageID: {ExplicitPageId}", explicitPageId.Value);
             }
             else
@@ -181,14 +181,14 @@ namespace DynamicAi.Application.Services
             // ============================================================================
             _logger.LogInformation("[RagRetrieval] STEP 2.5: Fetching Module & Menu context for PageID: {PageId}...", pageId);
 
-            var moduleFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.Modul, (QdrantConstants.PageId, pageId));
+            var moduleFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.Modul, filterVisibleOnly: false, (QdrantConstants.PageId, pageId));
             var moduleResults = await SearchQdrantAsync(embedding, moduleFilter, 1, DbTables.Modul);
             if (moduleResults.Any())
             {
                 pageNode["ModuleContext"] = JsonNode.Parse(moduleResults.First());
             }
 
-            var menuMasterFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.MenuMaster, (QdrantConstants.PageId, pageId));
+            var menuMasterFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.MenuMaster, filterVisibleOnly: false, (QdrantConstants.PageId, pageId));
             var menuMasterResults = await SearchQdrantAsync(embedding, menuMasterFilter, 1, DbTables.MenuMaster);
             if (menuMasterResults.Any())
             {
@@ -205,12 +205,12 @@ namespace DynamicAi.Application.Services
             Filter attrFilter;
             if (explicitAttributeId.HasValue)
             {
-                attrFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.PageAttribute, (QdrantConstants.AttributeId, explicitAttributeId.Value));
+                attrFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.PageAttribute, filterVisibleOnly: false, (QdrantConstants.AttributeId, explicitAttributeId.Value));
                 _logger.LogInformation("[RagRetrieval] Using EXACT filter for AttributeID: {ExplicitAttributeId}", explicitAttributeId.Value);
             }
             else
             {
-                attrFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.PageAttribute, (QdrantConstants.PageId, pageId));
+                attrFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.PageAttribute, filterVisibleOnly: false, (QdrantConstants.PageId, pageId));
                 _logger.LogInformation("[RagRetrieval] Using SEMANTIC search for PageAttributes related to PageID: {PageId}", pageId);
             }
 
@@ -245,8 +245,10 @@ namespace DynamicAi.Application.Services
                 string listName = attrNode[DbColumns.ListName]?.GetValue<string>() ?? string.Empty;
                 if (!string.IsNullOrEmpty(listName))
                 {
-                    var listFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups, (QdrantConstants.ListName, listName));
-                    var listResults = await SearchQdrantAsync(embedding, listFilter, 50, DbTables.ListSetups);
+                    // ✅ OPTIMIZED: visible=1 filter at Qdrant level + increased limit
+                    var listFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups, 
+                        filterVisibleOnly: true, (QdrantConstants.ListName, listName));
+                    var listResults = await SearchQdrantAsync(embedding, listFilter, 250, DbTables.ListSetups);
                     contextBundle.DictionaryEntries.AddRange(listResults);
                 }
 
@@ -255,7 +257,7 @@ namespace DynamicAi.Application.Services
 
                 if (!string.IsNullOrEmpty(viewName))
                 {
-                    var schemaFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeSchema, null, (QdrantConstants.ObjectName, viewName));
+                    var schemaFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeSchema, null, filterVisibleOnly: false, (QdrantConstants.ObjectName, viewName));
                     var schemaResults = await SearchQdrantAsync(embedding, schemaFilter, 1, "Schema");
                     if (schemaResults.Any())
                     {
@@ -280,6 +282,7 @@ namespace DynamicAi.Application.Services
                         tenantId,
                         QdrantConstants.SourceTypeData,
                         DbTables.PageDetail,
+                        filterVisibleOnly: false,
                         (QdrantConstants.AttributeId, attributeId));
 
                     var detailResults = await SearchQdrantAsync(embedding, detailFilter, 50, $"{DbTables.PageDetail} (Attribute {attributeId})");
@@ -305,8 +308,10 @@ namespace DynamicAi.Application.Services
                             string detailListName = detailNode[DbColumns.ListName]?.GetValue<string>() ?? string.Empty;
                             if (!string.IsNullOrEmpty(detailListName))
                             {
-                                var detailListFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups, (QdrantConstants.ListName, detailListName));
-                                var detailListResults = await SearchQdrantAsync(embedding, detailListFilter, 50, $"{DbTables.ListSetups} (Detail {detailListName})");
+                                // ✅ OPTIMIZED: visible=1 filter at Qdrant level + increased limit
+                                var detailListFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups,
+                                    filterVisibleOnly: true, (QdrantConstants.ListName, detailListName));
+                                var detailListResults = await SearchQdrantAsync(embedding, detailListFilter, 250, $"{DbTables.ListSetups} (Detail {detailListName})");
                                 contextBundle.DictionaryEntries.AddRange(detailListResults);
                             }
                         }
@@ -318,7 +323,7 @@ namespace DynamicAi.Application.Services
 
 
             // ============================================================================
-            // DICTIONARY FILTERING (Module 4 Unit 1) - Reduce prompt size
+            // DICTIONARY FILTERING - Blacklist only (visible=1 already filtered in Qdrant)
             // ============================================================================
 
             // ⚠️ BLACKLIST: أعمدة قديمة لم تعد موجودة في الـ Database
@@ -327,58 +332,32 @@ namespace DynamicAi.Application.Services
                 "SalesNote1",
                 "SalesNote2",
                 "SalesNote3"
-                //"EDate" // اسم قديم تغير في الـ Schema
             };
 
             int originalCount = contextBundle.DictionaryEntries.Count;
             if (originalCount > 0)
             {
-                // Extract keywords from user question for relevance matching
-                var questionKeywords = userQuestion
-                    .Split(new[] { ' ', '،', ',', '؟', '?', '.', '!', ':', '؛' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Where(w => w.Length > 2)
-                    .Select(w => w.ToLowerInvariant())
-                    .ToHashSet();
-
+                // ✅ SIMPLIFIED: Only Blacklist filtering (visible=1 is now filtered at Qdrant level)
                 contextBundle.DictionaryEntries = contextBundle.DictionaryEntries
                     .Where(entry =>
                     {
-                        // ✅ STEP 1: استبعاد الأعمدة المحظورة (Blacklist)
+                        // Blacklist removal only
                         foreach (var blacklisted in blacklistedColumns)
                         {
                             if (entry.Contains($"\"ColumnName\":\"{blacklisted}\"", StringComparison.OrdinalIgnoreCase) ||
                                 entry.Contains($"\"SearchName\":\"{blacklisted}\"", StringComparison.OrdinalIgnoreCase))
                             {
-                                return false; // استبعد هذا العمود
+                                return false;
                             }
                         }
-
-                        // ✅ STEP 2: Keep if visible=true
-                        if (entry.Contains("\"visible\":true", StringComparison.OrdinalIgnoreCase) ||
-                            entry.Contains("\"visible\":1", StringComparison.OrdinalIgnoreCase))
-                        {
-                            return true;
-                        }
-
-                        // ✅ STEP 3: Keep if arColumnLabel or enColumnLabel matches any question keyword
-                        foreach (var keyword in questionKeywords)
-                        {
-                            if (entry.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                            {
-                                return true;
-                            }
-                        }
-
-                        return false;
+                        return true; // Keep all visible entries (already filtered by Qdrant)
                     })
-                    .Distinct() // Remove duplicates
+                    .Distinct()
                     .ToList();
 
                 int filteredCount = contextBundle.DictionaryEntries.Count;
-                _logger.LogInformation("[RagRetrieval] ✓ Dictionary Filtering: {Original} → {Filtered} entries ({Reduction}% reduction)",
-                    originalCount,
-                    filteredCount,
-                    (originalCount - filteredCount) * 100 / Math.Max(originalCount, 1));
+                _logger.LogInformation("[RagRetrieval] ✓ Dictionary (Blacklist Only): {Original} → {Filtered} entries",
+                    originalCount, filteredCount);
             }
 
             contextBundle.UnifiedPageContext = BuildMinimalSchemaContext(pageNode);
@@ -612,10 +591,12 @@ namespace DynamicAi.Application.Services
         /// <summary>
         /// دالة مساعدة لإنشاء فلتر Qdrant بناءً على المعايير المطلوبة.
         /// </summary>
+        /// <param name="filterVisibleOnly">If true, adds visible=1 filter for ListSetups dictionary entries</param>
         private Filter CreateFilter(
             string tenantId,
             string sourceType,
             string? tableName,
+            bool filterVisibleOnly = false,
             params (string key, object value)[] additionalMatches)
         {
             var filter = new Filter();
@@ -646,6 +627,19 @@ namespace DynamicAi.Application.Services
                     {
                         Key = QdrantConstants.TableName,
                         Match = new Match { Keyword = tableName }
+                    }
+                });
+            }
+
+            // ✅ NEW: Add visible=1 filter for Dictionary entries (ListSetups)
+            if (filterVisibleOnly)
+            {
+                filter.Must.Add(new Condition
+                {
+                    Field = new FieldCondition
+                    {
+                        Key = "visible",
+                        Match = new Match { Boolean = true }
                     }
                 });
             }
@@ -831,6 +825,7 @@ namespace DynamicAi.Application.Services
                     tenantId,
                     QdrantConstants.SourceTypeData,
                     DbTables.Pages,
+                    filterVisibleOnly: false,
                     (QdrantConstants.PageId, pageId)
                 );
 
@@ -868,6 +863,7 @@ namespace DynamicAi.Application.Services
                     tenantId,
                     QdrantConstants.SourceTypeData,
                     null, // no specific table filter - get all data for this page
+                    filterVisibleOnly: false,
                     (QdrantConstants.PageId, pageId)
                 );
 
