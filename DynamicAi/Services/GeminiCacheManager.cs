@@ -1,10 +1,10 @@
 using DynamicAi.Application.Interfaces;
+using DynamicAi.Application.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace DynamicAi.Api.Services;
@@ -111,7 +111,7 @@ public class GeminiCacheManager : IGeminiCacheManager
                 return null;
             }
 
-            var result = await response.Content.ReadFromJsonAsync<CachedContentResponse>(ct);
+            var result = await response.Content.ReadFromJsonAsync<GeminiCacheResponse>(ct);
 
             if (result?.Name == null)
             {
@@ -189,19 +189,4 @@ public class GeminiCacheManager : IGeminiCacheManager
         return Convert.ToHexString(hash);
     }
 
-    // Response DTO
-    private class CachedContentResponse
-    {
-        [JsonPropertyName("name")]
-        public string? Name { get; set; }
-
-        [JsonPropertyName("displayName")]
-        public string? DisplayName { get; set; }
-
-        [JsonPropertyName("createTime")]
-        public string? CreateTime { get; set; }
-
-        [JsonPropertyName("expireTime")]
-        public string? ExpireTime { get; set; }
-    }
 }
