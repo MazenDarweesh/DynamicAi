@@ -905,7 +905,7 @@ namespace DynamicAi.Application.Services
                 // Build minimal schema context (same logic as RetrieveContextAsync)
                 var minimalSchemaContext = BuildMinimalSchemaContext(fullPageNode);
 
-                // [3] Get PageAttributes to extract ListNames (same as RetrieveContextAsync)
+                // [3] Get PageAttributes to extract ListNames + AttributeIds
                 var attrFilter = CreateFilter(
                     tenantId,
                     QdrantConstants.SourceTypeData,
@@ -924,23 +924,77 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("[LLM Cache] Found {Count} PageAttributes for PageID {PageId}",
                     attrResults.Count, pageId);
 
-                // [4] Extract unique ListNames from PageAttributes
+                // [4] Extract unique ListNames from PageAttributes + AttributeIds for PageDetails
                 var listNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var attributeIds = new List<int>();
+
                 foreach (var attrJson in attrResults)
                 {
                     try
                     {
                         var attrNode = JsonNode.Parse(attrJson);
+                        
+                        // Extract ListName from PageAttribute (Level 1)
                         var listName = attrNode?[DbColumns.ListName]?.GetValue<string>();
                         if (!string.IsNullOrEmpty(listName))
                         {
                             listNames.Add(listName);
                         }
+
+                        // Extract AttributeId for PageDetails lookup
+                        var attrId = attrNode?[DbColumns.AttributeId]?.GetValue<int>();
+                        if (attrId.HasValue)
+                        {
+                            attributeIds.Add(attrId.Value);
+                        }
                     }
                     catch { /* Skip malformed attributes */ }
                 }
 
-                _logger.LogInformation("[LLM Cache] Extracted {Count} unique ListNames: [{Lists}]",
+                _logger.LogInformation("[LLM Cache] Extracted {ListCount} ListNames from PageAttributes, {AttrCount} AttributeIds",
+                    listNames.Count, attributeIds.Count);
+
+                // [4.5] Fetch PageDetails for each AttributeId and extract their ListNames (Level 2)
+                // SQL equivalent: SELECT * FROM PageDetail WHERE PageAttributeId IN (...)
+                if (attributeIds.Any())
+                {
+                    _logger.LogInformation("[LLM Cache] Fetching PageDetails for {Count} Attribute(s)...", attributeIds.Count);
+                    
+                    foreach (var attributeId in attributeIds)
+                    {
+                        var detailFilter = CreateFilter(
+                            tenantId,
+                            QdrantConstants.SourceTypeData,
+                            DbTables.PageDetail,
+                            filterVisibleOnly: false,
+                            (QdrantConstants.AttributeId, attributeId)
+                        );
+
+                        var detailResults = await SearchQdrantAsync(
+                            pageEmbedding,
+                            detailFilter,
+                            limit: 50,
+                            stepName: $"PageDetail[AttributeId={attributeId}]"
+                        );
+
+                        foreach (var detailJson in detailResults)
+                        {
+                            try
+                            {
+                                var detailNode = JsonNode.Parse(detailJson);
+                                // Extract ListName from PageDetail (Level 2)
+                                var detailListName = detailNode?[DbColumns.ListName]?.GetValue<string>();
+                                if (!string.IsNullOrEmpty(detailListName))
+                                {
+                                    listNames.Add(detailListName);
+                                }
+                            }
+                            catch { /* Skip malformed details */ }
+                        }
+                    }
+                }
+
+                _logger.LogInformation("[LLM Cache] ✅ Combined ListNames (PageAttribute + PageDetail): {Count} → [{Lists}]",
                     listNames.Count, string.Join(", ", listNames));
 
                 // [5] Retrieve Dictionary entries by ListName (NOT PageId!)

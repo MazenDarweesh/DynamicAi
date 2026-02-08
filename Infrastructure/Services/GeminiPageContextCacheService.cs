@@ -1,6 +1,7 @@
 using DynamicAi.Application.DbConstants;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
+using DynamicAi.Application.Services; // For SqlGenerationService.CachedStaticRules
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
@@ -162,15 +163,22 @@ public class GeminiPageContextCacheService : IGeminiPageContextCache
 
     /// <summary>
     /// Builds the cache content from already-fetched full context.
+    /// Includes Static Rules (system instructions) for proper output formatting.
     /// </summary>
     private string BuildGeminiPageContextContent(FullPageContextForLlmCache fullContext)
     {
         _logger.LogDebug("Building Gemini cache content for PageID {PageId}", fullContext.PageId);
 
-        // Build structured cache content
+        // Get ACTUAL static rules from SqlGenerationService (contains output format, security rules, etc.)
+        var actualStaticRules = SqlGenerationService.CachedStaticRules;
+        
+        _logger.LogInformation("[GeminiPageCache] ✓ Including {RuleSize} chars of Static Rules in cache", 
+            actualStaticRules.Length);
+
+        // Build structured cache content with REAL system instructions
         var cacheContent = new
         {
-            StaticRules = _configuration["Prompts:StaticRules"] ?? "Static rules not configured",
+            SystemInstructions = actualStaticRules, // ← THE FIX: Use actual rules not config
             PageID = fullContext.PageId,
             PageName = fullContext.PageName,
             SchemaContext = JsonNode.Parse(fullContext.SchemaContextJson),
