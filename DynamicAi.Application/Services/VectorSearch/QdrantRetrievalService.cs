@@ -857,6 +857,7 @@ namespace DynamicAi.Application.Services
         /// <summary>
         /// Retrieves FULL page context for LLM caching (used by Gemini Page Cache Service).
         /// Returns ALL dictionary entries grouped by ListName + minimal schema context.
+        /// Fixed: Now uses ListName filter (from PageAttributes) instead of PageId.
         /// </summary>
         public async Task<FullPageContextForLlmCache> GetFullPageContextForLlmCachingAsync(
             int pageId,
@@ -904,45 +905,81 @@ namespace DynamicAi.Application.Services
                 // Build minimal schema context (same logic as RetrieveContextAsync)
                 var minimalSchemaContext = BuildMinimalSchemaContext(fullPageNode);
 
-                // [3] Generate embedding for dictionary search
-                var dictionaryEmbedding = await _embeddingService.GenerateAsync($"Dictionary data for PageID {pageId}");
-
-                // [4] Retrieve ALL Dictionary entries for this page (visible filter at app-layer)
-                var dictionaryFilter = CreateFilter(
+                // [3] Get PageAttributes to extract ListNames (same as RetrieveContextAsync)
+                var attrFilter = CreateFilter(
                     tenantId,
                     QdrantConstants.SourceTypeData,
-                    DbTables.ListSetups, // Specific to dictionary entries
-                    filterVisibleOnly: false, // ⚠️ visible filter moved to app-layer
+                    DbTables.PageAttribute,
+                    filterVisibleOnly: false,
                     (QdrantConstants.PageId, pageId)
                 );
 
-                var allDictionaryRaw = await SearchQdrantAsync(
-                    dictionaryEmbedding,
-                    dictionaryFilter,
-                    limit: 1000, // Fetch ALL dictionary entries (adjust as needed)
-                    stepName: "Full Dictionary for Cache"
+                var attrResults = await SearchQdrantAsync(
+                    pageEmbedding,
+                    attrFilter,
+                    limit: 100,
+                    stepName: "PageAttributes for Cache"
                 );
 
-                _logger.LogInformation("[LLM Cache] Retrieved {Count} dictionary entries for PageID {PageId}",
-                    allDictionaryRaw.Count, pageId);
+                _logger.LogInformation("[LLM Cache] Found {Count} PageAttributes for PageID {PageId}",
+                    attrResults.Count, pageId);
 
-                // [5] Group dictionary by ListName
-                var grouped = new Dictionary<string, List<string>>();
-
-                foreach (var dataRaw in allDictionaryRaw)
+                // [4] Extract unique ListNames from PageAttributes
+                var listNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var attrJson in attrResults)
                 {
-                    var dataNode = JsonNode.Parse(dataRaw);
-                    var listName = dataNode?["ListName"]?.ToString() ?? "Unknown";
-
-                    if (!grouped.ContainsKey(listName))
+                    try
                     {
-                        grouped[listName] = new List<string>();
+                        var attrNode = JsonNode.Parse(attrJson);
+                        var listName = attrNode?[DbColumns.ListName]?.GetValue<string>();
+                        if (!string.IsNullOrEmpty(listName))
+                        {
+                            listNames.Add(listName);
+                        }
                     }
-
-                    grouped[listName].Add(dataRaw);
+                    catch { /* Skip malformed attributes */ }
                 }
 
-                _logger.LogInformation("[LLM Cache] ✅ Grouped into {Count} unique ListNames", grouped.Count);
+                _logger.LogInformation("[LLM Cache] Extracted {Count} unique ListNames: [{Lists}]",
+                    listNames.Count, string.Join(", ", listNames));
+
+                // [5] Retrieve Dictionary entries by ListName (NOT PageId!)
+                var grouped = new Dictionary<string, List<string>>();
+                var dictionaryEmbedding = await _embeddingService.GenerateAsync($"Dictionary data for PageID {pageId}");
+
+                foreach (var listName in listNames)
+                {
+                    var listFilter = CreateFilter(
+                        tenantId,
+                        QdrantConstants.SourceTypeData,
+                        DbTables.ListSetups,
+                        filterVisibleOnly: false, // visible filter at app-layer
+                        (QdrantConstants.ListName, listName)
+                    );
+
+                    var listResults = await SearchQdrantAsync(
+                        dictionaryEmbedding,
+                        listFilter,
+                        limit: 500, // Up to 500 entries per list
+                        stepName: $"Dictionary[{listName}]"
+                    );
+
+                    // Apply visible filter at app-layer
+                    var visibleEntries = listResults
+                        .Where(entry => !entry.Contains("\"visible\":false", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+
+                    if (visibleEntries.Any())
+                    {
+                        grouped[listName] = visibleEntries;
+                        _logger.LogDebug("[LLM Cache] ListName={ListName}: {Count} visible entries",
+                            listName, visibleEntries.Count);
+                    }
+                }
+
+                var totalEntries = grouped.Values.Sum(v => v.Count);
+                _logger.LogInformation("[LLM Cache] ✅ Total: {Count} dictionary entries across {Lists} ListNames",
+                    totalEntries, grouped.Count);
 
                 return new FullPageContextForLlmCache
                 {
