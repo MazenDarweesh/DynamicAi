@@ -58,32 +58,6 @@ try
     var app = builder.Build();
 
     // ============================================================================
-    // GEMINI CONTEXT CACHE INITIALIZATION
-    // Pre-warm the cache with static rules at startup
-    // ============================================================================
-    try
-    {
-        var cacheManager = app.Services.GetRequiredService<IGeminiCacheManager>();
-        var staticRules = DynamicAi.Application.Services.SqlGenerationService.CachedStaticRules;
-
-        Log.Information("[Startup] Initializing Gemini Context Cache...");
-        var cacheId = await cacheManager.GetOrCreateCacheAsync(staticRules, "DynamicAI-StaticRules");
-
-        if (!string.IsNullOrEmpty(cacheId))
-        {
-            Log.Information("[Startup] ✓ Gemini Cache initialized: {CacheId}", cacheId);
-        }
-        else
-        {
-            Log.Warning("[Startup] ⚠ Gemini Cache initialization failed - will use implicit caching");
-        }
-    }
-    catch (Exception cacheEx)
-    {
-        Log.Warning(cacheEx, "[Startup] ⚠ Gemini Cache initialization skipped: {Message}", cacheEx.Message);
-    }
-
-    // ============================================================================
     // 3. إعداد Pipeline الطلبات
     // ============================================================================
     // Enable Request Metrics Middleware (Phase 1: Observability)
