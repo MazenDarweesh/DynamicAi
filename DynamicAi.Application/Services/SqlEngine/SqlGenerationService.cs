@@ -488,6 +488,10 @@ namespace DynamicAi.Application.Services
                 }
 
                 minimalUserMessage.AppendLine($"Q: {userQuestion}");
+                
+                // CRITICAL FIX: Explicitly remind LLM of the output format to prevent JSON hallucination
+                minimalUserMessage.AppendLine("IMPORTANT: You must follow the 'SystemInstructions' in the cached context.");
+                minimalUserMessage.AppendLine("OUTPUT FORMAT: JSON { \"sql\": \"...\", \"confidence\": ... }");
                 minimalUserMessage.AppendLine("A: ");
 
                 chatHistory.AddUserMessage(minimalUserMessage.ToString());
