@@ -47,44 +47,57 @@ public class GeminiPageContextCacheService : IGeminiPageContextCache
 
     /// <summary>
     /// Gets or creates a Gemini cache for the specified page with lazy loading.
+    /// Uses Smart Cache Key: {PageID}_{Hash(ListNames)}_{DictionaryCount}
     /// </summary>
     public async Task<string?> GetOrCreateGeminiPageCacheAsync(
         int pageId,
         CancellationToken ct = default)
     {
-        var cacheKey = $"gemini_page_context_{pageId}";
+        // [1] First fetch context to get ListNames and dictionary count for Smart Key
+        var fullContext = await _qdrantRetrieval.GetFullPageContextForLlmCachingAsync(
+            pageId,
+            tenantId: "ALL" // TODO: Implement proper tenant resolution
+        );
 
-        // [1] Check local memory cache
-        if (_memoryCache.TryGetValue<GeminiCachedPageContext>(cacheKey, out var cached))
+        // Extract ListNames and count for Smart Cache Key
+        var listNames = fullContext.DictionaryByListName.Keys.ToList();
+        var dictionaryCount = fullContext.DictionaryByListName.Values.Sum(v => v.Count);
+
+        // Generate Smart Cache Key using QdrantRetrievalService
+        var smartCacheKey = _qdrantRetrieval.GenerateSmartCacheKey(pageId, listNames, dictionaryCount);
+        var memoryCacheKey = $"gemini_{smartCacheKey}";
+
+        // [2] Check local memory cache with Smart Key
+        if (_memoryCache.TryGetValue<GeminiCachedPageContext>(memoryCacheKey, out var cached))
         {
             if (cached.IsStillValid)
             {
-                _logger.LogInformation("✅ Gemini Page Cache HIT for PageID {PageId}", pageId);
+                _logger.LogInformation("✅ Gemini Cache HIT: {SmartKey}", smartCacheKey);
                 return cached.GeminiCacheResourceName;
             }
 
-            _logger.LogWarning("⚠️ Gemini cache expired for PageID {PageId}, recreating...", pageId);
+            _logger.LogWarning("⚠️ Gemini cache expired for {SmartKey}, recreating...", smartCacheKey);
         }
 
-        // [2] Cache MISS → Build and upload to Gemini
-        _logger.LogInformation("🔄 Gemini Page Cache MISS for PageID {PageId}, building...", pageId);
+        // [3] Cache MISS → Build and upload to Gemini
+        _logger.LogInformation("🔄 Gemini Cache MISS for {SmartKey}, building...", smartCacheKey);
 
         try
         {
-            var cacheContent = await BuildGeminiPageContextContentAsync(pageId, ct);
+            var cacheContent = BuildGeminiPageContextContent(fullContext);
             var geminiResourceName = await _geminiCacheManager.GetOrCreateCacheAsync(
                 content: cacheContent,
-                displayName: $"DynamicAI-Page{pageId}",
+                displayName: $"DynamicAI-{smartCacheKey}",
                 ct: ct
             );
 
             if (geminiResourceName == null)
             {
-                _logger.LogError("❌ Failed to create Gemini cache for PageID {PageId}", pageId);
+                _logger.LogError("❌ Failed to create Gemini cache for {SmartKey}", smartCacheKey);
                 return null;
             }
 
-            // [3] Store in local memory cache
+            // [4] Store in local memory cache with Smart Key
             var newCached = new GeminiCachedPageContext
             {
                 GeminiCacheResourceName = geminiResourceName,
@@ -93,16 +106,16 @@ public class GeminiPageContextCacheService : IGeminiPageContextCache
                 ExpiresAtUtc = DateTime.UtcNow.AddHours(24)
             };
 
-            _memoryCache.Set(cacheKey, newCached, TimeSpan.FromHours(24));
+            _memoryCache.Set(memoryCacheKey, newCached, TimeSpan.FromHours(24));
 
-            _logger.LogInformation("✅ Gemini cache created for PageID {PageId}: {ResourceName}",
-                pageId, geminiResourceName);
+            _logger.LogInformation("✅ Gemini cache created: {SmartKey} → {ResourceName}",
+                smartCacheKey, geminiResourceName);
 
             return geminiResourceName;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ Exception while creating Gemini cache for PageID {PageId}", pageId);
+            _logger.LogError(ex, "❌ Exception while creating Gemini cache for {SmartKey}", smartCacheKey);
             return null;
         }
     }
@@ -148,20 +161,11 @@ public class GeminiPageContextCacheService : IGeminiPageContextCache
     #region Private Methods
 
     /// <summary>
-    /// Builds the full page context content for Gemini caching.
-    /// Includes: Static Rules + Schema Context + Full Dictionary (grouped by ListName).
+    /// Builds the cache content from already-fetched full context.
     /// </summary>
-    private async Task<string> BuildGeminiPageContextContentAsync(
-        int pageId,
-        CancellationToken ct)
+    private string BuildGeminiPageContextContent(FullPageContextForLlmCache fullContext)
     {
-        _logger.LogDebug("Building Gemini cache content for PageID {PageId}", pageId);
-
-        // Fetch FULL page context from Qdrant
-        var fullContext = await _qdrantRetrieval.GetFullPageContextForLlmCachingAsync(
-            pageId,
-            tenantId: "ALL" // TODO: Implement proper tenant resolution
-        );
+        _logger.LogDebug("Building Gemini cache content for PageID {PageId}", fullContext.PageId);
 
         // Build structured cache content
         var cacheContent = new

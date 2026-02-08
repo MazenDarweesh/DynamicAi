@@ -1,4 +1,5 @@
 ﻿using DynamicAi.Application.Models; // (جديد)
+using System.Collections.Generic; // (جديد)
 using System.Threading.Tasks;
 
 namespace DynamicAi.Application.Interfaces
@@ -31,5 +32,15 @@ namespace DynamicAi.Application.Interfaces
             int pageId,
             string tenantId
         );
+
+        /// <summary>
+        /// Generates a deterministic cache key for page-scoped caching.
+        /// Format: {PageID}_{Hash(sorted ListNames)}_{DictionaryCount}
+        /// </summary>
+        /// <param name="pageId">The page ID</param>
+        /// <param name="listNames">Collection of ListNames from dictionary entries</param>
+        /// <param name="dictionaryCount">Count of visible dictionary entries</param>
+        /// <returns>A deterministic cache key string</returns>
+        string GenerateSmartCacheKey(int pageId, IEnumerable<string> listNames, int dictionaryCount);
     }
 }

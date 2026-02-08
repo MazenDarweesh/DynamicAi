@@ -805,6 +805,48 @@ namespace DynamicAi.Application.Services
             return results;
         }
 
+        #region Smart Cache Key Generation
+
+        /// <summary>
+        /// Generates a deterministic cache key for page-scoped caching.
+        /// Format: {PageID}_{Hash(sorted ListNames)}_{DictionaryCount}
+        /// This key changes only when:
+        ///   1. PageID changes
+        ///   2. ListNames change (schema modification)
+        ///   3. Dictionary entry count changes (data modification)
+        /// </summary>
+        /// <param name="pageId">The page ID</param>
+        /// <param name="listNames">Collection of ListNames from dictionary entries</param>
+        /// <param name="dictionaryCount">Count of visible dictionary entries</param>
+        /// <returns>A deterministic cache key string</returns>
+        public string GenerateSmartCacheKey(int pageId, IEnumerable<string> listNames, int dictionaryCount)
+        {
+            // Sort ListNames for consistency
+            var sortedListNames = listNames
+                .Where(n => !string.IsNullOrEmpty(n))
+                .OrderBy(n => n)
+                .ToList();
+
+            // Generate hash of sorted ListNames
+            var listNamesString = string.Join("|", sortedListNames);
+            var hashBytes = System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(listNamesString)
+            );
+            var listNamesHash = Convert.ToHexString(hashBytes)[..8]; // First 8 chars for brevity
+
+            var cacheKey = $"{pageId}_{listNamesHash}_{dictionaryCount}";
+
+            _logger.LogInformation(
+                "[SmartCacheKey] Generated: {CacheKey} (PageID={PageId}, Lists={ListCount}, DictCount={DictCount})",
+                cacheKey, pageId, sortedListNames.Count, dictionaryCount);
+
+            return cacheKey;
+        }
+
+        #endregion
+
+        #region LLM Cache Methods
+
         /// <summary>
         /// Retrieves FULL page context for LLM caching (used by Gemini Page Cache Service).
         /// Returns ALL dictionary entries grouped by ListName + minimal schema context.
@@ -858,12 +900,12 @@ namespace DynamicAi.Application.Services
                 // [3] Generate embedding for dictionary search
                 var dictionaryEmbedding = await _embeddingService.GenerateAsync($"Dictionary data for PageID {pageId}");
 
-                // [4] Retrieve ALL Dictionary entries for this page
+                // [4] Retrieve ALL visible Dictionary entries for this page
                 var dictionaryFilter = CreateFilter(
                     tenantId,
                     QdrantConstants.SourceTypeData,
-                    null, // no specific table filter - get all data for this page
-                    filterVisibleOnly: false,
+                    DbTables.ListSetups, // Specific to dictionary entries
+                    filterVisibleOnly: true, // ✅ Only visible columns for cache
                     (QdrantConstants.PageId, pageId)
                 );
 
@@ -909,5 +951,7 @@ namespace DynamicAi.Application.Services
                 throw;
             }
         }
+
+        #endregion
     }
 }

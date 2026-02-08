@@ -145,6 +145,8 @@ namespace DynamicAi.Application.Services
             var promptStart = DateTime.UtcNow;
             var promptBuilder = new StringBuilder();
 
+            #region STEP 2.1: Static Rules & Implicit Cache
+
             // ============================================================================
             // GEMINI IMPLICIT CACHE OPTIMIZATION
             // Use pre-built static rules (cached once, reused for all requests)
@@ -154,6 +156,10 @@ namespace DynamicAi.Application.Services
 
             _logger.LogInformation("[SqlGeneration] ✓ Static rules loaded from cache ({TokenCount} tokens, ~{CharCount} chars)", StaticRulesTokenCount, CachedStaticRules.Length);
             _logger.LogDebug("[SqlGeneration] ✓ Gemini Implicit Cache: Same prefix for all requests guarantees cache HIT");
+
+            #endregion
+
+            #region STEP 2.2: Hierarchy & Schema Context
 
             _logger.LogDebug("[SqlGeneration] Building prompt section: HIERARCHY & SCHEMA CONTEXT...");
             promptBuilder.AppendLine("\n--- HIERARCHY & SCHEMA CONTEXT (The available Page structure and its Views) ---");
@@ -167,6 +173,10 @@ namespace DynamicAi.Application.Services
             {
                 promptBuilder.AppendLine("(No schema context available)");
             }
+
+            #endregion
+
+            #region STEP 2.3: Dictionary Context (Compact Format)
 
             _logger.LogDebug("[SqlGeneration] Building prompt section: DICTIONARY CONTEXT...");
             promptBuilder.AppendLine("\n--- DICTIONARY CONTEXT (User Labels to DB Columns) ---");
@@ -227,6 +237,10 @@ namespace DynamicAi.Application.Services
                 promptBuilder.AppendLine("(No dictionary context available)");
             }
 
+            #endregion
+
+            #region STEP 2.4: Insights Context Collection
+
             // ============================================================================
             // CAPTURE CONTEXT FOR QUERY INSIGHTS PANEL
             // ============================================================================
@@ -261,6 +275,10 @@ namespace DynamicAi.Application.Services
                 retrievedContext.Add($"📋 {contextBundle.BusinessRules.Count} Business Rules");
             }
 
+            #endregion
+
+            #region STEP 2.5: Business Rules Integration
+
             _logger.LogDebug("[SqlGeneration] Building prompt section: BUSINESS RULES...");
             promptBuilder.AppendLine("\n--- BUSINESS RULES (Must be included) ---");
             if (contextBundle.BusinessRules != null && contextBundle.BusinessRules.Any())
@@ -278,6 +296,10 @@ namespace DynamicAi.Application.Services
             {
                 promptBuilder.AppendLine("(No business rules available)");
             }
+
+            #endregion
+
+            #region STEP 2.6: Mode-Specific Directives (Wrap/Regen)
 
             // ============================================================================
             // ACTION TYPE DIRECTIVE (From Query Condenser Layer 0.5)
@@ -311,6 +333,10 @@ namespace DynamicAi.Application.Services
                 promptBuilder.AppendLine("```");
             }
             // NEW mode: No previous SQL context needed
+
+            #endregion
+
+            #region STEP 2.7: Final Assembly and Metrics
 
             promptBuilder.AppendLine("\n--- TASK ---");
             promptBuilder.AppendLine($"Q: {userQuestion}");
@@ -364,10 +390,12 @@ namespace DynamicAi.Application.Services
 
             #endregion
 
-            #region STEP 2.5: Gemini Page Cache Integration
+            #endregion
+
+            #region STEP 2.8: Gemini Page Cache Integration
 
             // ============================================================================ 
-            // STEP 2.5: GEMINI PAGE-SCOPED CACHE INTEGRATION 🚀
+            // STEP 2.8: GEMINI PAGE-SCOPED CACHE INTEGRATION 🚀
             // ============================================================================ 
             string? geminiPageCacheId = null;
             int? extractedPageId = null;
