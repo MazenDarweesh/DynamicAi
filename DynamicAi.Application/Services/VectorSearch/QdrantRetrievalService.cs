@@ -245,9 +245,9 @@ namespace DynamicAi.Application.Services
                 string listName = attrNode[DbColumns.ListName]?.GetValue<string>() ?? string.Empty;
                 if (!string.IsNullOrEmpty(listName))
                 {
-                    // ✅ OPTIMIZED: visible=1 filter at Qdrant level + increased limit
+                    // ⚠️ NOTE: visible filter moved to app-layer (Qdrant payload doesn't have visible as top-level field)
                     var listFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups, 
-                        filterVisibleOnly: true, (QdrantConstants.ListName, listName));
+                        filterVisibleOnly: false, (QdrantConstants.ListName, listName));
                     var listResults = await SearchQdrantAsync(embedding, listFilter, 250, DbTables.ListSetups);
                     contextBundle.DictionaryEntries.AddRange(listResults);
                 }
@@ -308,9 +308,9 @@ namespace DynamicAi.Application.Services
                             string detailListName = detailNode[DbColumns.ListName]?.GetValue<string>() ?? string.Empty;
                             if (!string.IsNullOrEmpty(detailListName))
                             {
-                                // ✅ OPTIMIZED: visible=1 filter at Qdrant level + increased limit
+                                // ⚠️ NOTE: visible filter moved to app-layer (Qdrant payload doesn't have visible as top-level field)
                                 var detailListFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups,
-                                    filterVisibleOnly: true, (QdrantConstants.ListName, detailListName));
+                                    filterVisibleOnly: false, (QdrantConstants.ListName, detailListName));
                                 var detailListResults = await SearchQdrantAsync(embedding, detailListFilter, 250, $"{DbTables.ListSetups} (Detail {detailListName})");
                                 contextBundle.DictionaryEntries.AddRange(detailListResults);
                             }
@@ -323,7 +323,7 @@ namespace DynamicAi.Application.Services
 
 
             // ============================================================================
-            // DICTIONARY FILTERING - Blacklist only (visible=1 already filtered in Qdrant)
+            // DICTIONARY FILTERING - Visible + Blacklist (visible filter moved from Qdrant)
             // ============================================================================
 
             // ⚠️ BLACKLIST: أعمدة قديمة لم تعد موجودة في الـ Database
@@ -337,11 +337,18 @@ namespace DynamicAi.Application.Services
             int originalCount = contextBundle.DictionaryEntries.Count;
             if (originalCount > 0)
             {
-                // ✅ SIMPLIFIED: Only Blacklist filtering (visible=1 is now filtered at Qdrant level)
+                // ✅ App-layer filtering: visible=true + Blacklist removal
+                // (visible filter moved here because Qdrant payload doesn't have 'visible' as top-level field)
                 contextBundle.DictionaryEntries = contextBundle.DictionaryEntries
                     .Where(entry =>
                     {
-                        // Blacklist removal only
+                        // [1] Visible filter - parse visible from JSON
+                        if (entry.Contains("\"visible\":false", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return false; // Skip non-visible entries
+                        }
+
+                        // [2] Blacklist filter - remove deprecated columns
                         foreach (var blacklisted in blacklistedColumns)
                         {
                             if (entry.Contains($"\"ColumnName\":\"{blacklisted}\"", StringComparison.OrdinalIgnoreCase) ||
@@ -350,13 +357,13 @@ namespace DynamicAi.Application.Services
                                 return false;
                             }
                         }
-                        return true; // Keep all visible entries (already filtered by Qdrant)
+                        return true;
                     })
                     .Distinct()
                     .ToList();
 
                 int filteredCount = contextBundle.DictionaryEntries.Count;
-                _logger.LogInformation("[RagRetrieval] ✓ Dictionary (Blacklist Only): {Original} → {Filtered} entries",
+                _logger.LogInformation("[RagRetrieval] ✓ Dictionary (Visible + Blacklist): {Original} → {Filtered} entries",
                     originalCount, filteredCount);
             }
 
@@ -900,12 +907,12 @@ namespace DynamicAi.Application.Services
                 // [3] Generate embedding for dictionary search
                 var dictionaryEmbedding = await _embeddingService.GenerateAsync($"Dictionary data for PageID {pageId}");
 
-                // [4] Retrieve ALL visible Dictionary entries for this page
+                // [4] Retrieve ALL Dictionary entries for this page (visible filter at app-layer)
                 var dictionaryFilter = CreateFilter(
                     tenantId,
                     QdrantConstants.SourceTypeData,
                     DbTables.ListSetups, // Specific to dictionary entries
-                    filterVisibleOnly: true, // ✅ Only visible columns for cache
+                    filterVisibleOnly: false, // ⚠️ visible filter moved to app-layer
                     (QdrantConstants.PageId, pageId)
                 );
 
