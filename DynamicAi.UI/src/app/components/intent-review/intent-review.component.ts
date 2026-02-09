@@ -110,7 +110,11 @@ export class IntentReviewComponent implements OnInit {
         if (!q) return;
         this.clearCacheLoading = true;
         this.clearCacheMessage = null;
-        const req: ClearCacheRequest = { question: q };
+        const req: ClearCacheRequest = {
+            question: q,
+            tenantId: 'default', // TODO: Get from AuthService
+            companyId: 1        // TODO: Get from AuthService
+        };
         this.intentReview.clearCacheByQuestion(req).subscribe({
             next: (res) => {
                 this.clearCacheMessage = res.message || 'Done';
