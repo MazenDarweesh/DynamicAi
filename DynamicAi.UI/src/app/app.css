@@ -159,6 +159,18 @@
     display: flex;
     flex-direction: column;
     position: relative;
+    overflow: hidden;
+    /* Prevent content from bleeding outside */
+    min-height: 0;
+    /* Critical for nested flex containers */
+}
+
+/* Router-outlet creates sibling elements, not children - target them */
+.main-content>*:not(router-outlet) {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 header {
@@ -548,7 +560,8 @@ tr:hover td {
     padding-top: 4px;
 }
 
-.like-btn, .dislike-btn {
+.like-btn,
+.dislike-btn {
     background: transparent;
     border: none;
     color: var(--text-muted);
