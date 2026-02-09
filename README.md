@@ -1,79 +1,95 @@
 # Dynamic AI 🧠
 
-> **Natural Language to SQL Generation with Semantic Context, Smart Query Condensing & Caching**
+> **The Enterprise-Grade Generative BI Platform for SQL Server**
 
-Dynamic AI is an intelligent system designed to bridge the gap between natural language questions and complex database queries. It leverages **Google Gemini** for LLM capabilities and **Qdrant** for vector-based semantic search, allowing users to query their data using everyday language while ensuring high performance through intelligent caching.
+**Dynamic AI** is a production-ready, full-stack AI solution that transforms natural language into optimized, secure SQL queries. Built on a robust **Clean Architecture**, it bridges the gap between raw data and business users using **Google Gemini** (LLM) and **Qdrant** (Vector Search).
+
+Unlike simple text-to-SQL wrappers, Dynamic AI is an **Intelligent System** featuring a **Self-Evolving Hybrid Router**, **Triple-Layer Caching**, and a **Context-Aware Data Loop** that learns from every interaction.
 
 ---
 
 ## 🏗️ Architecture Overview
 
-The system follows **Clean Architecture** principles with a **7-Layer Query Pipeline** for maximum accuracy and context awareness.
+The system implements a **7-Layer Intelligence Pipeline** designed for high throughput, zero hallucinations, and cost efficiency.
 
 ```text
-     User 
-      ↕ 
-[DynamicAi UI (Angular)] 
-      ↕ 
-[DynamicAi API (.NET)] ──────┬─────────────────┐
-                             │                 │
-            ┌────────────────▼────────────────┐│
-            │       Query Orchestrator        ││
-            │    (Pipeline Coordinator)       ││
-            └───────────────┬─────────────────┘│
-                            │                  │
-            ┌───────────────▼───────────────┐  │
-            │   Layer 0: Intent Router      │  │
-            │ (Vector + LLM Classification) │  │
-            └───────┬───────┬───────┬───────┘  │
-                    │       │       │          │
-    ┌───────────────┘       │       └──────────┼────────┐
-    │ 'Chat'                │ 'SQL'            │ 'Predict'
-    ▼                       ▼                  ▼
-┌────────────┐    ┌──────────────────┐  ┌──────────────┐
-│Chat Handler│    │   SQL Handler    │  │PredictHandler│
-│ (No DB)    │    │ (Deep Pipeline)  │  │(Extrapolate) │
-└────────────┘    └─────────┬────────┘  └──────┬───────┘
-                            │                  │
-                ┌───────────▼───────────┐      │
-                │  Layer 0.5:           │      │
-                │  Query Condenser      │      │
-                │  (ActionType Logic)   │      │
-                └───────────┬───────────┘      │
-                            │                  │
-                ┌───────────▼───────────┐      │
-                │  Layer 1: Query Cache │      │
-                │  (Semantic Similarity)│      │
-                └───────────┬───────────┘      │
-                            │                  │
-                ┌───────────▼───────────┐      │
-                │  Layer 2: RAG Context │      │
-                │  (Qdrant + Schema)    │      │
-                └───────────┬───────────┘      │
-                            │                  │
-                ┌───────────▼───────────┐      │
-                │  Layer 3: SQL Gen     │      │
-                │  (Gemini + Prompt)    │      │
-                └───────────┬───────────┘      │
-                            │                  │
-                ┌───────────▼───────────┐      │
-                │  Layer 4: Validation  │      │
-                │  (Security + Rewrite) │      │
-                └───────────┬───────────┘      │
-                            │                  │
-                ┌───────────▼───────────┐      │
-                │  Layer 5: Execution   │◄─────┘
-                │  (SQL Server)         │  (Multi-Step
-                └───────────┬───────────┘    Fetches)
-                            ↕
-                     [(SQL DB)]
-                           
-                                 ┌─────────────────────▼──┐
-                                 │   Context Loop         │
-                                 │ ConversationContext    │
-                                 │(Passes Data to Predict)│
-                                 └────────────┬───────────┘
+     User (Business / Analyst)
+      ↕
+[DynamicAi UI (Angular 17+)] 
+      ↕
+[DynamicAi API (.NET 8 Clean Arch)] ───────┬────────────────────────────┐
+                                           │                            │
+                  ┌────────────────────────▼─────────────────────────┐  │
+                  │              Query Orchestrator                  │  │
+                  │       (Central Intelligence Coordinator)         │  │
+                  └────────────────────────┬─────────────────────────┘  │
+                                           │                            │
+                  ┌────────────────────────▼─────────────────────────┐  │
+                  │   Layer 0: Intelligent Hybrid Router             │  │
+                  │ (Vector Search + LLM Classification + Fallback)  │  │
+                  └───────┬────────────────┬────────────────┬────────┘  │
+                          │                │                │           │
+    ┌─────────────────────┘                │                └───────────┼──────────┐
+    │ 'Chat' Intent                        │ 'SQL' Intent               │ 'Predict'Intent
+    ▼                                      ▼                            ▼
+┌──────────────────┐           ┌──────────────────────────┐    ┌────────────────────┐
+│ ChatHandler      │           │      SQL Handler         │    │   PredictHandler   │
+│(Lightweight LLM) │           │   (The Core Engine)      │    │ (Data extrapolation│
+└──────────────────┘           └───────────┬──────────────┘    │  on Context)       │
+                                           │                   └──────────┬─────────┘
+                               ┌───────────▼───────────┐                  │
+                               │ Layer 0.5: Condenser  │                  │
+                               │(Smart Action Decisions)                  │
+                               └───────────┬───────────┘                  │
+                                           │                              │
+                               ┌───────────▼───────────┐                  │
+                               │ Layer 1: Intent Cache │                  │
+                               │ (Semantic / <50ms)    │                  │
+                               └───────────┬───────────┘                  │
+                                           │                              │
+                               ┌───────────▼───────────┐                  │
+                               │ Layer 2: Context Cache│                  │
+                               │ (RAG Metadata / <10ms)│                  │
+                               └───────────┬───────────┘                  │
+                                           │                              │
+                               ┌───────────▼───────────┐                  │
+                               │ Layer 3: Response Cache                  │
+                               │ (Gemini Smart Key)    │                  │
+                               └───────────┬───────────┘                  │
+                                           │                              │
+                               ┌───────────▼───────────┐                  │
+                               │ Layer 4: Validation   │                  │
+                               │ (ScriptDom Security)  │                  │
+                               └───────────┬───────────┘                  │
+                                           │                              │
+                               ┌───────────▼───────────┐                  │
+                               │ Layer 5: Execution    │◄─────────────────┘
+                               │ (SQL Server Dapper)   │  (Multi-Step Fetches)
+                               └───────────┬───────────┘
+                                           ↕
+                                   [(SQL Database)]
 ```
+
+### 🚀 Key Technical Pillars
+
+1.  **Full-Stack & Production Ready**
+    *   **Frontend:** Modern Angular 17+ with Material Design, Markdown rendering, and Syntax Highlighting.
+    *   **Backend:** .NET 8 Web API following **Clean Architecture** (Domain, Application, Infrastructure, Api).
+    *   **Database:** SQL Server (Target) + Qdrant (Vector Intelligence).
+    *   **Observability:** Real-time dashboards, structured logging, and cost tracking.
+
+2.  **Triple-Layer Caching Architecture (The "Speed" Layer)**
+    *   **Semantic Cache:** Instantly returns semantically identical questions (e.g., "Show sales" == "Revenue").
+    *   **RAG Context Cache:** Eliminates redundant Vector DB lookups for schema metadata.
+    *   **LLM Response Cache:** Leverages Gemini's Context Caching to bypass generation for known schema states.
+
+3.  **Self-Evolving Hybrid Router (The "Brain" Layer)**
+    *   **Zero-Shot Classification:** Uses Vector Search to route queries to the correct handler (`Chat`, `Sql`, `Predict`).
+    *   **Auto-Seeding:** Automatically learns from new questions to improve future routing accuracy.
+
+4.  **Defense-in-Depth Security**
+    *   **Validation Layer:** Uses Microsoft's `ScriptDom` to parse and efficiently block any DML (INSERT/UPDATE/DELETE) or DDL (DROP/ALTER) commands before execution.
+    *   **Read-Only Context:** The LLM is never given direct write access credentials.
 
 ### 🛠️ Technology Stack
 
@@ -510,7 +526,6 @@ Moving from **Validation (v1.4.0)** to **Scale & Hardening (v1.5.0+)**.
 ### 🗺️ Next Phase: Hardening (Immediate Focus) 🔴
 *   **Goal:** Production Stability & Advanced Observability
 *   **Key Features:**
-    *   **Reranking Layer:** Implement re-scoring for top-K documents (Precision).
     *   **User Quotas:** Rate limiting per tenant ("Cost Explosion Prevention").
     *   **Advanced Tracing:** OpenTelemetry integration.
 
