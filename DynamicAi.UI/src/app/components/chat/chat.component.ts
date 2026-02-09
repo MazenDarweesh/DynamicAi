@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ViewChild, ElementRef, AfterViewChecked, ChangeDetectorRef, inject, EventEmitter, Output } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef, AfterViewChecked, ChangeDetectorRef, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
@@ -15,7 +15,7 @@ import { ChatMessage } from '../../models';
 })
 export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     @ViewChild('scrollContainer') private scrollContainer!: ElementRef;
-    @Output() sidebarToggle = new EventEmitter<void>();
+
 
     private apiService = inject(ApiService);
     private cdr = inject(ChangeDetectorRef);
@@ -59,8 +59,8 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     }
 
     toggleSidebar() {
-        // Emit event to parent
-        this.sidebarToggle.emit();
+        // Use service to communicate with App shell (since @Output doesn't work through router-outlet)
+        this.chatSignal.triggerSidebarToggle();
     }
 
     ngAfterViewChecked() {

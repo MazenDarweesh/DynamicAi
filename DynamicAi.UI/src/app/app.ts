@@ -15,6 +15,13 @@ export class App {
   private chatSignal = inject(ChatSignalService);
   private router = inject(Router);
 
+  constructor() {
+    // Subscribe to sidebar toggle signals from child components
+    this.chatSignal.sidebarToggle$.subscribe(() => {
+      this.toggleSidebar();
+    });
+  }
+
   toggleSidebar() {
     this.isSidebarOpen = !this.isSidebarOpen;
   }

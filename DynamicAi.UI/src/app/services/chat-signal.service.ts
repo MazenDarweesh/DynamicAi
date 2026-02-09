@@ -8,6 +8,14 @@ export class ChatSignalService {
     private resetSource = new Subject<void>();
     reset$ = this.resetSource.asObservable();
 
+    // Sidebar Toggle Signal (for communication with App shell)
+    private sidebarToggleSource = new Subject<void>();
+    sidebarToggle$ = this.sidebarToggleSource.asObservable();
+
+    triggerSidebarToggle() {
+        this.sidebarToggleSource.next();
+    }
+
     // Persistent State
     messages: any[] = [];
     lastQuestion: string | undefined;
