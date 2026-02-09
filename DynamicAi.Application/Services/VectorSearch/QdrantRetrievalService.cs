@@ -943,7 +943,7 @@ namespace DynamicAi.Application.Services
             var listNamesHash = Convert.ToHexString(hashBytes)[..8]; // First 8 chars for brevity
 
             // v3: Added SystemInstructions to cache content to fix JSON output format issue
-            var cacheKey = $"{pageId}_{listNamesHash}_{dictionaryCount}_v5";
+            var cacheKey = $"{pageId}_{listNamesHash}_{dictionaryCount}_v6";
 
             _logger.LogInformation(
                 "[SmartCacheKey] Generated: {CacheKey} (PageID={PageId}, Lists={ListCount}, DictCount={DictCount})",

@@ -159,8 +159,9 @@
     display: flex;
     flex-direction: column;
     position: relative;
-    overflow: hidden;
-    /* Prevent content from bleeding outside */
+    overflow-y: auto;
+    overflow-x: hidden;
+    /* Allow vertical scrolling for pages */
     min-height: 0;
     /* Critical for nested flex containers */
 }
