@@ -14,6 +14,8 @@ export interface IntentReviewItemDto {
 
 export interface ClearIntentRequest {
   question: string;
+  tenantId?: string;
+  companyId?: number;
 }
 
 export interface IntentReviewStats {

@@ -84,7 +84,11 @@ export class IntentReviewComponent implements OnInit {
         if (!q) return;
         this.clearLoading = true;
         this.clearMessage = null;
-        const req: ClearIntentRequest = { question: q };
+        const req: ClearIntentRequest = {
+            question: q,
+            tenantId: 'default', // TODO: Get from AuthService
+            companyId: 1        // TODO: Get from AuthService
+        };
         this.intentReview.clearByQuestion(req).subscribe({
             next: (res) => {
                 this.clearMessage = res.message || 'Done';
