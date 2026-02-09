@@ -452,12 +452,28 @@ We have successfully deployed the **Triple-Layer Caching Architecture**, transfo
 *   **Smart Sampling**: Automatically truncates large result sets to stay within token limits.
 *   **Cross-Handler Context**: Predict Handler can "see" data fetched by SQL Handler.
 
-#### 5. 🛠️ Management & Admin Tools
-*   **Incremental Seeding**: `POST /api/DataSeeder/seed-intents` adds missing intents safely.
-*   **Cache Control**: Endpoints for granular cache invalidation.
-*   **Intent Review**: Admin tools for managing low-confidence classifications.
+#### 5. � Training Data Management (New in v1.5.0)
+*   **Goal:** Build a high-quality "Golden Dataset" for future fine-tuning.
+*   **Manual Entry Form:**
+    *   3-Field Input: Natural Language Question, SQL Code, Notes (Optional).
+    *   **Features:** Real-time validation, Auto-reset, and success feedback.
+*   **Golden Dataset Dashboard:**
+    *   **Stats Cards:** Verified Examples, Pending Review, Target Goal (500), Progress Bar.
+    *   **Export:** Download Verified/All examples as `.jsonl` for Gemini fine-tuning.
 
-#### 6. 🔐 Reliability & Safety
+#### 6. ✅ Query Insights Tab (New in v1.5.0)
+*   **Goal:** Transparency for developers and power users.
+*   **Features:**
+    *   Visualizes the **Latency Breakdown** (Router vs Cache vs LLM).
+    *   Shows the **Exact SQL** generated.
+    *   Displays **Confidence Score** and **Handler Type**.
+
+#### 7. �🛠️ Management & Admin Tools
+*   **Incremental Seeding:** `POST /api/DataSeeder/seed-intents` adds missing intents safely.
+*   **Cache Control:** Endpoints for granular cache invalidation.
+*   **Intent Review:** Admin tools for managing low-confidence classifications.
+
+#### 8. 🔐 Reliability & Safety
 *   **Clarification Loop**: AI asks for clarification instead of guessing.
 *   **SQL Validation**: AST-based parsing blocks dangerous operations (DML/DDL).
 *   **Prompt Optimization**: 96% token reduction via caching.
@@ -556,6 +572,10 @@ Moving from **Validation (v1.4.0)** to **Scale & Hardening (v1.5.0+)**.
 *   ✅ **Smart Cache Key:** Context-aware hashing (`PageId + SchemaHash + TermCount`) ensures instant invalidation on schema changes.
 *   ✅ **Context Decoupler:** Decoupled context retrieval to guarantee 100% accurate Schema Metadata mapping.
 *   ✅ **Token Efficiency:** Reduced average token usage by 96% per cached query.
+
+**New Capabilities (UI/UX):**
+*   ✅ **Training Data Management:** Manual entry form for Golden Dataset + JSONL Export.
+*   ✅ **Query Insights Tab:** Visual transparency for Latency, Handler Type, and Generated SQL.
 
 **Fixes & Optimizations:**
 *   ✅ **Refactored `QdrantRetrievalService`:** Clean separation of concerns between fetching and schema assembly.
