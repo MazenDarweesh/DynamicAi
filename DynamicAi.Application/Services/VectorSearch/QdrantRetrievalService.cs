@@ -943,7 +943,7 @@ namespace DynamicAi.Application.Services
             var listNamesHash = Convert.ToHexString(hashBytes)[..8]; // First 8 chars for brevity
 
             // v3: Added SystemInstructions to cache content to fix JSON output format issue
-            var cacheKey = $"{pageId}_{listNamesHash}_{dictionaryCount}_v3";
+            var cacheKey = $"{pageId}_{listNamesHash}_{dictionaryCount}_v5";
 
             _logger.LogInformation(
                 "[SmartCacheKey] Generated: {CacheKey} (PageID={PageId}, Lists={ListCount}, DictCount={DictCount})",
@@ -1130,9 +1130,35 @@ namespace DynamicAi.Application.Services
                         stepName: $"Dictionary[{listName}]"
                     );
 
-                    // Apply visible filter at app-layer
+                    // ⚠️ BLACKLIST: أعمدة قديمة لم تعد موجودة في الـ Database (same as RetrieveContextAsync)
+                    var blacklistedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        "SalesNote1",
+                        "SalesNote2",
+                        "SalesNote3"
+                    };
+
+                    // Apply visible filter + blacklist filter at app-layer
                     var visibleEntries = listResults
-                        .Where(entry => !entry.Contains("\"visible\":false", StringComparison.OrdinalIgnoreCase))
+                        .Where(entry =>
+                        {
+                            // [1] Visible filter - remove hidden entries
+                            if (entry.Contains("\"visible\":false", StringComparison.OrdinalIgnoreCase))
+                            {
+                                return false;
+                            }
+
+                            // [2] Blacklist filter - remove deprecated columns
+                            foreach (var blacklisted in blacklistedColumns)
+                            {
+                                if (entry.Contains($"\"ColumnName\":\"{blacklisted}\"", StringComparison.OrdinalIgnoreCase) ||
+                                    entry.Contains($"\"SearchName\":\"{blacklisted}\"", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    return false;
+                                }
+                            }
+                            return true;
+                        })
                         .ToList();
 
                     if (visibleEntries.Any())
