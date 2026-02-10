@@ -42,7 +42,7 @@
             <input type="text" [(ngModel)]="clearCacheQuestion" placeholder="e.g. هات المبيعات" class="input"
                 [disabled]="clearCacheLoading" />
             <button class="btn primary" (click)="clearCacheByQuestion()"
-                [disabled]="clearCacheLoading || !clearCacheQuestion?.trim()">
+                [disabled]="clearCacheLoading || !clearCacheQuestion.trim()">
                 {{ clearCacheLoading ? '...' : 'Clear' }}
             </button>
         </div>
