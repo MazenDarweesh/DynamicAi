@@ -226,7 +226,19 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                     if (isRichTextIntent) {
                         // Force text/rich display for these intents
                         let content = '';
-                        if (typeof data === 'string') content = data;
+
+                        // Handle Array response (PredictionWithDataFetch often returns [ { prediction: "..." } ])
+                        if (Array.isArray(data) && data.length > 0) {
+                            const firstItem = data[0];
+                            // Check for prediction property (case-insensitive)
+                            const prediction = firstItem.prediction || firstItem.Prediction || firstItem.Message || firstItem.message;
+                            if (prediction) {
+                                content = prediction;
+                            } else {
+                                content = JSON.stringify(data, null, 2);
+                            }
+                        }
+                        else if (typeof data === 'string') content = data;
                         else if (msgText) content = msgText;
                         else if (data && typeof data === 'object') content = JSON.stringify(data, null, 2);
 
