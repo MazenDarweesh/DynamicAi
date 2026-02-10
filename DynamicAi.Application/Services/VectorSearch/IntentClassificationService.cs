@@ -204,7 +204,8 @@ Respond with JSON only:");
                 intentType: detectedIntent,
                 cancellationToken: cancellationToken,
                 status: IntentReviewStatus.Pending,
-                source: "LlmFallback"
+                source: "LlmFallback",
+                confidenceScore: confidence
             );
 
             stopwatch.Stop();

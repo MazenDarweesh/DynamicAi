@@ -26,6 +26,7 @@ public class IntentExampleManagementService : IIntentExampleManagementService
         ["DataRetrieval"] = IntentType.DataRetrieval,
         ["Analysis"] = IntentType.Analysis,
         ["Prediction"] = IntentType.Prediction,
+        ["PredictionWithDataFetch"] = IntentType.PredictionWithDataFetch,
         ["Chat"] = IntentType.Chat,
         ["Unknown"] = IntentType.Unknown
     };
@@ -49,12 +50,13 @@ public class IntentExampleManagementService : IIntentExampleManagementService
         IntentType intentType,
         CancellationToken cancellationToken = default,
         IntentReviewStatus status = IntentReviewStatus.Approved,
-        string source = "AutoSeed")
+        string source = "AutoSeed",
+        float confidenceScore = 0f)
     {
         try
         {
-            _logger.LogInformation("[IntentManager] 🌱 Seeding: {Intent} -> \"{Question}\" (Status: {Status})",
-                intentType, question.Length > 50 ? question[..50] + "..." : question, status);
+            _logger.LogInformation("[IntentManager] 🌱 Seeding: {Intent} -> \"{Question}\" (Status: {Status}, Confidence: {Confidence:F2})",
+                intentType, question.Length > 50 ? question[..50] + "..." : question, status, confidenceScore);
 
             // If embedding not provided (e.g. manual seed), generate it
             float[] finalVector;
@@ -76,7 +78,8 @@ public class IntentExampleManagementService : IIntentExampleManagementService
                 ["is_llm_generated"] = true,
                 ["created_at"] = DateTime.UtcNow.ToString("O"),
                 ["review_status"] = status.ToString(),
-                ["source"] = source
+                ["source"] = source,
+                ["confidence_score"] = confidenceScore.ToString("F4")
             };
 
             await _vectorDb.UpsertPointAsync(_intentCollectionName, pointId, finalVector, payload, cancellationToken);
@@ -160,6 +163,29 @@ public class IntentExampleManagementService : IIntentExampleManagementService
         catch (Exception ex)
         {
             _logger.LogError(ex, "[IntentManager] Failed to approve example: {PointId}", pointId);
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> UpdateIntentTypeAsync(Guid pointId, IntentType newIntentType, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("[IntentManager] 🔄 Updating intent for {PointId} -> {NewIntent}", pointId, newIntentType);
+
+            var updatedPayload = new Dictionary<string, object>
+            {
+                ["intent_type"] = newIntentType.ToString(),
+                ["updated_at"] = DateTime.UtcNow.ToString("O")
+            };
+
+            await _vectorDb.UpdatePayloadAsync(_intentCollectionName, pointId, updatedPayload, cancellationToken);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[IntentManager] Failed to update intent for: {PointId}", pointId);
             return false;
         }
     }

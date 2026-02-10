@@ -1,5 +1,6 @@
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
+using DynamicAi.Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.AI;
 using System.ComponentModel.DataAnnotations;
@@ -129,5 +130,48 @@ public class IntentReviewController : ControllerBase
             return StatusCode(500, new { Error = ex.Message });
         }
     }
-}
 
+    /// <summary>
+    /// Updates the intent type of a pending example before approval.
+    /// Allows admins to correct misclassified intents.
+    /// </summary>
+    [HttpPatch("{id}/update-intent")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateIntentType(
+        [FromRoute] Guid id,
+        [FromBody] UpdateIntentRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!Enum.TryParse<IntentType>(request.IntentType, ignoreCase: true, out var newIntent))
+        {
+            return BadRequest(new { message = $"Invalid intent type: '{request.IntentType}'. Valid values: {string.Join(", ", Enum.GetNames<IntentType>())}" });
+        }
+
+        _logger.LogInformation("🔄 [IntentReview] Admin updating intent for {Id} -> {NewIntent}", id, newIntent);
+
+        var success = await _intentManager.UpdateIntentTypeAsync(id, newIntent, cancellationToken);
+
+        if (!success)
+        {
+            return NotFound(new { message = $"Example with ID {id} not found." });
+        }
+
+        return Ok(new { message = $"Intent updated to '{newIntent}'.", intentType = newIntent.ToString() });
+    }
+
+    /// <summary>
+    /// Returns the list of available intent types for the dropdown.
+    /// </summary>
+    [HttpGet("available-intents")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public IActionResult GetAvailableIntents()
+    {
+        var intents = Enum.GetNames<IntentType>()
+            .Where(name => name != nameof(IntentType.Unknown))
+            .ToArray();
+
+        return Ok(intents);
+    }
+}

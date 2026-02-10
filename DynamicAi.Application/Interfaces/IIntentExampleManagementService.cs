@@ -19,7 +19,8 @@ public interface IIntentExampleManagementService
         IntentType intentType,
         CancellationToken cancellationToken = default,
         IntentReviewStatus status = IntentReviewStatus.Approved,
-        string source = "AutoSeed");
+        string source = "AutoSeed",
+        float confidenceScore = 0f);
 
 
 
@@ -37,6 +38,12 @@ public interface IIntentExampleManagementService
     /// Rejects and deletes a pending example.
     /// </summary>
     Task<bool> RejectExampleAsync(Guid pointId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Updates the intent type of a pending example.
+    /// Used by the admin to correct misclassified intents before approval.
+    /// </summary>
+    Task<bool> UpdateIntentTypeAsync(Guid pointId, IntentType newIntentType, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Ensures the underlying storage (Collection) exists and is seeded with defaults.
