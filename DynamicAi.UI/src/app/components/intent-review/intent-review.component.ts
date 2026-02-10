@@ -49,16 +49,18 @@ export class IntentReviewComponent implements OnInit, OnDestroy {
     }
 
     // --- Auto-polling ---
+    // --- Auto-polling ---
     startPolling() {
-        this.pollSub = interval(15000).pipe(
-            switchMap(() => this.intentReview.getPending())
-        ).subscribe({
-            next: (list) => {
-                this.pending = list;
-                this.pendingCount = list.length;
-                this.cdr.detectChanges();
-            }
-        });
+        // Disabled per user request
+        // this.pollSub = interval(15000).pipe(
+        //     switchMap(() => this.intentReview.getPending())
+        // ).subscribe({
+        //     next: (list) => {
+        //         this.pending = list;
+        //         this.pendingCount = list.length;
+        //         this.cdr.detectChanges();
+        //     }
+        // });
     }
 
     stopPolling() {
