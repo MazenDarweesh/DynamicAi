@@ -541,3 +541,71 @@ tr:hover td {
     word-break: break-all;
     line-height: 1.5;
 }
+
+/* Rich Text Content (Prediction/Chat) */
+.rich-text-content {
+    font-size: 0.95rem;
+    line-height: 1.7;
+    /* Better readability */
+    color: #e2e8f0;
+}
+
+.rich-text-content h1,
+.rich-text-content h2,
+.rich-text-content h3 {
+    margin-top: 15px;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #f8fafc;
+    line-height: 1.3;
+}
+
+.rich-text-content h1 {
+    font-size: 1.25rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 5px;
+}
+
+.rich-text-content h2 {
+    font-size: 1.1rem;
+}
+
+.rich-text-content h3 {
+    font-size: 1rem;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.rich-text-content strong {
+    color: #818cf8;
+    /* indigo-400 */
+    font-weight: 600;
+}
+
+.rich-text-content em {
+    color: #cbd5e1;
+    font-style: italic;
+}
+
+.rich-text-content .code-block {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-family: 'Fira Code', Consolas, monospace;
+    font-size: 0.85rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    margin: 10px 0;
+    color: #cbd5e1;
+}
+
+.rich-text-content .inline-code {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Fira Code', Consolas, monospace;
+    font-size: 0.85rem;
+    color: #e2e8f0;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}

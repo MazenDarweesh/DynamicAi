@@ -129,6 +129,32 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         return obj ? Object.keys(obj) : [];
     }
 
+    formatText(text: string): string {
+        if (!text) return '';
+
+        let html = text
+            // Escape HTML (basic)
+            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+            // Headers
+            .replace(/^#{3}\s+(.*$)/gm, '<h3>$1</h3>')
+            .replace(/^#{2}\s+(.*$)/gm, '<h2>$1</h2>')
+            .replace(/^#\s+(.*$)/gm, '<h1>$1</h1>')
+            // Bold
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            // Italic
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            // Code Blocks
+            .replace(/```([\s\S]*?)```/g, '<pre class="code-block">$1</pre>')
+            // Inline Code
+            .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+            // Lists (Simple bullet points)
+            .replace(/^\s*-\s+(.*$)/gm, '• $1<br>')
+            // Newlines (convert to <br> if not inside pre/h tags roughly)
+            .replace(/\n/g, '<br>');
+
+        return html;
+    }
+
     sendQuestion(retryCount: number = 0) {
         console.log('🚀 [SendQuestion] Question:', this.question, 'RetryCount:', retryCount);
         if (!this.question.trim()) return;
@@ -175,23 +201,44 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                         }
                     }
 
-                    if (typeof data === 'string') {
-                        try {
-                            data = JSON.parse(data);
-                        } catch (e) {
-                            console.error('Failed to parse response as JSON', e);
-                        }
-                    }
+                    // Helper to get case-insensitive property
+                    const getProp = (obj: any, key: string) => obj && (obj[key] || obj[key.toLowerCase()] || obj[key.charAt(0).toUpperCase() + key.slice(1)]);
 
                     let newMessage: ChatMessage;
+                    const intent = res.intent ?? res.Intent;
+                    // Detect Rich Text Intents (Non-SQL)
+                    const isRichTextIntent = ['Prediction', 'PredictionWithDataFetch', 'Chat', 'Analysis'].includes(intent);
 
-                    // Helper to get case-insensitive property
-                    const getProp = (obj: any, key: string) => obj[key] || obj[key.toLowerCase()] || obj[key.charAt(0).toUpperCase() + key.slice(1)];
+                    // Attempt to parse string data if it looks like JSON, UNLESS it's a rich text intent that returns a string
+                    if (typeof data === 'string' && !isRichTextIntent) {
+                        try {
+                            const parsed = JSON.parse(data);
+                            // Only use parsed if it's an object/array, otherwise keep as string
+                            if (typeof parsed === 'object') data = parsed;
+                        } catch (e) {
+                            // Keep as string
+                        }
+                    }
 
                     const msgType = getProp(data, 'Type');
                     const msgText = getProp(data, 'Message');
 
-                    if (msgText && !msgType) {
+                    if (isRichTextIntent) {
+                        // Force text/rich display for these intents
+                        let content = '';
+                        if (typeof data === 'string') content = data;
+                        else if (msgText) content = msgText;
+                        else if (data && typeof data === 'object') content = JSON.stringify(data, null, 2);
+
+                        newMessage = {
+                            isAi: true,
+                            text: content,
+                            originalQuestion: currentQ,
+                            retryCount: retryCount,
+                            isRichText: true // Enable HTML rendering
+                        };
+                    }
+                    else if (msgText && !msgType) {
                         // Standard message
                         newMessage = { isAi: true, text: msgText, originalQuestion: currentQ, retryCount: retryCount };
                     } else if (msgType === 'Question') {
@@ -204,14 +251,20 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                             newMessage = { isAi: true, text: 'No results found.', originalQuestion: currentQ, retryCount: retryCount };
                         }
                     } else {
-                        newMessage = { isAi: true, data: data, originalQuestion: currentQ, retryCount: retryCount };
+                        // Fallback for objects (Data Response)
+                        // Check if data is just a string after all
+                        if (typeof data === 'string') {
+                            newMessage = { isAi: true, text: data, originalQuestion: currentQ, retryCount: retryCount };
+                        } else {
+                            newMessage = { isAi: true, data: data, originalQuestion: currentQ, retryCount: retryCount };
+                        }
                     }
 
                     newMessage.sql = sql;
                     newMessage.cacheId = cacheId;
                     newMessage.isLogged = false;
                     newMessage.queryLogId = res.queryLogId || res.QueryLogId;
-                    newMessage.intent = res.intent ?? res.Intent;
+                    newMessage.intent = intent;
 
                     // Capture Query Insights (NEW)
                     if (res.queryInsights || res.QueryInsights) {

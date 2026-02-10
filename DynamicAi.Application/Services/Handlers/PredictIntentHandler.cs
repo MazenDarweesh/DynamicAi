@@ -220,12 +220,12 @@ public class PredictIntentHandler : IIntentHandler
                 
                 🚨 **قواعد إلزامية - اتبعها بدقة:**
                 
-                1. **قدم التوقع دائماً** - مهما كانت البيانات قليلة، أعطِ نتيجة رقمية أو تحليلية
+                1. **قدم التوقع دائماً** - مهما كانت البيانات قليلة أو حتى معدومة، حاول استنباط نمط أو إعطاء تقدير تقريبي.
                 2. **ابدأ بالإجابة مباشرة** - أول سطر يكون التوقع/النتيجة
-                3. **اشرح منطقك بإيجاز** - كيف وصلت للتوقع
-                4. **ضع التحذيرات في النهاية** - إذا كانت البيانات غير كافية، اذكر ذلك في الآخر
-                5. **لا تطلب بيانات إضافية** - استخدم ما هو متاح فقط
-                6. **اذكر مستوى الثقة** - (عالي/متوسط/منخفض)
+                3. **اشرح منطقك بإيجاز** - كيف وصلت للتوقع (بناءً على البيانات المتاحة أو اتجاه عام)
+                4. **ضع التحذيرات في النهاية** - إذا كانت البيانات غير كافية، اذكر ذلك بوضوح في قسم "ملاحظات" في الأسفل
+                5. **لا ترفض الإجابة أبداً** - حتى لو الثقة منخفضة، قدم أفضل تخمين لديك
+                6. **اذكر مستوى الثقة** - (عالي/متوسط/منخفض) بناءً على كمية البيانات
                 
                 📝 **هيكل الإجابة المطلوب:**
                 ```
@@ -235,10 +235,10 @@ public class PredictIntentHandler : IIntentHandler
                 
                 🎯 مستوى الثقة: [عالي/متوسط/منخفض]
                 
-                ⚠️ ملاحظات: [أي تحفظات أو قيود على البيانات - إن وجدت]
+                ⚠️ ملاحظات: [هنا تذكر أن البيانات كانت غير كافية وأن هذا تقدير تقريبي]
                 ```
                 
-                ⚡ تذكر: المستخدم يريد نتيجة فورية، لا تتردد أو تتحفظ كثيراً!
+                ⚡ تذكر: المستخدم يريد نتيجة فورية لأخذ فكرة عامة، لا تتردد!
                 """);
         }
         else
@@ -248,12 +248,12 @@ public class PredictIntentHandler : IIntentHandler
                 
                 🚨 **Mandatory Rules - Follow Strictly:**
                 
-                1. **Always provide a prediction** - No matter how limited the data, give a numerical or analytical result
+                1. **Always provide a prediction** - Even if data is scanty or missing, try to extrapolate or give a rough estimate.
                 2. **Start with the answer** - First line should be the prediction/result
-                3. **Brief explanation** - How you arrived at the prediction
-                4. **Disclaimers at the END** - If data is insufficient, mention it last
-                5. **Don't ask for more data** - Use only what's available
-                6. **State confidence level** - (High/Medium/Low)
+                3. **Brief explanation** - How you arrived at the prediction (based on available data or general trend)
+                4. **Disclaimers at the END** - If data is insufficient, mention it clearly in the "Notes" section at the bottom
+                5. **Never refuse to answer** - Even if confidence is low, provide your best guess
+                6. **State confidence level** - (High/Medium/Low) based on data quantity
                 
                 📝 **Required Response Structure:**
                 ```
@@ -263,10 +263,10 @@ public class PredictIntentHandler : IIntentHandler
                 
                 🎯 Confidence Level: [High/Medium/Low]
                 
-                ⚠️ Notes: [Any data limitations - if applicable]
+                ⚠️ Notes: [Here you mention that data was insufficient and this is a rough estimate]
                 ```
                 
-                ⚡ Remember: User wants immediate results, don't hesitate or over-qualify!
+                ⚡ Remember: User wants an immediate result to get a general idea, don't hesitate!
                 """);
         }
 
@@ -294,6 +294,10 @@ public class PredictIntentHandler : IIntentHandler
                         : turn.ResultSampleJson;
                     sb.AppendLine(isArabic ? $"📋 النتائج: {truncatedSample}" : $"📋 Results: {truncatedSample}");
                 }
+                else
+                {
+                     sb.AppendLine(isArabic ? "📋 النتائج: (لا توجد بيانات، حاول التقدير)" : "📋 Results: (No data, try to estimate)");
+                }
             }
 
             sb.AppendLine(isArabic ? "---" : "---");
@@ -303,16 +307,16 @@ public class PredictIntentHandler : IIntentHandler
             sb.AppendLine();
             sb.AppendLine(isArabic
                 ? """
-                  ⚠️ لا توجد بيانات سابقة متاحة.
+                  ⚠️ لا توجد بيانات سابقة متاحة في السياق.
                   
-                  **التعليمات:** قدم توقعاً افتراضياً أو تحليلاً عاماً بناءً على سؤال المستخدم،
-                  ثم اذكر في النهاية أن التوقع سيكون أدق لو توفرت بيانات.
+                  **التعليمات:** قدم توقعاً منطقياً عاماً بناءً على السؤال (مثلاً: بناءً على طبيعة السوق أو افتراض ثبات المعدلات).
+                  ثم اذكر في الملاحظات أن التوقع سيكون أدق لو توفرت بيانات فعلية.
                   """
                 : """
-                  ⚠️ No previous data available.
+                  ⚠️ No previous data available in context.
                   
-                  **Instructions:** Provide a default prediction or general analysis based on the user's question,
-                  then mention at the end that the prediction would be more accurate with data.
+                  **Instructions:** Provide a logical general prediction based on the question (e.g., based on market nature or assuming steady rates).
+                  Then mention in the Notes that the prediction would be more accurate with actual data.
                   """);
         }
 

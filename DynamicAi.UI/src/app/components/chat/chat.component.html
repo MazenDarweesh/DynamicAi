@@ -47,7 +47,10 @@
                     {{ msg.isAi ? '🤖' : '👤' }}
                 </div>
                 <div class="bubble">
-                    <div *ngIf="msg.text" class="text-content">{{ msg.text }}</div>
+                    <div *ngIf="msg.text" class="text-content">
+                        <span *ngIf="!msg.isRichText">{{ msg.text }}</span>
+                        <div *ngIf="msg.isRichText" [innerHTML]="formatText(msg.text)" class="rich-text-content"></div>
+                    </div>
                     <span *ngIf="msg.isAi && msg.intent" class="intent-badge" [title]="'Intent: ' + msg.intent">{{
                         msg.intent }}</span>
                     <div *ngIf="msg.data" class="json-content">

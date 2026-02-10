@@ -26,5 +26,5 @@ export interface ChatMessage {
     /** Query Insight Panel data */
     queryInsights?: QueryInsight;
     showInsights?: boolean; // Toggle state for insights panel
+    isRichText?: boolean; // If true, renders text as HTML/Markdown
 }
-
