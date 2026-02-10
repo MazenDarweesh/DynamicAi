@@ -5,6 +5,7 @@ import { ApiService } from '../../services/api.service';
 import { ChatSignalService } from '../../services/chat-signal.service';
 import { environment } from '../../../environments/environment';
 import { ChatMessage } from '../../models';
+import { Observable } from 'rxjs';
 
 @Component({
     selector: 'app-chat',
@@ -139,104 +140,123 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         this.cdr.detectChanges();
 
         const sessionId = this.chatSignal.getOrCreateSessionId();
-        this.apiService.ask(currentQ, this.lastQuestion, this.lastSql, sessionId).subscribe({
-            next: (res) => {
-                this.loading = false;
-                console.log('API Response:', res);
 
-                let data = res;
-                let sql: string | undefined = undefined;
-                let cacheId: string | undefined = undefined;
+        // 🛡️ Safety Net: Timeout after 60 seconds
+        const timeout$ = new Observable<never>(observer => {
+            const timer = setTimeout(() => {
+                observer.error(new Error('Timeout: Request took too long (>60s).'));
+            }, 60000);
+            return () => clearTimeout(timer);
+        });
 
-                if (res) {
-                    if (res.data !== undefined) {
-                        data = res.data;
-                        sql = res.rewrittenSql;
-                        cacheId = res.cacheId;
-                    } else if (res.Data !== undefined) {
-                        data = res.Data;
-                        sql = res.RewrittenSql;
-                        cacheId = res.CacheId;
+        // Use race to handle timeout vs API response
+        import('rxjs').then(({ race }) => {
+            race(
+                this.apiService.ask(currentQ, this.lastQuestion, this.lastSql, sessionId),
+                timeout$
+            ).subscribe({
+                next: (res: any) => {
+                    this.loading = false;
+                    console.log('API Response:', res);
+
+                    let data = res;
+                    let sql: string | undefined = undefined;
+                    let cacheId: string | undefined = undefined;
+
+                    if (res) {
+                        if (res.data !== undefined) {
+                            data = res.data;
+                            sql = res.rewrittenSql;
+                            cacheId = res.cacheId;
+                        } else if (res.Data !== undefined) {
+                            data = res.Data;
+                            sql = res.RewrittenSql;
+                            cacheId = res.CacheId;
+                        }
                     }
-                }
 
-                if (typeof data === 'string') {
-                    try {
-                        data = JSON.parse(data);
-                    } catch (e) {
-                        console.error('Failed to parse response as JSON', e);
+                    if (typeof data === 'string') {
+                        try {
+                            data = JSON.parse(data);
+                        } catch (e) {
+                            console.error('Failed to parse response as JSON', e);
+                        }
                     }
-                }
 
-                let newMessage: ChatMessage;
+                    let newMessage: ChatMessage;
 
-                // Helper to get case-insensitive property
-                const getProp = (obj: any, key: string) => obj[key] || obj[key.toLowerCase()] || obj[key.charAt(0).toUpperCase() + key.slice(1)];
+                    // Helper to get case-insensitive property
+                    const getProp = (obj: any, key: string) => obj[key] || obj[key.toLowerCase()] || obj[key.charAt(0).toUpperCase() + key.slice(1)];
 
-                const msgType = getProp(data, 'Type');
-                const msgText = getProp(data, 'Message');
+                    const msgType = getProp(data, 'Type');
+                    const msgText = getProp(data, 'Message');
 
-                if (msgText && !msgType) {
-                    // Standard message
-                    newMessage = { isAi: true, text: msgText, originalQuestion: currentQ, retryCount: retryCount };
-                } else if (msgType === 'Question') {
-                    // Clarification Question
-                    newMessage = { isAi: true, text: msgText, originalQuestion: currentQ, retryCount: retryCount };
-                } else if (Array.isArray(data)) {
-                    if (data.length > 0) {
-                        newMessage = { isAi: true, tableData: data, originalQuestion: currentQ, retryCount: retryCount };
+                    if (msgText && !msgType) {
+                        // Standard message
+                        newMessage = { isAi: true, text: msgText, originalQuestion: currentQ, retryCount: retryCount };
+                    } else if (msgType === 'Question') {
+                        // Clarification Question
+                        newMessage = { isAi: true, text: msgText, originalQuestion: currentQ, retryCount: retryCount };
+                    } else if (Array.isArray(data)) {
+                        if (data.length > 0) {
+                            newMessage = { isAi: true, tableData: data, originalQuestion: currentQ, retryCount: retryCount };
+                        } else {
+                            newMessage = { isAi: true, text: 'No results found.', originalQuestion: currentQ, retryCount: retryCount };
+                        }
                     } else {
-                        newMessage = { isAi: true, text: 'No results found.', originalQuestion: currentQ, retryCount: retryCount };
+                        newMessage = { isAi: true, data: data, originalQuestion: currentQ, retryCount: retryCount };
                     }
-                } else {
-                    newMessage = { isAi: true, data: data, originalQuestion: currentQ, retryCount: retryCount };
+
+                    newMessage.sql = sql;
+                    newMessage.cacheId = cacheId;
+                    newMessage.isLogged = false;
+                    newMessage.queryLogId = res.queryLogId || res.QueryLogId;
+                    newMessage.intent = res.intent ?? res.Intent;
+
+                    // Capture Query Insights (NEW)
+                    if (res.queryInsights || res.QueryInsights) {
+                        newMessage.queryInsights = res.queryInsights || res.QueryInsights;
+                        newMessage.showInsights = false; // Initially collapsed
+                    }
+
+                    this.messages.push(newMessage);
+
+                    this.confirmedQuestion = this.lastQuestion;
+                    this.confirmedSql = this.lastSql;
+                    this.lastQuestion = currentQ;
+                    this.lastSql = sql;
+
+                    this.cdr.detectChanges();
+                },
+                error: (err) => {
+                    this.loading = false;
+                    console.error('❌ [SendQuestion] Error:', err);
+
+                    let errorMsg = err.message;
+                    let sql = undefined;
+                    let queryLogId = undefined;
+
+                    if (err.message && err.message.includes('Timeout')) {
+                        errorMsg = '⚠️ المعالج استغرق وقتاً طويلاً جداً (أكثر من 60 ثانية). يرجى محاولة صياغة السؤال بشكل أبسط.';
+                    }
+
+                    if (err.error && typeof err.error === 'object') {
+                        if (err.error.sql) sql = err.error.sql;
+                        if (err.error.error) errorMsg = err.error.error;
+                        if (err.error.queryLogId) queryLogId = err.error.queryLogId;
+                    }
+
+                    this.messages.push({
+                        isAi: true,
+                        text: 'Error: ' + errorMsg,
+                        originalQuestion: currentQ,
+                        retryCount: retryCount,
+                        sql: sql,
+                        queryLogId: queryLogId
+                    });
+                    this.cdr.detectChanges();
                 }
-
-                newMessage.sql = sql;
-                newMessage.cacheId = cacheId;
-                newMessage.isLogged = false;
-                newMessage.queryLogId = res.queryLogId || res.QueryLogId;
-                newMessage.intent = res.intent ?? res.Intent;
-
-                // Capture Query Insights (NEW)
-                if (res.queryInsights || res.QueryInsights) {
-                    newMessage.queryInsights = res.queryInsights || res.QueryInsights;
-                    newMessage.showInsights = false; // Initially collapsed
-                }
-
-                this.messages.push(newMessage);
-
-                this.confirmedQuestion = this.lastQuestion;
-                this.confirmedSql = this.lastSql;
-                this.lastQuestion = currentQ;
-                this.lastSql = sql;
-
-                this.cdr.detectChanges();
-            },
-            error: (err) => {
-                this.loading = false;
-                console.error('❌ [SendQuestion] Error:', err);
-
-                let errorMsg = err.message;
-                let sql = undefined;
-                let queryLogId = undefined;
-
-                if (err.error && typeof err.error === 'object') {
-                    if (err.error.sql) sql = err.error.sql;
-                    if (err.error.error) errorMsg = err.error.error;
-                    if (err.error.queryLogId) queryLogId = err.error.queryLogId;
-                }
-
-                this.messages.push({
-                    isAi: true,
-                    text: 'Error: ' + errorMsg,
-                    originalQuestion: currentQ,
-                    retryCount: retryCount,
-                    sql: sql,
-                    queryLogId: queryLogId
-                });
-                this.cdr.detectChanges();
-            }
+            });
         });
     }
 

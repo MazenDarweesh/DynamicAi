@@ -222,154 +222,52 @@ table {
     border-collapse: collapse;
 }
 
+/* ── Compacting Layout for Single Line Actions ── */
 th,
 td {
-    padding: 0.75rem 1rem;
-    text-align: left;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-th {
-    color: #94a3b8;
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    padding: 0.6rem 0.5rem;
+    /* Reduced padding */
+    vertical-align: middle;
 }
 
 /* ── Expandable Question Cell ── */
 .question-cell {
-    max-width: 300px;
+    max-width: 200px;
+    /* Reduced from 300px */
+    width: 200px;
 }
 
 .question-text {
-    max-width: 280px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    cursor: pointer;
-    transition: all 0.25s ease;
-}
-
-.question-text.expanded {
-    white-space: normal;
-    word-break: break-word;
     max-width: 100%;
-}
-
-.expand-toggle {
-    background: none;
-    border: none;
-    color: #4facfe;
-    font-size: 0.75rem;
-    padding: 0.15rem 0;
-    cursor: pointer;
-    opacity: 0.7;
-    transition: opacity 0.2s;
-}
-
-.expand-toggle:hover {
-    opacity: 1;
+    margin-bottom: 0.25rem;
 }
 
 /* ── Intent Dropdown ── */
 .intent-select {
-    appearance: none;
-    -webkit-appearance: none;
-    background: rgba(79, 172, 254, 0.1);
-    border: 1px solid rgba(79, 172, 254, 0.3);
-    color: #e0e0e0;
-    padding: 0.35rem 1.8rem 0.35rem 0.6rem;
-    border-radius: 8px;
-    font-size: 0.85rem;
-    cursor: pointer;
-    transition: all 0.2s;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%234facfe' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 0.5rem center;
-    min-width: 140px;
-}
-
-.intent-select:hover,
-.intent-select:focus {
-    border-color: #4facfe;
-    background-color: rgba(79, 172, 254, 0.15);
-    outline: none;
-}
-
-.intent-select option {
-    background: #1e1e28;
-    color: #e0e0e0;
+    min-width: 130px;
+    /* Reduced from 140px */
+    padding: 0.35rem 1.6rem 0.35rem 0.5rem;
 }
 
 /* ── Confidence Bar ── */
 .confidence-wrapper {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    min-width: 120px;
+    min-width: 100px;
+    /* Reduced from 120px */
+    gap: 0.35rem;
 }
 
-.confidence-bar {
-    flex: 1;
-    height: 8px;
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-.confidence-fill {
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.4s ease;
-}
-
-.confidence-fill.low {
-    background: linear-gradient(90deg, #ef4444, #f97316);
-}
-
-.confidence-fill.medium {
-    background: linear-gradient(90deg, #f59e0b, #eab308);
-}
-
-.confidence-fill.high {
-    background: linear-gradient(90deg, #22c55e, #10b981);
-}
-
-.confidence-label {
-    font-size: 0.8rem;
-    color: #94a3b8;
-    min-width: 32px;
-    text-align: right;
-}
-
-/* ── Source Badge ── */
-.source-badge {
-    display: inline-block;
-    padding: 0.2rem 0.5rem;
-    border-radius: 6px;
-    font-size: 0.8rem;
-    background: rgba(148, 163, 184, 0.15);
-    color: #94a3b8;
-}
-
-.source-badge.llm {
-    background: rgba(168, 85, 247, 0.2);
-    color: #c4b5fd;
-}
-
-.source-badge.seed {
-    background: rgba(34, 197, 94, 0.2);
-    color: #86efac;
-}
-
-.intent-badge {
-    display: inline-block;
-    padding: 0.2rem 0.5rem;
-    border-radius: 6px;
-    background: rgba(79, 172, 254, 0.2);
-    font-size: 0.85rem;
-}
-
+/* ── Actions ── */
 .actions {
     white-space: nowrap;
+    width: 1%;
+    /* Shrink to fit content */
+}
+
+.actions .btn {
+    padding: 0.4rem 0.75rem;
+    /* Compact buttons */
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
 }

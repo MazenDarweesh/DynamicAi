@@ -17,6 +17,8 @@ public class FeedbackController : ControllerBase
     private readonly IQueryCacheService _queryCacheService;
     private readonly ITrainingExampleRepository _trainingRepo;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embedder;
+    private readonly IIntentExampleManagementService _intentManager;
+    private readonly IQueryLogRepository _queryLogRepo;
     private readonly ILogger<FeedbackController> _logger;
 
     public FeedbackController(
@@ -24,12 +26,16 @@ public class FeedbackController : ControllerBase
         IQueryCacheService queryCacheService,
         ITrainingExampleRepository trainingRepo,
         IEmbeddingGenerator<string, Embedding<float>> embedder,
+        IIntentExampleManagementService intentManager,
+        IQueryLogRepository queryLogRepo,
         ILogger<FeedbackController> logger)
     {
         _feedbackService = feedbackService;
         _queryCacheService = queryCacheService;
         _trainingRepo = trainingRepo;
         _embedder = embedder;
+        _intentManager = intentManager;
+        _queryLogRepo = queryLogRepo;
         _logger = logger;
     }
 
@@ -143,6 +149,37 @@ public class FeedbackController : ControllerBase
             else
             {
                 _logger.LogWarning("[Feedback] ⚠️ No QueryLogId provided - cannot save to TrainingExamples.");
+            }
+
+            // ═══════════════════════════════════════════════════════════════════
+            // Step 2.5: حفظ في Intent Classification Review (للمراجعة إذا كان التصنيف خطأ)
+            // ═══════════════════════════════════════════════════════════════════
+            if (request.QueryLogId.HasValue)
+            {
+                try
+                {
+                    var queryLog = await _queryLogRepo.GetByIdAsync(request.QueryLogId.Value);
+                    if (queryLog != null && Enum.TryParse<DynamicAi.Domain.Entities.IntentType>(queryLog.HandlerType, out var originalIntent))
+                    {
+                        var questionToSave = request.Question ?? queryLog.RawQuestion;
+                        if (!string.IsNullOrWhiteSpace(questionToSave))
+                        {
+                            await _intentManager.StoreIntentExampleAsync(
+                                question: questionToSave,
+                                embedding: null, // Let service generate it
+                                intentType: originalIntent,
+                                cancellationToken: CancellationToken.None,
+                                status: DynamicAi.Domain.Entities.IntentReviewStatus.Pending,
+                                source: "UserFeedback_Dislike"
+                            );
+                            _logger.LogInformation("[Feedback] 📋 Also added to Intent Review as Pending (Source: UserFeedback_Dislike).");
+                        }
+                    }
+                }
+                catch (Exception intentEx)
+                {
+                    _logger.LogWarning(intentEx, "[Feedback] Failed to add to Intent Review (Non-blocking).");
+                }
             }
 
             // ═══════════════════════════════════════════════════════════════════

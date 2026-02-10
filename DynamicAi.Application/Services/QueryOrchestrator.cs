@@ -105,16 +105,16 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("[Orchestrator] ✓ Intent Detected: {Intent} (Confidence: {Confidence:F2}) in {Duration:F0}ms",
                     intentResult.Intent, intentResult.ConfidenceScore, intentDuration);
 
-                // Save low confidence examples
-                if (intentResult.ConfidenceScore < 0.75f)
+                // [USER_REQUEST]: Save ALL queries for review in this stage (Data Gathering)
+                // if (intentResult.ConfidenceScore < 0.75f) <--- Disabled for now
                 {
                     _ = _intentManager.StoreIntentExampleAsync(
                         question: userQuestion,
                         embedding: intentResult.QueryEmbedding,
                         intentType: intentResult.Intent,
                         cancellationToken: CancellationToken.None,
-                        status: IntentReviewStatus.Pending,
-                        source: "System_LowConfidenceFallback"
+                        status: DynamicAi.Domain.Entities.IntentReviewStatus.Pending, // Ensure full qualification
+                        source: "System_AllQueriesCapture"
                     );
                 }
 

@@ -135,7 +135,7 @@ public class IntentExampleManagementService : IIntentExampleManagementService
             }
 
             _logger.LogInformation("[IntentManager] ✓ Found {Count} pending examples", pendingExamples.Count);
-            return pendingExamples;
+            return pendingExamples.OrderByDescending(x => x.CreatedAt);
         }
         catch (Exception ex)
         {
