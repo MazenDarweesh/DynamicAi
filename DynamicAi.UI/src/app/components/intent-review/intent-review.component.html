@@ -70,24 +70,21 @@
                     <tr *ngFor="let item of pending">
                         <!-- Expandable Question -->
                         <td class="question-cell">
-                            <div class="question-text"
-                                 [class.expanded]="isExpanded(item.id)"
-                                 (click)="toggleExpand(item.id)"
-                                 [title]="isExpanded(item.id) ? 'Click to collapse' : item.question">
+                            <div class="question-text" [class.expanded]="isExpanded(item.id)"
+                                (click)="toggleExpand(item.id)"
+                                [title]="isExpanded(item.id) ? 'Click to collapse' : item.question">
                                 {{ item.question }}
                             </div>
-                            <button *ngIf="item.question.length > 50"
-                                    class="expand-toggle"
-                                    (click)="toggleExpand(item.id)">
+                            <button *ngIf="item.question.length > 50" class="expand-toggle"
+                                (click)="toggleExpand(item.id)">
                                 {{ isExpanded(item.id) ? '▲ Less' : '▼ More' }}
                             </button>
                         </td>
 
                         <!-- Intent Dropdown -->
                         <td>
-                            <select class="intent-select"
-                                    [ngModel]="item.classifiedIntent"
-                                    (ngModelChange)="onIntentChange(item, $event)">
+                            <select class="intent-select" [ngModel]="item.classifiedIntent"
+                                (ngModelChange)="onIntentChange(item, $event)">
                                 <option *ngFor="let intent of availableIntents" [value]="intent">
                                     {{ intent }}
                                 </option>
@@ -98,21 +95,21 @@
                         <td>
                             <div class="confidence-wrapper">
                                 <div class="confidence-bar">
-                                    <div class="confidence-fill"
-                                         [style.width.%]="item.confidenceScore * 100"
-                                         [class.low]="item.confidenceScore < 0.4"
-                                         [class.medium]="item.confidenceScore >= 0.4 && item.confidenceScore < 0.7"
-                                         [class.high]="item.confidenceScore >= 0.7">
+                                    <div class="confidence-fill" [style.width.%]="item.confidenceScore * 100"
+                                        [class.low]="item.confidenceScore < 0.4"
+                                        [class.medium]="item.confidenceScore >= 0.4 && item.confidenceScore < 0.7"
+                                        [class.high]="item.confidenceScore >= 0.7">
                                     </div>
                                 </div>
-                                <span class="confidence-label">{{ (item.confidenceScore * 100) | number:'1.0-0' }}%</span>
+                                <span class="confidence-label">{{ (item.confidenceScore * 100) | number:'1.0-0'
+                                    }}%</span>
                             </div>
                         </td>
 
                         <!-- Source -->
                         <td>
                             <span class="source-badge" [class.llm]="item.source === 'LlmFallback'"
-                                  [class.seed]="item.source === 'AutoSeed'">
+                                [class.seed]="item.source === 'AutoSeed'">
                                 {{ item.source || '—' }}
                             </span>
                         </td>
