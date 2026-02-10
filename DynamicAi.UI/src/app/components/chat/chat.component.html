@@ -42,7 +42,7 @@
     <!-- Chat History -->
     <div class="chat-scroll-area" #scrollContainer>
         <div *ngFor="let msg of messages" class="message-row" [ngClass]="{'ai': msg.isAi, 'user': !msg.isAi}">
-            <div class="message-content">
+            <div class="message-content" [class.wide]="msg.tableData && msg.tableData.length > 0">
                 <div class="avatar">
                     {{ msg.isAi ? '🤖' : '👤' }}
                 </div>

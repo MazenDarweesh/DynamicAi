@@ -171,6 +171,15 @@ header {
     padding: 0 20px;
     display: flex;
     gap: 20px;
+    transition: max-width 0.3s ease;
+    /* Smooth transition when resizing */
+}
+
+/* Wide mode for tables */
+.message-content.wide {
+    max-width: 1600px;
+    /* Or 95% */
+    width: 95%;
 }
 
 .avatar {
@@ -420,7 +429,8 @@ tr:hover td {
 .feedback-actions {
     margin-top: 4px;
     display: flex;
-    justify-content: flex-end;
+    justify-content: flex-start;
+    /* Changed from flex-end per user request */
     gap: 8px;
     padding-top: 4px;
 }

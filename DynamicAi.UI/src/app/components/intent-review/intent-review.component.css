@@ -234,6 +234,19 @@ th {
     font-size: 0.8rem;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    /* Sticky Header */
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(30, 30, 40, 0.95);
+    /* Opaque background */
+    backdrop-filter: blur(12px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Fix z-index for the top-right corner where sticky header meets sticky column */
+th:last-child {
+    z-index: 30 !important;
 }
 
 /* ── Expandable Question Cell ── */
@@ -372,4 +385,39 @@ th {
 
 .actions {
     white-space: nowrap;
+}
+
+/* ── Sticky Actions Column ── */
+th:last-child,
+td:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 20;
+    /* Match the dark glass theme but slightly more opaque to hide scrolled content */
+    background: rgba(30, 30, 40, 0.95);
+    backdrop-filter: blur(12px);
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: -5px 0 15px rgba(0, 0, 0, 0.3);
+}
+
+th:last-child {
+    z-index: 30;
+    /* Higher than td to stay on top of header scroll */
+}
+
+/* Mobile Tweaks */
+@media (max-width: 768px) {
+
+    th:last-child,
+    td:last-child {
+        position: static;
+        box-shadow: none;
+        border-left: none;
+        background: transparent;
+    }
+
+    .table-responsive {
+        box-shadow: inset -10px 0 10px -10px rgba(0, 0, 0, 0.5);
+        /* Shadow hint for scroll */
+    }
 }
