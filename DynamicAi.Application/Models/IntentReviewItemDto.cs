@@ -36,4 +36,9 @@ public class IntentReviewItemDto
     /// When the example was created/logged.
     /// </summary>
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// The source of this example (e.g., "LlmFallback", "AutoSeed").
+    /// </summary>
+    public string Source { get; set; } = string.Empty;
 }

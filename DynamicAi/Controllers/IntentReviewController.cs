@@ -43,7 +43,8 @@ public class IntentReviewController : ControllerBase
             ClassifiedIntent = e.ClassifiedIntent.ToString(),
             ConfidenceScore = e.ConfidenceScore,
             Status = e.Status.ToString(),
-            CreatedAt = e.CreatedAt
+            CreatedAt = e.CreatedAt,
+            Source = e.Source
         });
 
         return Ok(dtos);
