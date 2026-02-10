@@ -48,4 +48,15 @@ export class IntentReviewService {
             request
         );
     }
+
+    updateIntent(id: string, intentType: string): Observable<{ message: string; intentType: string }> {
+        return this.http.patch<{ message: string; intentType: string }>(
+            `${this.baseUrl}/${id}/update-intent`,
+            { intentType }
+        );
+    }
+
+    getAvailableIntents(): Observable<string[]> {
+        return this.http.get<string[]>(`${this.baseUrl}/available-intents`);
+    }
 }

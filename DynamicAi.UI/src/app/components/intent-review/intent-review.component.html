@@ -1,7 +1,10 @@
 <div class="intent-review-container">
     <div class="header">
         <h1>🧠 Intent Review</h1>
-        <span class="refresh-badge" (click)="loadData()">🔄 Refresh</span>
+        <div class="header-actions">
+            <span class="auto-refresh-indicator">⚡ Auto-refresh: 15s</span>
+            <span class="refresh-badge" (click)="loadData()">🔄 Refresh</span>
+        </div>
     </div>
 
     <p class="subtitle">Phase 1: The Brain – Review pending intent examples (LLM fallback / low confidence).</p>
@@ -58,16 +61,64 @@
                         <th>Question</th>
                         <th>Intent</th>
                         <th>Confidence</th>
+                        <th>Source</th>
                         <th>Created</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr *ngFor="let item of pending">
-                        <td class="question-text" [title]="item.question">{{ item.question }}</td>
-                        <td><span class="intent-badge">{{ item.classifiedIntent }}</span></td>
-                        <td>{{ (item.confidenceScore * 100) | number:'1.0-0' }}%</td>
+                        <!-- Expandable Question -->
+                        <td class="question-cell">
+                            <div class="question-text"
+                                 [class.expanded]="isExpanded(item.id)"
+                                 (click)="toggleExpand(item.id)"
+                                 [title]="isExpanded(item.id) ? 'Click to collapse' : item.question">
+                                {{ item.question }}
+                            </div>
+                            <button *ngIf="item.question.length > 50"
+                                    class="expand-toggle"
+                                    (click)="toggleExpand(item.id)">
+                                {{ isExpanded(item.id) ? '▲ Less' : '▼ More' }}
+                            </button>
+                        </td>
+
+                        <!-- Intent Dropdown -->
+                        <td>
+                            <select class="intent-select"
+                                    [ngModel]="item.classifiedIntent"
+                                    (ngModelChange)="onIntentChange(item, $event)">
+                                <option *ngFor="let intent of availableIntents" [value]="intent">
+                                    {{ intent }}
+                                </option>
+                            </select>
+                        </td>
+
+                        <!-- Confidence Progress Bar -->
+                        <td>
+                            <div class="confidence-wrapper">
+                                <div class="confidence-bar">
+                                    <div class="confidence-fill"
+                                         [style.width.%]="item.confidenceScore * 100"
+                                         [class.low]="item.confidenceScore < 0.4"
+                                         [class.medium]="item.confidenceScore >= 0.4 && item.confidenceScore < 0.7"
+                                         [class.high]="item.confidenceScore >= 0.7">
+                                    </div>
+                                </div>
+                                <span class="confidence-label">{{ (item.confidenceScore * 100) | number:'1.0-0' }}%</span>
+                            </div>
+                        </td>
+
+                        <!-- Source -->
+                        <td>
+                            <span class="source-badge" [class.llm]="item.source === 'LlmFallback'"
+                                  [class.seed]="item.source === 'AutoSeed'">
+                                {{ item.source || '—' }}
+                            </span>
+                        </td>
+
                         <td>{{ item.createdAt | date:'short' }}</td>
+
                         <td class="actions">
                             <button class="btn approve" (click)="approve(item)">✓ Approve</button>
                             <button class="btn reject" (click)="reject(item)">✗ Reject</button>

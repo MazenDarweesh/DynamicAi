@@ -1,6 +1,8 @@
-import { Component, OnInit, inject, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Subscription, interval } from 'rxjs';
+import { switchMap } from 'rxjs/operators';
 import { IntentReviewService } from '../../services/intent-review.service';
 import { IntentReviewItemDto, ClearIntentRequest, ClearCacheRequest } from '../../models';
 
@@ -11,9 +13,10 @@ import { IntentReviewItemDto, ClearIntentRequest, ClearCacheRequest } from '../.
     templateUrl: './intent-review.component.html',
     styleUrls: ['./intent-review.component.css']
 })
-export class IntentReviewComponent implements OnInit {
+export class IntentReviewComponent implements OnInit, OnDestroy {
     private readonly intentReview = inject(IntentReviewService);
     private readonly cdr = inject(ChangeDetectorRef);
+    private pollSub?: Subscription;
 
     pending: IntentReviewItemDto[] = [];
     pendingCount = 0;
@@ -29,8 +32,79 @@ export class IntentReviewComponent implements OnInit {
 
     error: string | null = null;
 
+    // Expandable question rows
+    expandedRows = new Set<string>();
+
+    // Available intents for dropdown
+    availableIntents: string[] = [];
+
     ngOnInit() {
         this.loadData();
+        this.loadAvailableIntents();
+        this.startPolling();
+    }
+
+    ngOnDestroy() {
+        this.stopPolling();
+    }
+
+    // --- Auto-polling ---
+    startPolling() {
+        this.pollSub = interval(15000).pipe(
+            switchMap(() => this.intentReview.getPending())
+        ).subscribe({
+            next: (list) => {
+                this.pending = list;
+                this.pendingCount = list.length;
+                this.cdr.detectChanges();
+            }
+        });
+    }
+
+    stopPolling() {
+        this.pollSub?.unsubscribe();
+    }
+
+    // --- Load available intents ---
+    loadAvailableIntents() {
+        this.intentReview.getAvailableIntents().subscribe({
+            next: (intents) => {
+                this.availableIntents = intents;
+                this.cdr.detectChanges();
+            },
+            error: () => {
+                // Fallback: hardcoded list
+                this.availableIntents = ['DataRetrieval', 'Analysis', 'Prediction', 'PredictionWithDataFetch', 'Chat'];
+            }
+        });
+    }
+
+    // --- Expandable rows ---
+    toggleExpand(id: string) {
+        if (this.expandedRows.has(id)) {
+            this.expandedRows.delete(id);
+        } else {
+            this.expandedRows.add(id);
+        }
+    }
+
+    isExpanded(id: string): boolean {
+        return this.expandedRows.has(id);
+    }
+
+    // --- Intent update ---
+    onIntentChange(item: IntentReviewItemDto, newIntent: string) {
+        if (newIntent === item.classifiedIntent) return;
+        this.intentReview.updateIntent(item.id, newIntent).subscribe({
+            next: (res) => {
+                item.classifiedIntent = res.intentType;
+                this.cdr.detectChanges();
+            },
+            error: (err) => {
+                this.error = err?.error?.message || 'Failed to update intent';
+                this.cdr.detectChanges();
+            }
+        });
     }
 
     loadData() {

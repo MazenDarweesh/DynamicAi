@@ -10,6 +10,7 @@ export interface IntentReviewItemDto {
   confidenceScore: number;
   status: string;
   createdAt: string;
+  source?: string;
 }
 
 export interface ClearIntentRequest {
