@@ -1,3 +1,4 @@
+using DynamicAi.Application.Models;
 using DynamicAi.Domain.Entities;
 
 namespace DynamicAi.Application.Interfaces
@@ -13,13 +14,6 @@ namespace DynamicAi.Application.Interfaces
         /// يسجل استدعاء LLM (Chat, SQL Generation, Prediction, etc.).
         /// يحسب التكلفة تلقائياً من الأسعار المكونة في appsettings.json.
         /// </summary>
-        /// <param name="operationType">نوع العملية</param>
-        /// <param name="requestId">معرف الطلب الأصلي</param>
-        /// <param name="inputTokens">عدد tokens المدخلة</param>
-        /// <param name="outputTokens">عدد tokens المخرجة</param>
-        /// <param name="cachedTokens">عدد tokens المخزنة مؤقتاً (Context Caching)</param>
-        /// <param name="tenantId">معرف الـ Tenant (اختياري)</param>
-        /// <param name="companyId">معرف الشركة (اختياري)</param>
         Task TrackLlmCallAsync(
             LlmOperationType operationType,
             string requestId,
@@ -32,11 +26,6 @@ namespace DynamicAi.Application.Interfaces
         /// <summary>
         /// يسجل استدعاء Embedding API.
         /// </summary>
-        /// <param name="operationType">نوع العملية (عادة Embedding)</param>
-        /// <param name="requestId">معرف الطلب الأصلي</param>
-        /// <param name="tokenCount">عدد tokens المدخلة للتضمين</param>
-        /// <param name="tenantId">معرف الـ Tenant (اختياري)</param>
-        /// <param name="companyId">معرف الشركة (اختياري)</param>
         Task TrackEmbeddingCallAsync(
             LlmOperationType operationType,
             string requestId,
@@ -60,17 +49,5 @@ namespace DynamicAi.Application.Interfaces
         /// يعيد تعيين عدادات الجلسة الحالية.
         /// </summary>
         void ResetSession();
-    }
-
-    /// <summary>
-    /// ملخص استخدام الجلسة الحالية (In-Memory) — Provider-Agnostic.
-    /// </summary>
-    public class LlmSessionSummary
-    {
-        public long TotalInputTokens { get; set; }
-        public long TotalOutputTokens { get; set; }
-        public long TotalCachedTokens { get; set; }
-        public double TotalCostUsd { get; set; }
-        public int TotalCallCount { get; set; }
     }
 }

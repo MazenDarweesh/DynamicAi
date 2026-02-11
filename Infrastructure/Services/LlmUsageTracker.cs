@@ -55,8 +55,7 @@ namespace DynamicAi.Infrastructure.Services
         {
             try
             {
-                // Resolve model name from config
-                var provider = _pricingConfig.GetActiveProviderConfig();
+                // Resolve the correct model name based on operation type
                 string modelName = ResolveModelNameForOperation(operationType);
                 decimal cost = 0m;
 
@@ -226,16 +225,28 @@ namespace DynamicAi.Infrastructure.Services
 
         /// <summary>
         /// يحدد اسم الموديل المناسب حسب نوع العملية.
-        /// يقرأ من appsettings.json Gemini section أو يستخدم أول موديل في تكوين المزود.
+        /// Embedding operations → embedding model, كل شيء آخر → chat model.
         /// </summary>
         private string ResolveModelNameForOperation(LlmOperationType operationType)
         {
-            // The model names are resolved from config keys — first model in provider's list
+            // Embedding operations get routed to the embedding model
+            if (operationType == LlmOperationType.Embedding)
+                return ResolveEmbeddingModelName();
+
+            // All other operations (SQL, Chat, Prediction, etc.) → chat model
+            return ResolveChatModelName();
+        }
+
+        /// <summary>
+        /// يحدد اسم موديل المحادثة/التوليد من تكوين المزود.
+        /// يختار أول موديل ليس embedding من قائمة الموديلات.
+        /// </summary>
+        private string ResolveChatModelName()
+        {
             var provider = _pricingConfig.GetActiveProviderConfig();
             if (provider?.Models == null || !provider.Models.Any())
                 return "unknown";
 
-            // Return the first chat model (not embedding model)
             return provider.Models.Keys
                 .FirstOrDefault(k => !k.Contains("embedding", StringComparison.OrdinalIgnoreCase))
                 ?? provider.Models.Keys.First();
@@ -243,6 +254,7 @@ namespace DynamicAi.Infrastructure.Services
 
         /// <summary>
         /// يحدد اسم موديل التضمين من تكوين المزود.
+        /// يختار أول موديل يحتوي على "embedding" في اسمه.
         /// </summary>
         private string ResolveEmbeddingModelName()
         {
