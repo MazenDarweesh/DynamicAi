@@ -26,7 +26,7 @@ public class SqlIntentHandlerTests
     private readonly ISandboxedSqlExecutor _executionService;
     private readonly IQueryCacheService _queryCacheService;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
-    private readonly IGeminiCostTracker _costTracker;
+    private readonly ILlmUsageTracker _usageTracker;
     private readonly IConfiguration _configuration;
 
     public SqlIntentHandlerTests()
@@ -39,7 +39,7 @@ public class SqlIntentHandlerTests
         _executionService = A.Fake<ISandboxedSqlExecutor>();
         _queryCacheService = A.Fake<IQueryCacheService>();
         _embeddingService = A.Fake<IEmbeddingGenerator<string, Embedding<float>>>();
-        _costTracker = A.Fake<IGeminiCostTracker>();
+        _usageTracker = A.Fake<ILlmUsageTracker>();
         _configuration = A.Fake<IConfiguration>();
 
         // Default Configuration
@@ -70,7 +70,7 @@ public class SqlIntentHandlerTests
             _executionService,
             _queryCacheService,
             _embeddingService,
-            _costTracker,
+            _usageTracker,
             logger,
             _configuration
         );
@@ -131,7 +131,9 @@ public class SqlIntentHandlerTests
         A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._, A<QueryActionType>._)).MustHaveHappened();
         A.CallTo(() => _validatorService.ValidateSqlAsync(rawSql, context.TenantId)).MustHaveHappened();
         A.CallTo(() => _rewriterService.RewriteAsync(rawSql, context.TenantId, A<int?>._)).MustHaveHappened();
+        A.CallTo(() => _rewriterService.RewriteAsync(rawSql, context.TenantId, A<int?>._)).MustHaveHappened();
         A.CallTo(() => _executionService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters)).MustHaveHappened();
+        A.CallTo(() => _usageTracker.TrackEmbeddingCallAsync(LlmOperationType.Embedding, A<string>._, A<int>._, context.TenantId, A<int?>._)).MustHaveHappened();
     }
 
     [Fact]

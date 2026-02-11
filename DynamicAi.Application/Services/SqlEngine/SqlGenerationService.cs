@@ -381,7 +381,7 @@ namespace DynamicAi.Application.Services
             // ============================================================================
             // DIAGNOSTIC LOGGING (TEMPORARY - Development Only)
             // ============================================================================
-            if (_config.GetValue<bool>("Logging:EnableContextAnalysisLogs"))
+            if (bool.TryParse(_config["Logging:EnableContextAnalysisLogs"], out var enableLogs) && enableLogs)
             {
                 LogDetailedPromptAnalysis(contextBundle, fullPrompt);
             }

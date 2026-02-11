@@ -12,6 +12,7 @@ using System.Text;
 using Microsoft.Extensions.Logging;
 using Value = Qdrant.Client.Grpc.Value;
 using DynamicAi.Application.Interfaces;
+using DynamicAi.Domain.Entities;
 
 namespace SchemaGenerator.Services
 {
@@ -25,7 +26,7 @@ namespace SchemaGenerator.Services
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
         private readonly IStateService _stateService;
         private readonly ILogger<QdrantVectorDbService> _logger;
-        private readonly IGeminiCostTracker _costTracker; // (جديد) تتبع التكلفة
+        private readonly ILlmUsageTracker _usageTracker; // (جديد) تتبع التكلفة (Generic)
         private const string UploadStateKey = "QdrantUploadedDocumentIds";
 
         // --- إعدادات Rate Limiting المحسّنة لـ Tier 1 ---
@@ -47,13 +48,13 @@ namespace SchemaGenerator.Services
             IEmbeddingGenerator<string, Embedding<float>> embeddingService,
             IStateService stateService,
             ILogger<QdrantVectorDbService> logger,
-            IGeminiCostTracker costTracker)
+            ILlmUsageTracker usageTracker)
         {
             _qdrantClient = qdrantClient;
             _embeddingService = embeddingService;
             _stateService = stateService;
             _logger = logger;
-            _costTracker = costTracker;
+            _usageTracker = usageTracker;
         }
 
         public async Task SyncBatchAsync(string collectionName, List<VectorDocument> documents)
@@ -284,7 +285,10 @@ namespace SchemaGenerator.Services
                 // --- (جديد) حساب التكلفة التقريبي ---
                 // Gemini Tokenizer ~ 1 token per 4 characters
                 int estimatedTokens = textsToEmbed.Sum(t => t.Length) / 4;
-                _costTracker.TrackEmbeddingUsage("SchemaGen-Embed", estimatedTokens);
+                await _usageTracker.TrackEmbeddingCallAsync(
+                    LlmOperationType.Embedding,
+                    requestId: Guid.NewGuid().ToString(),
+                    tokenCount: estimatedTokens);
             }
             catch (Exception ex) when (IsForbiddenException(ex))
             {

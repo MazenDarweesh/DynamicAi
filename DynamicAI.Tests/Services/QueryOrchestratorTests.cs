@@ -23,7 +23,7 @@ public class QueryOrchestratorTests
     private readonly IIntentClassificationService _intentClassifier;
     private readonly IIntentExampleManagementService _intentManager;
     private readonly IQueryLogRepository _queryLogRepo;
-    private readonly IGeminiCostTracker _costTracker;
+    private readonly ILlmUsageTracker _usageTracker;
     private readonly ILogger<QueryOrchestrator> _logger;
     private readonly IConfiguration _configuration;
     private readonly IConversationContextService _contextService;
@@ -34,7 +34,8 @@ public class QueryOrchestratorTests
         _intentClassifier = A.Fake<IIntentClassificationService>();
         _intentManager = A.Fake<IIntentExampleManagementService>();
         _queryLogRepo = A.Fake<IQueryLogRepository>();
-        _costTracker = A.Fake<IGeminiCostTracker>();
+        _usageTracker = A.Fake<ILlmUsageTracker>();
+        A.CallTo(() => _usageTracker.GetSessionSummary()).Returns(new LlmSessionSummary());
         _logger = A.Fake<ILogger<QueryOrchestrator>>();
         _configuration = A.Fake<IConfiguration>();
         _contextService = A.Fake<IConversationContextService>();
@@ -48,7 +49,7 @@ public class QueryOrchestratorTests
             _intentManager,
             _queryLogRepo,
             _contextService,
-            _costTracker,
+            _usageTracker,
             _logger,
             _configuration
         );
@@ -101,7 +102,7 @@ public class QueryOrchestratorTests
     }
 
     [Fact]
-    public async Task HandleQueryAsync_ShouldFallbackToChat_WhenHandlerMissingButChatIntent()
+    public async Task HandleQueryAsync_ShouldThrowNotSupported_WhenHandlerMissingForChat()
     {
         // Arrange
         var userQuestion = "Hello";
@@ -118,15 +119,9 @@ public class QueryOrchestratorTests
         A.CallTo(() => _handlerFactory.TryGetHandler(intentResult.Intent, out handler))
             .Returns(false);
 
-        // Act
-        var result = await _sut.HandleQueryAsync(userQuestion, "test-session", tenantId);
-
-        // Assert
-        result.Should().NotBeNull();
-        result.Data.Should().NotBeNull();
-
-        // Verify handled gracefully without exception
-        A.CallTo(() => _queryLogRepo.AddAsync(A<QueryLog>._, A<CancellationToken>._)).MustHaveHappened();
+        // Act & Assert
+        await Assert.ThrowsAsync<NotSupportedException>(() => 
+            _sut.HandleQueryAsync(userQuestion, "test-session", tenantId));
     }
 
     [Fact]

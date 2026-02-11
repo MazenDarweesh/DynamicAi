@@ -44,8 +44,9 @@ namespace DynamicAi.Application.Services
             _collectionName = configuration["Qdrant:CollectionName"]!;
 
             // Load RAG Cache settings
-            _ragCacheEnabled = bool.Parse(configuration["Caching:RagContextCache:Enabled"] ?? "true");
-            _ragCacheTTLMinutes = int.Parse(configuration["Caching:RagContextCache:TTLMinutes"] ?? "240");
+            // Load RAG Cache settings safely
+            _ragCacheEnabled = !bool.TryParse(configuration["Caching:RagContextCache:Enabled"], out var enabled) || enabled; // Default true
+            _ragCacheTTLMinutes = int.TryParse(configuration["Caching:RagContextCache:TTLMinutes"], out var ttl) ? ttl : 240; // Default 240
         }
 
         /// <summary>

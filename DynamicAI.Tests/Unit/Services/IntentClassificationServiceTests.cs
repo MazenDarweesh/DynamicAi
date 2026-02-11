@@ -60,9 +60,11 @@ public class IntentClassificationServiceTests
     {
         // Setup Embedding Generator
         var mockEmbedding = new Embedding<float>(new float[] { 0.1f, 0.2f, 0.3f });
+        var generatedEmbeddings = new GeneratedEmbeddings<Embedding<float>>([mockEmbedding]);
+        
         _mockEmbeddingService
-            .Setup(x => x.GenerateAsync(It.IsAny<string>(), It.IsAny<EmbeddingGenerationOptions>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(mockEmbedding);
+            .Setup(x => x.GenerateAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<EmbeddingGenerationOptions>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(generatedEmbeddings);
 
         // Setup VectorDB Search
         var payload = new Dictionary<string, Value>

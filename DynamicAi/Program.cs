@@ -130,7 +130,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddMemoryCache(); // For RAG and Session caching
     services.AddSingleton<IQueryCacheService, QueryCacheService>();
     services.AddSingleton<IFailedQueryLogger, FailedQueryLogger>();
-    services.AddSingleton<IGeminiCostTracker, GeminiCostTracker>(); // Phase 1: Observability (Legacy — will be replaced by ILlmUsageTracker)
+
     services.Configure<LlmProviderPricingConfig>(configuration.GetSection("LlmProviderPricing"));
     services.AddSingleton<ILlmUsageTracker, LlmUsageTracker>(); // Phase 2: Provider-Agnostic Cost Tracking
     services.AddSingleton<IGeminiCacheManager, GeminiCacheManager>(); // Gemini Context Caching

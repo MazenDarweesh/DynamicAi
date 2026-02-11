@@ -24,7 +24,7 @@ namespace DynamicAi.Application.Services
         private readonly IIntentClassificationService _intentClassifier;
         private readonly IIntentExampleManagementService _intentManager;
         private readonly IQueryLogRepository _queryLogRepo;
-        private readonly IGeminiCostTracker _costTracker;
+        private readonly ILlmUsageTracker _usageTracker;
         private readonly ILogger<QueryOrchestrator> _logger;
         private readonly IConversationContextService _contextService;
         private readonly bool _queryCacheEnabled;
@@ -39,7 +39,7 @@ namespace DynamicAi.Application.Services
             IIntentExampleManagementService intentExampleManagementService,
             IQueryLogRepository queryLogRepo,
             IConversationContextService contextService,
-            IGeminiCostTracker costTracker,
+            ILlmUsageTracker usageTracker,
             ILogger<QueryOrchestrator> logger,
             IConfiguration configuration)
         {
@@ -48,9 +48,9 @@ namespace DynamicAi.Application.Services
             _intentClassifier = intentClassifier;
             _intentManager = intentExampleManagementService;
             _queryLogRepo = queryLogRepo;
-            _costTracker = costTracker;
+            _usageTracker = usageTracker;
             _logger = logger;
-            _queryCacheEnabled = bool.Parse(configuration["Caching:QueryCache:Enabled"] ?? "true");
+            _queryCacheEnabled = !bool.TryParse(configuration["Caching:QueryCache:Enabled"], out var enabled) || enabled; // Default true
         }
 
         #endregion
@@ -184,9 +184,9 @@ namespace DynamicAi.Application.Services
                         CreatedAt = DateTime.UtcNow,
                         LatencyMs = (int)totalDuration,
                         HandlerType = intentResult.Intent.ToString(),
-                        InputTokens = (int)_costTracker.GetSessionSummary().TotalInputTokens,
-                        OutputTokens = (int)_costTracker.GetSessionSummary().TotalOutputTokens,
-                        GeminiCost = (decimal)_costTracker.GetSessionSummary().TotalCostUsd,
+                        InputTokens = (int)_usageTracker.GetSessionSummary().TotalInputTokens,
+                        OutputTokens = (int)_usageTracker.GetSessionSummary().TotalOutputTokens,
+                        GeminiCost = (decimal)_usageTracker.GetSessionSummary().TotalCostUsd,
                         ConfidenceScore = result.ConfidenceScore
                     };
 

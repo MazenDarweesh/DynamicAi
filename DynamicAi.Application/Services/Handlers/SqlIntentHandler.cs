@@ -23,7 +23,7 @@ public class SqlIntentHandler : IIntentHandler
     private readonly ISandboxedSqlExecutor _executionService;
     private readonly IQueryCacheService _queryCacheService;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
-    private readonly IGeminiCostTracker _costTracker; // For tracking token usage
+    private readonly ILlmUsageTracker _usageTracker; // For tracking token usage
     private readonly ILogger<SqlIntentHandler> _logger;
     private readonly bool _queryCacheEnabled;
 
@@ -40,7 +40,7 @@ public class SqlIntentHandler : IIntentHandler
         ISandboxedSqlExecutor executionService,
         IQueryCacheService queryCacheService,
         IEmbeddingGenerator<string, Embedding<float>> embeddingService,
-        IGeminiCostTracker costTracker,
+        ILlmUsageTracker usageTracker,
         ILogger<SqlIntentHandler> logger,
         IConfiguration configuration)
     {
@@ -52,9 +52,10 @@ public class SqlIntentHandler : IIntentHandler
         _executionService = executionService;
         _queryCacheService = queryCacheService;
         _embeddingService = embeddingService;
-        _costTracker = costTracker;
+        _usageTracker = usageTracker;
         _logger = logger;
-        _queryCacheEnabled = bool.Parse(configuration["Caching:QueryCache:Enabled"] ?? "true");
+        _logger = logger;
+        _queryCacheEnabled = !bool.TryParse(configuration["Caching:QueryCache:Enabled"], out var enabled) || enabled; // Default true
     }
 
     #endregion
@@ -100,6 +101,14 @@ public class SqlIntentHandler : IIntentHandler
             _logger.LogInformation("[SqlHandler] Layer 0: Checking Query Cache...");
             var embedding = await _embeddingService.GenerateAsync(condensedQuestion);
             questionEmbedding = embedding.Vector.ToArray();
+
+            // Track embedding usage
+            await _usageTracker.TrackEmbeddingCallAsync(
+                LlmOperationType.Embedding,
+                requestId: context?.QueryLogId?.ToString() ?? Guid.NewGuid().ToString(),
+                tokenCount: (int)(condensedQuestion.Length / 4.0),
+                tenantId: context?.TenantId,
+                companyId: context?.CompanyId);
 
             var cachedResult = await _queryCacheService.TryGetCachedSqlAsync(
                 questionEmbedding,

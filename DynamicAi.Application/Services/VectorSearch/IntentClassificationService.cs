@@ -54,7 +54,7 @@ public class IntentClassificationService : IIntentClassificationService
         _logger = logger;
 
         _intentCollectionName = configuration["Qdrant:IntentCollectionName"] ?? "intent_examples";
-        _confidenceThreshold = float.Parse(configuration["IntentRouter:ConfidenceThreshold"] ?? "0.75");
+        _confidenceThreshold = float.TryParse(configuration["IntentRouter:ConfidenceThreshold"], out var t) ? t : 0.75f;
     }
 
     /// <inheritdoc />
@@ -62,6 +62,9 @@ public class IntentClassificationService : IIntentClassificationService
         string userQuestion,
         CancellationToken cancellationToken = default)
     {
+        if (userQuestion == null) throw new ArgumentNullException(nameof(userQuestion));
+        if (string.IsNullOrWhiteSpace(userQuestion)) throw new ArgumentException("Question cannot be empty", nameof(userQuestion));
+
         var stopwatch = Stopwatch.StartNew();
 
         try
