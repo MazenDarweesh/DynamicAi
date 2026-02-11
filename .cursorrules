@@ -73,6 +73,20 @@
         - ✅ **أمثلة صحيحة:** `GeminiCachedPageContext`, `QdrantSearchFilter`
         - ❌ **أمثلة خاطئة:** `CachedContext` (غير واضح المصدر)
 
+- **القاعدة 8: التكوين الدفاعي (Defensive Configuration):**
+    - لا تستخدم `Parse` أبدًا مع بيانات الـ Configuration (مثل `bool.Parse`, `int.Parse`).
+    - استخدم دائمًا `TryParse` مع قيمة افتراضية (Fallback Value) قوية.
+    - **السبب:** غياب مفتاح في `appsettings.json` لا يجب أن يسقط التطبيق بالكامل.
+
+- **القاعدة 9: وهم الوظائف الممتدة (The Extension Method Illusion):**
+    - عند كتابة Unit Tests باستخدام Moq، لا تحاول عمل `Setup` لـ Extension Method (مثل `generateAsync` التي تأخذ `string`).
+    - **الحقيقة:** Moq يستطيع فقط عمل Mock لـ Interface Methods الحقيقية.
+    - **الحل:** اعثر على الـ Interface Method الأصلية التي تستدعيها الـ Extension Method واعمل Mock لها.
+
+- **القاعدة 10: احترام حدود العمارة في الاختبارات (Architecture Boundaries in Tests):**
+    - اختبارات الوحدة (Unit Tests) لا يجب أن تفترض وجود "Fallbacks" معقدة موجودة في طبقة أخرى.
+    - مثال: `QueryOrchestrator` لا يجب أن يختبر منطق "إذا فشل SQL اذهب لـ Chat" إلا إذا كان هذا المنطق مبرمجًا صراحةً بداخله. لا تختبر النوايا (Intents) التي لا يدعمها الكود حاليًا (مثل افتراض Fallback غير موجود).
+
 ---
 
 ## **3. قيود وتفضيلات المستخدم (USER CONSTRAINTS)**

@@ -19,10 +19,27 @@ namespace SchemaGenerator.Services
         private int _sessionCallCount = 0;
         private decimal _sessionEstimatedCost = 0;
 
-        // Pricing hardcoded here for Console App estimation (can be moved to config if needed)
-        private const decimal GeminiInputPricePer1k = 0.000125m; // $0.125 / 1M
-        private const decimal GeminiOutputPricePer1k = 0.000375m; // $0.375 / 1M
-        private const decimal EmbeddingPricePer1k = 0.000025m; // $0.025 / 1M
+        private readonly Microsoft.Extensions.Configuration.IConfiguration _configuration;
+
+        // Default pricing (fallback if config is missing)
+        private const decimal DefaultGeminiInputPricePer1k = 0.000125m;
+        private const decimal DefaultGeminiOutputPricePer1k = 0.000375m;
+        private const decimal DefaultEmbeddingPricePer1k = 0.000025m;
+
+        public ConsoleLlmUsageTracker(Microsoft.Extensions.Configuration.IConfiguration configuration)
+        {
+            _configuration = configuration;
+        }
+
+        private decimal GetPricing(string key, decimal defaultValue)
+        {
+            var value = _configuration[$"Pricing:{key}"];
+            if (decimal.TryParse(value, out var result))
+            {
+                return result;
+            }
+            return defaultValue;
+        }
 
         public async Task TrackLlmCallAsync(
             LlmOperationType operationType,
@@ -33,9 +50,13 @@ namespace SchemaGenerator.Services
             string? tenantId = null,
             int? companyId = null)
         {
+            // Read dynamic pricing
+            var inputPrice = GetPricing("GeminiInputPricePer1k", DefaultGeminiInputPricePer1k);
+            var outputPrice = GetPricing("GeminiOutputPricePer1k", DefaultGeminiOutputPricePer1k);
+
             // Calculate Cost
-            decimal cost = (inputTokens / 1000m * GeminiInputPricePer1k) +
-                           (outputTokens / 1000m * GeminiOutputPricePer1k);
+            decimal cost = (inputTokens / 1000m * inputPrice) +
+                           (outputTokens / 1000m * outputPrice);
 
             // Update Session Counters
             Interlocked.Add(ref _sessionInputTokens, inputTokens);
@@ -60,8 +81,11 @@ namespace SchemaGenerator.Services
             string? tenantId = null,
             int? companyId = null)
         {
+            // Read dynamic pricing
+            var embeddingPrice = GetPricing("EmbeddingPricePer1k", DefaultEmbeddingPricePer1k);
+
             // Calculate Cost
-            decimal cost = (tokenCount / 1000m * EmbeddingPricePer1k);
+            decimal cost = (tokenCount / 1000m * embeddingPrice);
 
             // Update Session Counters (Treat embedding tokens as input tokens for summary simplicity)
             Interlocked.Add(ref _sessionInputTokens, tokenCount);
