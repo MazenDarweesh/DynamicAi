@@ -25,11 +25,11 @@ public class SqlGenerationServiceTests
     {
         _chatService = A.Fake<IChatCompletionService>();
         var logger = A.Fake<ILogger<SqlGenerationService>>();
-        var costTracker = A.Fake<IGeminiCostTracker>();
+        var usageTracker = A.Fake<ILlmUsageTracker>();
         var cacheManager = A.Fake<IGeminiCacheManager>();
         var geminiPageCache = A.Fake<IGeminiPageContextCache>();
         var config = A.Fake<IConfiguration>();
-        _sut = new SqlGenerationService(_chatService, logger, costTracker, cacheManager, geminiPageCache, config);
+        _sut = new SqlGenerationService(_chatService, logger, usageTracker, cacheManager, geminiPageCache, config);
     }
 
     [Fact]

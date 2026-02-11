@@ -21,7 +21,7 @@ public class ChatIntentHandlerTests
 
     private readonly ChatIntentHandler _sut;
     private readonly IChatClient _chatClient;
-    private readonly IGeminiCostTracker _costTracker;
+    private readonly ILlmUsageTracker _usageTracker;
     private readonly ILogger<ChatIntentHandler> _logger;
 
     #endregion
@@ -31,12 +31,12 @@ public class ChatIntentHandlerTests
     public ChatIntentHandlerTests()
     {
         _chatClient = A.Fake<IChatClient>();
-        _costTracker = A.Fake<IGeminiCostTracker>();
+        _usageTracker = A.Fake<ILlmUsageTracker>();
         _logger = A.Fake<ILogger<ChatIntentHandler>>();
 
         _sut = new ChatIntentHandler(
             _chatClient,
-            _costTracker,
+            _usageTracker,
             _logger
         );
     }
@@ -183,11 +183,15 @@ public class ChatIntentHandlerTests
         await _sut.HandleAsync(userQuestion, intentResult, context);
 
         // Assert - Verify cost tracker was called
-        A.CallTo(() => _costTracker.TrackUsage(
+        // Assert - Verify cost tracker was called
+        A.CallTo(() => _usageTracker.TrackLlmCallAsync(
+            LlmOperationType.Chat,
             A<string>._,
             A<int>._,
             A<int>._,
-            A<int>._))
+            A<int>._,
+            A<string>._,
+            A<int?>._))
             .MustHaveHappenedOnceExactly();
     }
 
