@@ -22,41 +22,58 @@ namespace Infrastructure.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("DynamicAi.Domain.Entities.ConversationTurn", b =>
+            modelBuilder.Entity("DynamicAi.Domain.Entities.LlmUsageLog", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int>("CachedTokens")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CompanyId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("CostUsd")
+                        .HasPrecision(18, 8)
+                        .HasColumnType("decimal(18,8)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("Intent")
+                    b.Property<int>("InputTokens")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ModelName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("OperationType")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
-                    b.Property<bool>("IsRelevantForContext")
-                        .HasColumnType("bit");
+                    b.Property<int>("OutputTokens")
+                        .HasColumnType("int");
 
-                    b.Property<string>("Question")
+                    b.Property<string>("ProviderName")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("ResultSampleJson")
+                    b.Property<string>("RequestId")
+                        .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("SessionId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("SqlExecuted")
+                    b.Property<string>("TenantId")
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
 
-                    b.ToTable("ConversationTurns");
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("CreatedAt", "OperationType");
+
+                    b.ToTable("LlmUsageLogs");
                 });
 
             modelBuilder.Entity("DynamicAi.Domain.Entities.QueryLog", b =>

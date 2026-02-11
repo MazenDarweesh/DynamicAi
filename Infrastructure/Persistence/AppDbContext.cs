@@ -10,6 +10,7 @@ namespace DynamicAi.Infrastructure.Persistence
 
         public DbSet<QueryLog> QueryLogs { get; set; }
         public DbSet<TrainingExample> TrainingExamples { get; set; }
+        public DbSet<LlmUsageLog> LlmUsageLogs { get; set; }
 
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -21,6 +22,24 @@ namespace DynamicAi.Infrastructure.Persistence
             modelBuilder.Entity<QueryLog>()
                 .Property(q => q.GeminiCost)
                 .HasPrecision(18, 8);
+
+            // Configure LlmUsageLog for cost tracking
+            modelBuilder.Entity<LlmUsageLog>(entity =>
+            {
+                // High precision for micro-costs (e.g. $0.00003750)
+                entity.Property(e => e.CostUsd).HasPrecision(18, 8);
+
+                // Store enum as string for readability in DB
+                entity.Property(e => e.OperationType)
+                    .HasConversion<string>()
+                    .HasMaxLength(50);
+
+                // Index on CreatedAt for efficient daily aggregation queries
+                entity.HasIndex(e => e.CreatedAt);
+
+                // Composite index for daily breakdown by operation type
+                entity.HasIndex(e => new { e.CreatedAt, e.OperationType });
+            });
         }
     }
 }
