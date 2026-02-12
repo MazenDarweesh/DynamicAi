@@ -51,11 +51,38 @@ namespace DynamicAi.Application.Services.LLM
 
                 return BudgetStatus.Allowed;
             }
+
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error checking daily budget status. Falling back to Allowed to avoid blocking service.");
                 return BudgetStatus.Allowed;
             }
+        }
+
+        public async Task<BudgetInfo> GetBudgetInfoAsync()
+        {
+            var today = DateTime.UtcNow.Date;
+            var totalCost = await _usageTracker.GetDailyTotalCostAsync(today);
+            var budget = _config.DailyBudgetUsd;
+
+            var percentage = budget > 0 ? (double)(totalCost / budget) * 100 : 0;
+            var warningThreshold = budget * (_config.WarningThresholdPercent / 100m);
+
+            string statusStr;
+            if (totalCost >= budget) statusStr = BudgetStatus.Exceeded.ToString();
+            else if (totalCost >= warningThreshold) statusStr = BudgetStatus.Warning.ToString();
+            else statusStr = BudgetStatus.Allowed.ToString();
+
+            return new BudgetInfo
+            {
+                CurrentUsageUsd = totalCost,
+                DailyLimitUsd = budget,
+                WarningThresholdUsd = warningThreshold,
+                PercentageUsed = Math.Round(percentage, 2),
+                Status = statusStr,
+                ProviderName = _config.ActiveProvider ?? "Unknown",
+                Date = today
+            };
         }
     }
 }

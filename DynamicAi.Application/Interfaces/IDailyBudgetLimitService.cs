@@ -12,5 +12,10 @@ namespace DynamicAi.Application.Interfaces
         /// Checks the current budget status against configured limits.
         /// </summary>
         Task<BudgetStatus> CheckBudgetStatusAsync();
+
+        /// <summary>
+        /// Gets detailed budget information for the current day.
+        /// </summary>
+        Task<BudgetInfo> GetBudgetInfoAsync();
     }
 }

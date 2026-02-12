@@ -125,6 +125,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     // --- Repositories ---
     services.AddScoped<ITrainingExampleRepository, TrainingExampleRepository>();
     services.AddScoped<IQueryLogRepository, QueryLogRepository>();
+    services.AddScoped<ILlmUsageLogRepository, LlmUsageLogRepository>();
     services.AddScoped<IConversationContextService, ConversationContextService>();
 
     // --- Feedback Service (Golden Dataset) ---
