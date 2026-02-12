@@ -10,6 +10,7 @@ using Qdrant.Client.Grpc;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using QdrantConstants = DynamicAi.Application.DbConstants.VectorDbMeta;
+using DynamicAi.Domain.Entities;
 
 namespace DynamicAi.Application.Services
 {
@@ -22,6 +23,7 @@ namespace DynamicAi.Application.Services
     {
         private readonly QdrantClient _qdrantClient;
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
+        private readonly ILlmUsageTracker _usageTracker;
         private readonly IMemoryCache _memoryCache;
         private readonly ILogger<QdrantRetrievalService> _logger;
         private readonly string _collectionName;
@@ -34,12 +36,14 @@ namespace DynamicAi.Application.Services
             QdrantClient qdrantClient,
             IEmbeddingGenerator<string, Embedding<float>> embeddingService,
             IMemoryCache memoryCache,
+            ILlmUsageTracker usageTracker, // Injected
             IConfiguration configuration,
             ILogger<QdrantRetrievalService> logger)
         {
             _qdrantClient = qdrantClient;
             _embeddingService = embeddingService;
             _memoryCache = memoryCache;
+            _usageTracker = usageTracker;
             _logger = logger;
             _collectionName = configuration["Qdrant:CollectionName"]!;
 
@@ -54,7 +58,8 @@ namespace DynamicAi.Application.Services
         /// </summary>
         public async Task<RetrievalContextBundle> RetrieveContextAsync(
             string userQuestion,
-            string tenantId)
+            string tenantId,
+            int? companyId = null)
         {
             // ============================================================================
             // [LOGGING] بداية عملية RAG Retrieval (Multi-Step)
@@ -109,6 +114,15 @@ namespace DynamicAi.Application.Services
 
             var embeddingStart = DateTime.UtcNow;
             var embedding = await _embeddingService.GenerateAsync(userQuestion);
+            
+            // Track Embedding Usage
+            var embedTokens = userQuestion.Length / 4; // Approx
+            await _usageTracker.TrackEmbeddingCallAsync(
+                LlmOperationType.Embedding, // Or Retrieval
+                Guid.NewGuid().ToString(),
+                embedTokens,
+                tenantId,
+                companyId);
             var embeddingDuration = (DateTime.UtcNow - embeddingStart).TotalMilliseconds;
 
             _logger.LogInformation("[RagRetrieval] ✓ Embedding generated in {EmbeddingDuration:F0}ms", embeddingDuration);
@@ -964,7 +978,8 @@ namespace DynamicAi.Application.Services
         /// </summary>
         public async Task<FullPageContextForLlmCache> GetFullPageContextForLlmCachingAsync(
             int pageId,
-            string tenantId)
+            string tenantId,
+            int? companyId = null)
         {
             _logger.LogInformation("[LLM Cache] Retrieving FULL page context for PageID {PageId}...", pageId);
 

@@ -23,6 +23,7 @@ public class IntentClassificationService : IIntentClassificationService
     private readonly IAppVectorDbService _vectorDb;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
     private readonly IChatCompletionService _chatService;
+    private readonly ILlmUsageTracker _usageTracker;
     private readonly ILogger<IntentClassificationService> _logger;
     private readonly IIntentExampleManagementService _intentManager;
     private readonly string _intentCollectionName;
@@ -44,13 +45,15 @@ public class IntentClassificationService : IIntentClassificationService
         IEmbeddingGenerator<string, Embedding<float>> embeddingService,
         IChatCompletionService chatService,
         IIntentExampleManagementService intentManager,
+        ILlmUsageTracker usageTracker, // Injected
         IConfiguration configuration,
         ILogger<IntentClassificationService> logger)
     {
         _vectorDb = vectorDb;
         _embeddingService = embeddingService;
         _chatService = chatService;
-        _intentManager = intentManager; // Injected for Seed/Manage operations
+        _intentManager = intentManager;
+        _usageTracker = usageTracker;
         _logger = logger;
 
         _intentCollectionName = configuration["Qdrant:IntentCollectionName"] ?? "intent_examples";
@@ -60,6 +63,8 @@ public class IntentClassificationService : IIntentClassificationService
     /// <inheritdoc />
     public async Task<IntentClassificationResult> ClassifyIntentAsync(
         string userQuestion,
+        string? tenantId = null,
+        int? companyId = null,
         CancellationToken cancellationToken = default)
     {
         if (userQuestion == null) throw new ArgumentNullException(nameof(userQuestion));
@@ -81,7 +86,19 @@ public class IntentClassificationService : IIntentClassificationService
 
             // Step 1: Generate Embedding
             _logger.LogInformation("[IntentRouter] Generating embedding...");
+            var embeddingStart = Stopwatch.StartNew();
             var embedding = await _embeddingService.GenerateAsync(userQuestion);
+            embeddingStart.Stop();
+
+            // Track Embedding Usage
+            var embedTokens = userQuestion.Length / 4; // Approx since single-item extension doesn't return Usage
+            await _usageTracker.TrackEmbeddingCallAsync(
+                LlmOperationType.IntentClassification,
+                Guid.NewGuid().ToString(),
+                embedTokens,
+                tenantId,
+                companyId);
+
             var queryVector = embedding.Vector.ToArray();
 
             // Step 2: Search Qdrant
@@ -103,7 +120,7 @@ public class IntentClassificationService : IIntentClassificationService
                 else
                     _logger.LogWarning("[IntentRouter] ⚠ Low confidence ({Score:F2} < {Threshold:F2}). Fallback to LLM.", topScore, _confidenceThreshold);
 
-                return await ClassifyWithLlmAsync(userQuestion, queryVector, stopwatch.ElapsedMilliseconds, cancellationToken);
+                return await ClassifyWithLlmAsync(userQuestion, queryVector, stopwatch.ElapsedMilliseconds, tenantId, companyId, cancellationToken);
             }
 
             // Step 4: High Confidence Match
@@ -135,6 +152,8 @@ public class IntentClassificationService : IIntentClassificationService
         string userQuestion,
         float[] embedding,
         long elapsedMs,
+        string? tenantId,
+        int? companyId,
         CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -210,6 +229,24 @@ Respond with JSON only:");
                 source: "LlmFallback",
                 confidenceScore: confidence
             );
+
+            // Track LLM Usage
+            var inputTokens = chatHistory.Sum(m => m.Content?.Length ?? 0) / 4; // Approx
+            var outputTokens = responseText.Length / 4;
+            // Use metadata if available
+            if (result.Metadata?.ContainsKey("Usage") == true) 
+            {
+                // SK metadata extraction logic can be added here
+            }
+
+            await _usageTracker.TrackLlmCallAsync(
+                LlmOperationType.IntentClassification,
+                Guid.NewGuid().ToString(),
+                inputTokens,
+                outputTokens,
+                0,
+                tenantId,
+                companyId);
 
             stopwatch.Stop();
             return new IntentClassificationResult

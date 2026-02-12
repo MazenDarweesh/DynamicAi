@@ -27,6 +27,8 @@ namespace DynamicAi.Application.Interfaces
             string userQuestion,
             RetrievalContextBundle contextBundle,
             string? previousSql = null,
-            QueryActionType actionType = QueryActionType.Regenerate);
+            QueryActionType actionType = QueryActionType.Regenerate,
+            string? tenantId = null,
+            int? companyId = null);
     }
 }

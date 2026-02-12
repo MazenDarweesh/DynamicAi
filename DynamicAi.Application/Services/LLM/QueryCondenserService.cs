@@ -24,6 +24,7 @@
 
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
+using DynamicAi.Domain.Entities;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel.ChatCompletion;
 using System.Text.RegularExpressions;
@@ -39,13 +40,16 @@ namespace DynamicAi.Application.Services;
 public class QueryCondenserService : IQueryCondenserService
 {
     private readonly IChatCompletionService _chatService;
+    private readonly ILlmUsageTracker _usageTracker;
     private readonly ILogger<QueryCondenserService> _logger;
 
     public QueryCondenserService(
         IChatCompletionService chatService,
+        ILlmUsageTracker usageTracker,
         ILogger<QueryCondenserService> logger)
     {
         _chatService = chatService;
+        _usageTracker = usageTracker;
         _logger = logger;
     }
 
@@ -53,7 +57,9 @@ public class QueryCondenserService : IQueryCondenserService
     public async Task<CondenserResult> CondenseQuestionAsync(
         string currentQuestion,
         string? previousQuestion,
-        string? previousSql = null)
+        string? previousSql = null,
+        string? tenantId = null,
+        int? companyId = null)
     {
         // ============================================================================
         // IDENTITY FALLBACK: If no history, return as NEW
@@ -90,10 +96,32 @@ ACTION:[WRAP|REGENERATE|NEW]
 QUESTION:[standalone rephrased question]";
 
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             var result = await _chatService.GetChatMessageContentAsync(condensingPrompt);
+            sw.Stop();
+
             var response = result?.Content?.Trim() ?? string.Empty;
+
+            // Track Usage
+            var inputTokens = condensingPrompt.Length / 4;
+            var outputTokens = response.Length / 4;
+            
+            // Try to get actual usage from metadata if available (Gemini/SK specific)
+            if (result?.Metadata != null && result.Metadata.TryGetValue("Usage", out var usageObj))
+            {
+                 // Best effort extraction - SK often puts it in "Usage"
+            }
+
+            await _usageTracker.TrackLlmCallAsync(
+                operationType: LlmOperationType.QueryCondenser,
+                requestId: Guid.NewGuid().ToString(),
+                inputTokens: inputTokens,
+                outputTokens: outputTokens,
+                cachedTokens: 0,
+                tenantId: tenantId,
+                companyId: companyId);
 
             _logger.LogDebug("[Condenser] Raw LLM Response: {Response}", response);
 

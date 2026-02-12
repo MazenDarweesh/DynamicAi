@@ -83,7 +83,9 @@ namespace DynamicAi.Application.Services
             string userQuestion,
             RetrievalContextBundle contextBundle,
             string? previousSql = null,
-            QueryActionType actionType = QueryActionType.Regenerate)
+            QueryActionType actionType = QueryActionType.Regenerate,
+            string? tenantId = null,
+            int? companyId = null)
         {
             #region Initialization and Logging
 
@@ -629,14 +631,15 @@ namespace DynamicAi.Application.Services
 
 
             // Track usage centrally
+            // Track usage centrally (M4: Config & Tenant Aware)
             await _usageTracker.TrackLlmCallAsync(
                 LlmOperationType.SqlGeneration,
                 requestId: Guid.NewGuid().ToString(), // TODO: Pass RequestId from ContextBundle if available
                 inputTokens: promptTokens,
                 outputTokens: completionTokens,
                 cachedTokens: cachedTokens,
-                tenantId: null, // M4: Add to ContextBundle
-                companyId: null // M4: Add to ContextBundle
+                tenantId: tenantId, 
+                companyId: companyId 
             );
 
             // Display cache status

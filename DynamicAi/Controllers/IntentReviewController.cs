@@ -15,15 +15,18 @@ public class IntentReviewController : ControllerBase
 {
     private readonly IIntentExampleManagementService _intentManager;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly ILlmUsageTracker _usageTracker;
     private readonly ILogger<IntentReviewController> _logger;
 
     public IntentReviewController(
         IIntentExampleManagementService intentManager,
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+        ILlmUsageTracker usageTracker, // Injected
         ILogger<IntentReviewController> logger)
     {
         _intentManager = intentManager;
         _embeddingGenerator = embeddingGenerator;
+        _usageTracker = usageTracker;
         _logger = logger;
     }
 
@@ -116,6 +119,17 @@ public class IntentReviewController : ControllerBase
         {
             // Generate embedding
             var embedding = await _embeddingGenerator.GenerateAsync(request.Question);
+
+            // Track Usage (Embedding)
+            var embedTokens = request.Question.Length / 4;
+            await _usageTracker.TrackEmbeddingCallAsync(
+                LlmOperationType.Embedding, // Or IntentClassification utility
+                Guid.NewGuid().ToString(),
+                embedTokens,
+                null, // TenantId unknown or System
+                null  // CompanyId unknown or System
+            );
+
             var vector = embedding.Vector.ToArray();
 
             // Delete similar intent examples

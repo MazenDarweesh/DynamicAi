@@ -84,7 +84,9 @@ public class SqlIntentHandler : IIntentHandler
         var condenserResult = await _condenserService.CondenseQuestionAsync(
             userQuestion,
             context?.PreviousQuestion,
-            context?.PreviousSql);
+            context?.PreviousSql,
+            context?.TenantId,
+            context?.CompanyId);
 
         var condensedQuestion = condenserResult.CondensedQuestion;
         var actionType = condenserResult.ActionType;
@@ -142,7 +144,8 @@ public class SqlIntentHandler : IIntentHandler
         _logger.LogInformation("[SqlHandler] Layer 1: Retrieving context...");
         var retrievalResult = await _retrievalService.RetrieveContextAsync(
             condensedQuestion,
-            context?.TenantId ?? "default"
+            context?.TenantId ?? "default",
+            context?.CompanyId
         );
 
         #endregion
@@ -155,7 +158,9 @@ public class SqlIntentHandler : IIntentHandler
             condensedQuestion,
             retrievalResult,
             context?.PreviousSql,
-            actionType
+            actionType,
+            context?.TenantId,
+            context?.CompanyId
         );
 
         if (sqlResult.NeedsClarification)

@@ -17,6 +17,8 @@ public interface IIntentClassificationService
     /// <returns>Classification result with intent type and confidence score.</returns>
     Task<IntentClassificationResult> ClassifyIntentAsync(
         string userQuestion,
+        string? tenantId = null,
+        int? companyId = null,
         CancellationToken cancellationToken = default);
 
 

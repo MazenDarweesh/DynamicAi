@@ -15,6 +15,7 @@ using Polly;
 using System.Net;
 using Serilog;
 using DynamicAi.Application.Services.Handlers;
+using DynamicAi.Application.Services.LLM;
 
 // 1. بناء الـ Builder (لقراءة الإعدادات و DI)
 // ensure console output uses UTF-8 so Arabic characters render correctly
@@ -63,6 +64,9 @@ try
     // ============================================================================
     // Enable Request Metrics Middleware (Phase 1: Observability)
     app.UseMiddleware<DynamicAi.Api.Middleware.RequestMetricsMiddleware>();
+
+    // Phase 2: Daily Budget Limiter
+    app.UseMiddleware<DynamicAi.Api.Middleware.LlmBudgetLimitMiddleware>();
 
     // Enable Serilog request logging
     app.UseSerilogRequestLogging();
@@ -114,6 +118,9 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddTransient<IIntentHandler, SqlIntentHandler>(); // Phase 3: SQL Handler
     services.AddTransient<IIntentHandler, ChatIntentHandler>(); // Phase 3: Chat Handler (Lightweight)
     services.AddTransient<IIntentHandler, PredictIntentHandler>(); // Phase 4: Predict Handler
+    
+    // --- LLM Budget & Usage Services ---
+    services.AddTransient<IDailyBudgetLimitService, DailyBudgetLimitService>();
 
     // --- Repositories ---
     services.AddScoped<ITrainingExampleRepository, TrainingExampleRepository>();

@@ -22,6 +22,20 @@ namespace DynamicAi.Application.Models
         public bool EnforceHardLimit { get; set; } = true;
 
         /// <summary>
+        /// قائمة الـ endpoints المحمية بالميزانية (تُقرأ من appsettings.json).
+        /// يتم مقارنتها مع request path باستخدام case-insensitive contains.
+        /// </summary>
+        public List<string> ProtectedEndpoints { get; set; } = new()
+        {
+            "/test/ask",
+            "/api/dataseeder/seed",
+            "/api/dataseeder/seed-intents",
+            "/api/feedback/dislike",
+            "/api/intent-review/clear-by-question",
+            "/api/query-cache/clear-by-question"
+        };
+
+        /// <summary>
         /// يحصل على تكوين المزود النشط حالياً.
         /// </summary>
         public LlmProviderConfig? GetActiveProviderConfig()

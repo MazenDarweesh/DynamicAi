@@ -18,7 +18,8 @@ namespace DynamicAi.Application.Interfaces
         /// <returns>"سلة سياق" (Context Bundle) غنية جاهزة للـ AI.</returns>
         Task<RetrievalContextBundle> RetrieveContextAsync(
             string userQuestion,
-            string tenantId
+            string tenantId,
+            int? companyId = null
         );
 
         /// <summary>
@@ -30,7 +31,8 @@ namespace DynamicAi.Application.Interfaces
         /// <returns>Complete page context for Gemini caching</returns>
         Task<FullPageContextForLlmCache> GetFullPageContextForLlmCachingAsync(
             int pageId,
-            string tenantId
+            string tenantId,
+            int? companyId = null
         );
 
         /// <summary>

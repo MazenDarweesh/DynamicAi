@@ -1,5 +1,7 @@
 using DynamicAi.Application.Interfaces;
+using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
+using DynamicAi.Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.AI;
 
@@ -19,6 +21,7 @@ public class QueryCacheController : ControllerBase
 
     private readonly IQueryCacheService _cacheService;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly ILlmUsageTracker _usageTracker;
     private readonly ILogger<QueryCacheController> _logger;
 
     #endregion
@@ -28,10 +31,12 @@ public class QueryCacheController : ControllerBase
     public QueryCacheController(
         IQueryCacheService cacheService,
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+        ILlmUsageTracker usageTracker, // Injected
         ILogger<QueryCacheController> logger)
     {
         _cacheService = cacheService;
         _embeddingGenerator = embeddingGenerator;
+        _usageTracker = usageTracker;
         _logger = logger;
     }
 
@@ -55,6 +60,17 @@ public class QueryCacheController : ControllerBase
         {
             // Generate embedding for the question
             var embedding = await _embeddingGenerator.GenerateAsync(request.Question);
+            
+            // Track Usage (Embedding)
+            var embedTokens = request.Question.Length / 4;
+            await _usageTracker.TrackEmbeddingCallAsync(
+                LlmOperationType.Embedding, // Or SqlGeneration/Retrieval
+                Guid.NewGuid().ToString(),
+                embedTokens,
+                request.TenantId,
+                request.CompanyId
+            );
+
             var vector = embedding.Vector.ToArray();
 
             // Delete similar cache entries

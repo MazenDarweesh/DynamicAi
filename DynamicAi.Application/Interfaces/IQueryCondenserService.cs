@@ -43,5 +43,7 @@ public interface IQueryCondenserService
     Task<CondenserResult> CondenseQuestionAsync(
         string currentQuestion,
         string? previousQuestion,
-        string? previousSql = null);
+        string? previousSql = null,
+        string? tenantId = null,
+        int? companyId = null);
 }
