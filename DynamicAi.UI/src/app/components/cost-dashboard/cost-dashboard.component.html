@@ -70,11 +70,12 @@
                 </thead>
                 <tbody>
                     <tr *ngFor="let log of recentLogs">
-                        <td class="source-cell" style="color: #4facfe; font-weight: 600;">{{ log.operationType }}</td>
+                        <td class="source-cell" style="color: #4facfe; font-weight: 600;">{{
+                            formatOperationType(log.operationType) }}</td>
                         <td class="query-cell">{{ formatModelName(log.modelName) }}</td>
                         <td class="source-cell">{{ log.inputTokens }} / {{ log.outputTokens }}</td>
                         <td class="sql-cell" style="color: #86efac;">${{ log.costUsd | number:'1.6-6' }}</td>
-                        <td class="source-cell">{{ log.createdAt | date:'shortTime' }}</td>
+                        <td class="source-cell">{{ log.createdAt | date:'shortTime':'+0200' }} (EG)</td>
                     </tr>
                 </tbody>
             </table>

@@ -13,5 +13,5 @@ export const routes: Routes = [
     { path: 'query-insights', component: QueryInsightsPageComponent },
     { path: 'intent-review', component: IntentReviewComponent },
     { path: 'training-data', component: TrainingDataComponent },
-    { path: 'costs', component: CostDashboardComponent }
+    { path: 'costs', component: CostDashboardComponent, runGuardsAndResolvers: 'always' }
 ];
