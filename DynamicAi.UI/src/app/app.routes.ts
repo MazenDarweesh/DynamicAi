@@ -8,10 +8,10 @@ import { CostDashboardComponent } from './components/cost-dashboard/cost-dashboa
 
 export const routes: Routes = [
     { path: '', redirectTo: 'chat', pathMatch: 'full' },
-    { path: 'chat', component: ChatComponent },
-    { path: 'dashboard', component: DashboardComponent },
-    { path: 'query-insights', component: QueryInsightsPageComponent },
-    { path: 'intent-review', component: IntentReviewComponent },
-    { path: 'training-data', component: TrainingDataComponent },
-    { path: 'costs', component: CostDashboardComponent, runGuardsAndResolvers: 'always' }
+    { path: 'chat', component: ChatComponent, data: { title: 'AI Assistant' } },
+    { path: 'dashboard', component: DashboardComponent, data: { title: 'Smart Analytics' } },
+    { path: 'query-insights', component: QueryInsightsPageComponent, data: { title: 'Query Insights' } },
+    { path: 'intent-review', component: IntentReviewComponent, data: { title: 'Intent Management' } },
+    { path: 'training-data', component: TrainingDataComponent, data: { title: 'Knowledge Base' } },
+    { path: 'costs', component: CostDashboardComponent, data: { title: 'Financial Overview' }, runGuardsAndResolvers: 'always' }
 ];

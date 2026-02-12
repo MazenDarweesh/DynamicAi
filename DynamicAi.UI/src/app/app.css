@@ -167,32 +167,61 @@
 }
 
 /* Router-outlet creates sibling elements, not children - target them */
-.main-content>*:not(router-outlet) {
+.main-content>*:not(router-outlet):not(.app-shell-header) {
     flex: 1;
     display: flex;
     flex-direction: column;
     min-height: 0;
 }
 
-.app-shell-toggle {
-    position: absolute;
-    top: 15px;
-    left: 30px;
-    z-index: 999;
+.app-shell-header {
+    height: 50px;
     display: flex;
     align-items: center;
+    justify-content: flex-start;
+    /* Override generic header space-between */
+    padding: 0 20px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--glass-border);
+    flex-shrink: 0;
+    gap: 15px;
+    z-index: 1001;
 }
 
+.page-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.header-spacer {
+    flex: 1;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.router-wrapper {
+    flex: 1;
+    overflow-y: auto;
+    position: relative;
+    min-height: 0;
+}
+
+/* Base header resets for specific pages */
 header {
-    padding: 15px 30px;
+    padding: 10px 20px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 10;
 }
 
 .menu-toggle {
@@ -311,7 +340,8 @@ header {
 .chat-scroll-area {
     flex: 1;
     overflow-y: auto;
-    padding: 80px 0 150px;
+    padding: 20px 0 150px;
+    /* Reduced top padding */
 }
 
 .message-row {
@@ -380,6 +410,73 @@ pre {
     font-size: 0.85rem;
     color: #d4d4d4;
     overflow-x: auto;
+}
+
+@media (max-width: 768px) {
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        z-index: 2000;
+        width: 280px;
+        box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .sidebar.closed {
+        transform: translateX(-100%);
+        width: 280px;
+        opacity: 1;
+    }
+
+    .mobile-sidebar-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(4px);
+        z-index: 1000;
+    }
+
+    .main-content {
+        padding-top: 0;
+        /* Header is now in flow, no padding needed */
+    }
+
+    .app-shell-header {
+        padding: 0 15px;
+        height: 50px;
+    }
+
+    .menu-toggle {
+        margin-right: 10px;
+    }
+
+    .suggestions {
+        grid-template-columns: 1fr;
+        padding: 0 10px;
+    }
+
+    .hero-text h1 {
+        font-size: 1.5rem;
+        margin-bottom: 25px;
+    }
+
+    .chat-scroll-area {
+        padding: 20px 0 150px;
+    }
+
+    .message-content {
+        gap: 12px;
+        padding: 0 15px;
+    }
+
+    .input-wrapper {
+        border-radius: 12px;
+    }
+
+    .table-header {
+        font-size: 0.75rem;
+    }
 }
 
 /* Input Area */

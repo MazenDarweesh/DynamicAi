@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule, Router } from '@angular/router';
+import { RouterModule, Router, NavigationEnd, ActivatedRoute } from '@angular/router';
+import { filter, map, mergeMap } from 'rxjs/operators';
 import { ChatSignalService } from './services/chat-signal.service';
 
 @Component({
@@ -12,13 +13,29 @@ import { ChatSignalService } from './services/chat-signal.service';
 })
 export class App {
   isSidebarOpen = true;
+  currentPageTitle = 'AI Assistant';
   private chatSignal = inject(ChatSignalService);
   private router = inject(Router);
+  private activatedRoute = inject(ActivatedRoute);
 
   constructor() {
     // Subscribe to sidebar toggle signals from child components
     this.chatSignal.sidebarToggle$.subscribe(() => {
       this.toggleSidebar();
+    });
+
+    // Listen to route changes to update header title
+    this.router.events.pipe(
+      filter(event => event instanceof NavigationEnd),
+      map(() => this.activatedRoute),
+      map(route => {
+        while (route.firstChild) route = route.firstChild;
+        return route;
+      }),
+      filter(route => route.outlet === 'primary'),
+      mergeMap(route => route.data)
+    ).subscribe(data => {
+      this.currentPageTitle = data['title'] || 'DynamicAI';
     });
   }
 
