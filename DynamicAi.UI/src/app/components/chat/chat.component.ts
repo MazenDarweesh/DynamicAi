@@ -60,10 +60,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         this.chatSignal.saveState(this.messages, this.lastQuestion, this.lastSql, this.confirmedQuestion, this.confirmedSql);
     }
 
-    toggleSidebar() {
-        // Use service to communicate with App shell (since @Output doesn't work through router-outlet)
-        this.chatSignal.triggerSidebarToggle();
-    }
+
 
     ngAfterViewChecked() {
         this.scrollToBottom();
