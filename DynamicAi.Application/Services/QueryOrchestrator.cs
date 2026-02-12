@@ -201,7 +201,9 @@ namespace DynamicAi.Application.Services
 
                         // 📋 Auto-Capture for Training Dataset (M13)
                         // This ensures every successful AI generation is captured for review
-                        _ = _feedbackService.AutoCaptureExampleAsync(queryLogId, comID);
+                        _logger.LogInformation("[Orchestrator] Triggering Auto-Capture for LogId: {LogId}, ComId: {ComId}", queryLogId, comID);
+                        var captureResult = await _feedbackService.AutoCaptureExampleAsync(queryLogId, comID);
+                        _logger.LogInformation("[Orchestrator] Auto-Capture result: {Result}", captureResult);
                     }
                     catch (Exception logEx)
                     {

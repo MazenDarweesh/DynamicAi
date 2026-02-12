@@ -148,14 +148,29 @@ public class FeedbackService : IFeedbackService
 
     public async Task<bool> AutoCaptureExampleAsync(Guid queryLogId, int? tenantId = null, CancellationToken cancellationToken = default)
     {
+        _logger.LogInformation("🤖 [Feedback] Starting AutoCapture for QueryLogId: {QueryLogId}", queryLogId);
         try
         {
+            // 🛑 Duplicate Check (Prevents multiple captures for the same query)
+            bool alreadyExists = await _trainingRepo.ExistsByQueryLogIdAsync(queryLogId, cancellationToken);
+            _logger.LogInformation("🤖 [Feedback] Duplicate Check for {QueryLogId}: {Exists}", queryLogId, alreadyExists);
+
+            if (alreadyExists)
+            {
+                _logger.LogInformation("[Feedback] Query {QueryLogId} already captured. Skipping.", queryLogId);
+                return true;
+            }
+
+            _logger.LogInformation("🤖 [Feedback] Fetching QueryLog {QueryLogId}...", queryLogId);
             var queryLog = await _queryLogRepo.GetByIdAsync(queryLogId, cancellationToken);
 
             if (queryLog == null || string.IsNullOrEmpty(queryLog.GeneratedSql))
             {
+                _logger.LogWarning("[Feedback] AutoCapture failed: QueryLog {QueryLogId} not found or has no SQL.", queryLogId);
                 return false;
             }
+
+            _logger.LogInformation("🤖 [Feedback] Creating TrainingExample for {QueryLogId} with SQL: {Sql}", queryLogId, queryLog.GeneratedSql?.Length > 50 ? queryLog.GeneratedSql[..50] + "..." : queryLog.GeneratedSql);
 
             var example = new TrainingExample
             {
@@ -165,17 +180,18 @@ public class FeedbackService : IFeedbackService
                 FeedbackSource = "AutoCapture",
                 OriginalQueryLogId = queryLogId,
                 TenantId = tenantId ?? queryLog.CompanyId,
-                IsVerified = false
+                IsVerified = false,
+                CreatedAt = DateTime.UtcNow
             };
 
             await _trainingRepo.AddAsync(example, cancellationToken);
-            _logger.LogInformation("🤖 [Feedback] Auto-Captured Query for review: {QueryLogId}", queryLogId);
+            _logger.LogInformation("🤖 [Feedback] ✅ Auto-Captured Successfully: {QueryLogId}", queryLogId);
 
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[Feedback] Error in AutoCapture for {QueryLogId}", queryLogId);
+            _logger.LogError(ex, "[Feedback] ❌ CRITICAL Error in AutoCapture for {QueryLogId}", queryLogId);
             return false;
         }
     }

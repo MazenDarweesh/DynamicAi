@@ -27,4 +27,7 @@ public interface ITrainingExampleRepository
 
     /// <summary>حذف مثال غير صالح</summary>
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>التحقق مما إذا كان قد تم التقاط هذا الاستعلام مسبقاً</summary>
+    Task<bool> ExistsByQueryLogIdAsync(Guid queryLogId, CancellationToken cancellationToken = default);
 }

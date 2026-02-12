@@ -75,4 +75,9 @@ public class TrainingExampleRepository : ITrainingExampleRepository
             await _context.SaveChangesAsync(cancellationToken);
         }
     }
+
+    public async Task<bool> ExistsByQueryLogIdAsync(Guid queryLogId, CancellationToken cancellationToken = default)
+    {
+        return await _context.TrainingExamples.AnyAsync(e => e.OriginalQueryLogId == queryLogId, cancellationToken);
+    }
 }
