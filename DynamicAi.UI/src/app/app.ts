@@ -12,7 +12,7 @@ import { ChatSignalService } from './services/chat-signal.service';
   styleUrls: ['./app.css']
 })
 export class App {
-  isSidebarOpen = true;
+  isSidebarOpen = window.innerWidth > 768;
   currentPageTitle = 'AI Assistant';
   private chatSignal = inject(ChatSignalService);
   private router = inject(Router);

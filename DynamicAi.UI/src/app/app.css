@@ -159,11 +159,9 @@
     display: flex;
     flex-direction: column;
     position: relative;
-    overflow-y: auto;
-    overflow-x: hidden;
-    /* Allow vertical scrolling for pages */
-    min-height: 0;
-    /* Critical for nested flex containers */
+    overflow: hidden;
+    /* Header stays fixed at top */
+    min-width: 0;
 }
 
 /* Router-outlet creates sibling elements, not children - target them */
@@ -197,6 +195,10 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
 }
 
 .header-spacer {
@@ -412,7 +414,20 @@ pre {
     overflow-x: auto;
 }
 
+.mobile-sidebar-backdrop {
+    display: none;
+}
+
 @media (max-width: 768px) {
+    .mobile-sidebar-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(4px);
+        z-index: 1000;
+    }
+
     .sidebar {
         position: fixed;
         left: 0;
@@ -426,20 +441,15 @@ pre {
     .sidebar.closed {
         transform: translateX(-100%);
         width: 280px;
-        opacity: 1;
-    }
-
-    .mobile-sidebar-backdrop {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.6);
-        backdrop-filter: blur(4px);
-        z-index: 1000;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
     }
 
     .main-content {
-        padding-top: 0;
-        /* Header is now in flow, no padding needed */
+        flex: 1;
+        width: 100%;
+        min-width: 0;
     }
 
     .app-shell-header {
