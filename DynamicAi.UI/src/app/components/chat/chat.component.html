@@ -134,6 +134,16 @@
                                 <polyline points="8 6 2 12 8 18"></polyline>
                             </svg>
                         </button>
+
+                        <!-- Print & Export (Only for Data Tables) -->
+                        <ng-container *ngIf="msg.tableData && msg.tableData.length > 0">
+                            <button class="action-btn" (click)="printTable(msg)" title="Print Table">
+                                🖨️
+                            </button>
+                            <button class="action-btn" (click)="exportExcel(msg)" title="Export to Excel">
+                                📥
+                            </button>
+                        </ng-container>
                     </div>
 
                     <!-- SQL Display Panel -->

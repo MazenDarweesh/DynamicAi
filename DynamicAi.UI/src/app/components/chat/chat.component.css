@@ -449,7 +449,8 @@ tr:hover td {
 
 .like-btn,
 .dislike-btn,
-.show-sql-btn {
+.show-sql-btn,
+.action-btn {
     background: transparent;
     border: none;
     color: #94a3b8;
@@ -461,6 +462,12 @@ tr:hover td {
     justify-content: center;
     transition: all 0.2s;
     opacity: 0.5;
+}
+
+.action-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    opacity: 1;
 }
 
 .like-btn:hover:not(:disabled) {

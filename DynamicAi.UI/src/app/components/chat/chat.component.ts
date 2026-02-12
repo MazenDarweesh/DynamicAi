@@ -6,6 +6,7 @@ import { ChatSignalService } from '../../services/chat-signal.service';
 import { environment } from '../../../environments/environment';
 import { ChatMessage } from '../../models';
 import { Observable } from 'rxjs';
+import * as xlsx from 'xlsx';
 
 @Component({
     selector: 'app-chat',
@@ -444,5 +445,77 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         });
     }
 
+    // 🖨️ Print Data Table
+    printTable(msg: ChatMessage) {
+        if (!msg.tableData || msg.tableData.length === 0) return;
 
+        const printWindow = window.open('', '', 'height=600,width=800');
+        if (!printWindow) return;
+
+        const keys = this.getKeys(msg.tableData[0]);
+        let tableHtml = `
+        <html>
+        <head>
+            <title>Dynamic AI - Print Data</title>
+            <style>
+                body { font-family: Arial, sans-serif; padding: 20px; }
+                h2 { color: #333; }
+                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                th { background-color: #f2f2f2; }
+                tr:nth-child(even) { background-color: #f9f9f9; }
+            </style>
+        </head>
+        <body>
+            <h2>Data Result (${msg.tableData.length} rows)</h2>
+            <p>Question: "${msg.originalQuestion || 'N/A'}"</p>
+            <table>
+                <thead>
+                    <tr>${keys.map(k => `<th>${k}</th>`).join('')}</tr>
+                </thead>
+                <tbody>
+                    ${msg.tableData.map(row => `
+                        <tr>${keys.map(k => `<td>${row[k]}</td>`).join('')}</tr>
+                    `).join('')}
+                </tbody>
+            </table>
+            <script>
+                window.onload = function() { window.print(); window.close(); }
+            </script>
+        </body>
+        </html>`;
+
+        printWindow.document.write(tableHtml);
+        printWindow.document.close();
+    }
+
+    // 📥 Export to Excel (using xlsx)
+    async exportExcel(msg: ChatMessage) {
+        if (!msg.tableData || msg.tableData.length === 0) return;
+
+        try {
+            // Dynamically import xlsx to keep bundle size optimized if desired, or just use standard import
+            // Since user asked for "import * as xlsx", we will use that at the top level, 
+            // but for now let's assume standard import is available.
+
+            // NOTE: We need to import xlsx at the top of the file. 
+            // I will add the import statement in a separate replacement chunk.
+
+            const worksheet = xlsx.utils.json_to_sheet(msg.tableData);
+            const workbook = xlsx.utils.book_new();
+            xlsx.utils.book_append_sheet(workbook, worksheet, 'Data');
+
+            // Generate filename based on question or timestamp
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+            const sanitizedQ = (msg.originalQuestion || 'data').replace(/[^a-z0-9]/gi, '_').substring(0, 20);
+            const fileName = `DynamicAI_${sanitizedQ}_${timestamp}.xlsx`;
+
+            xlsx.writeFile(workbook, fileName);
+
+            console.log('✅ Exported to Excel:', fileName);
+        } catch (error) {
+            console.error('❌ Export failed:', error);
+            alert('Failed to export Excel. Please try again.');
+        }
+    }
 }
