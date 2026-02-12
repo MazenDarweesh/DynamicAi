@@ -1,65 +1,83 @@
-<div class="dashboard-container">
-    <h1>LLM Usage & Cost Dashboard</h1>
+<div class="training-container">
+    <div class="header">
+        <h1>💰 LLM Cost & Usage Dashboard</h1>
+        <span class="refresh-badge" (click)="loadData()">🔄 Refresh Data</span>
+    </div>
 
-    <!-- KPIs Row -->
-    <div class="kpi-row" *ngIf="budgetInfo">
-        <div class="card">
-            <h3>Budget Status</h3>
-            <div class="badge" [ngClass]="getStatusColor(budgetInfo.status)">
+    <p class="subtitle">Monitor AI token consumption, costs, and budget health.</p>
+
+    <!-- KPI Cards -->
+    <div class="stats-grid" *ngIf="budgetInfo">
+        <div class="stat-card glass">
+            <div class="icon">📊</div>
+            <div class="value"
+                [ngClass]="{'text-success': budgetInfo.status === 'Allowed', 'text-warning': budgetInfo.status === 'Warning', 'text-danger': budgetInfo.status === 'Exceeded'}">
                 {{ budgetInfo.status }}
             </div>
+            <div class="label">Budget Status</div>
         </div>
-        <div class="card">
-            <h3>Today's Cost</h3>
-            <div class="metric">${{ dailyTotal?.totalCostUsd | number:'1.4-4' }}</div>
+        <div class="stat-card glass">
+            <div class="icon">💸</div>
+            <div class="value">${{ dailyTotal?.totalCostUsd | number:'1.4-4' }}</div>
+            <div class="label">Today's Cost</div>
         </div>
-        <div class="card">
-            <h3>Budget Used</h3>
-            <div class="metric">{{ budgetInfo.percentageUsed }}%</div>
-            <div class="sub-metric">of ${{ budgetInfo.dailyLimitUsd }}</div>
+        <div class="stat-card glass">
+            <div class="icon">📉</div>
+            <div class="value">{{ budgetInfo.percentageUsed }}%</div>
+            <div class="label">Of ${{ budgetInfo.dailyLimitUsd }} Limit</div>
         </div>
-        <div class="card">
-            <h3>Provider</h3>
-            <div class="metric">{{ budgetInfo.providerName }}</div>
+        <div class="stat-card glass">
+            <div class="icon">🤖</div>
+            <div class="value" style="font-size: 1.5rem;">{{ budgetInfo.providerName }}</div>
+            <div class="label">Active Provider</div>
         </div>
     </div>
 
     <!-- Charts Row -->
-    <div class="charts-row">
-        <div class="chart-card">
-            <h3>7-Day Trend</h3>
-            <canvas baseChart [data]="trendLineChartData" [options]="trendLineChartOptions" [type]="'line'">
-            </canvas>
+    <div class="charts-row" style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">
+        <div class="glass" style="padding: 1.5rem; height: 350px;">
+            <h3 style="color: #ccc; margin-bottom: 1rem; font-size: 1.2rem;">📅 7-Day Cost Trend</h3>
+            <div style="height: 280px;">
+                <canvas baseChart [data]="trendLineChartData" [options]="trendLineChartOptions" [type]="'line'">
+                </canvas>
+            </div>
         </div>
-        <div class="chart-card">
-            <h3>Cost by Operation</h3>
-            <canvas baseChart [data]="pieChartData" [options]="pieChartOptions" [type]="'pie'">
-            </canvas>
+        <div class="glass" style="padding: 1.5rem; height: 350px;">
+            <h3 style="color: #ccc; margin-bottom: 1rem; font-size: 1.2rem;">🍰 Cost by Operation</h3>
+            <div style="height: 280px;">
+                <canvas baseChart [data]="pieChartData" [options]="pieChartOptions" [type]="'pie'">
+                </canvas>
+            </div>
         </div>
     </div>
 
     <!-- Recent Logs Table -->
-    <div class="table-container">
-        <h3>Recent Usage Logs</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th>Operation</th>
-                    <th>Model</th>
-                    <th>Tokens (In/Out)</th>
-                    <th>Cost</th>
-                    <th>Date</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr *ngFor="let log of recentLogs">
-                    <td>{{ log.operationType }}</td>
-                    <td>{{ log.modelName }}</td>
-                    <td>{{ log.inputTokens }} / {{ log.outputTokens }}</td>
-                    <td>${{ log.costUsd | number:'1.6-6' }}</td>
-                    <td>{{ log.createdAt | date:'short' }}</td>
-                </tr>
-            </tbody>
-        </table>
+    <div class="pending-section glass">
+        <div class="header" style="margin-bottom: 0;">
+            <h3>📋 Recent Usage Logs</h3>
+        </div>
+
+        <div class="table-container">
+            <table class="examples-table">
+                <thead>
+                    <tr>
+                        <th>Operation</th>
+                        <th>Model</th>
+                        <th>Tokens (In/Out)</th>
+                        <th>Cost</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr *ngFor="let log of recentLogs">
+                        <td class="source-cell" style="color: #4facfe; font-weight: 600;">{{ log.operationType }}</td>
+                        <td class="query-cell">{{ formatModelName(log.modelName) }}</td>
+                        <td class="source-cell">{{ log.inputTokens }} / {{ log.outputTokens }}</td>
+                        <td class="sql-cell" style="color: #86efac;">${{ log.costUsd | number:'1.6-6' }}</td>
+                        <td class="source-cell">{{ log.createdAt | date:'shortTime' }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>

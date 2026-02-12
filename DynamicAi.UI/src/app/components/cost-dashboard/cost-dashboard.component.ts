@@ -1,8 +1,10 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, inject, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LlmCostService, BudgetInfo, DayCost, UsageLog, OperationCost } from '../../services/llm-cost.service';
 import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration, ChartOptions } from 'chart.js';
+import { Router, NavigationEnd, Event } from '@angular/router';
+import { filter, Subscription } from 'rxjs';
 
 @Component({
     selector: 'app-cost-dashboard',
@@ -11,8 +13,10 @@ import { ChartConfiguration, ChartOptions } from 'chart.js';
     templateUrl: './cost-dashboard.component.html',
     styleUrls: ['./cost-dashboard.component.scss']
 })
-export class CostDashboardComponent implements OnInit {
+export class CostDashboardComponent implements OnInit, OnDestroy {
     private costService = inject(LlmCostService);
+    private router = inject(Router);
+    private routerSub?: Subscription;
 
     budgetInfo?: BudgetInfo;
     dailyTotal?: DayCost;
@@ -27,17 +31,26 @@ export class CostDashboardComponent implements OnInit {
                 data: [],
                 label: 'Daily Cost ($)',
                 fill: true,
-                tension: 0.5,
-                borderColor: 'black',
-                backgroundColor: 'rgba(0,0,0,0.1)'
+                tension: 0.4,
+                borderColor: '#4facfe',
+                backgroundColor: 'rgba(79, 172, 254, 0.1)',
+                pointBackgroundColor: '#fff',
+                pointBorderColor: '#4facfe',
+                pointHoverBackgroundColor: '#4facfe',
+                pointHoverBorderColor: '#fff'
             }
         ]
     };
     public trendLineChartOptions: ChartOptions<'line'> = {
         responsive: true,
+        maintainAspectRatio: false,
         plugins: {
             legend: { display: false },
-            title: { display: true, text: '7-Day Cost Trend' }
+            title: { display: false } // Hidden title for cleaner look
+        },
+        scales: {
+            x: { grid: { display: false }, ticks: { color: '#888' } },
+            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#888' } }
         }
     };
 
@@ -45,19 +58,34 @@ export class CostDashboardComponent implements OnInit {
     public pieChartData: ChartConfiguration<'pie'>['data'] = {
         labels: [],
         datasets: [{
-            data: []
+            data: [],
+            backgroundColor: ['#4facfe', '#00f2fe', '#43e97b', '#fa709a', '#fee140'],
+            borderColor: 'rgba(30, 30, 40, 0.7)',
+            borderWidth: 2
         }]
     };
     public pieChartOptions: ChartOptions<'pie'> = {
         responsive: true,
+        maintainAspectRatio: false,
         plugins: {
-            legend: { position: 'top' },
-            title: { display: true, text: 'Cost by Operation' }
+            legend: { position: 'right', labels: { color: '#ccc', usePointStyle: true } },
+            title: { display: false }
         }
     };
 
     ngOnInit(): void {
         this.loadData();
+
+        // Subscribe to router events for refresh on re-navigation
+        this.routerSub = this.router.events.pipe(
+            filter((event: Event): event is NavigationEnd => event instanceof NavigationEnd)
+        ).subscribe(() => {
+            this.loadData();
+        });
+    }
+
+    ngOnDestroy(): void {
+        this.routerSub?.unsubscribe();
     }
 
     loadData(): void {
@@ -94,5 +122,9 @@ export class CostDashboardComponent implements OnInit {
             case 'Exceeded': return 'bg-danger';
             default: return 'bg-secondary';
         }
+    }
+
+    formatModelName(name: string): string {
+        return name ? name.replace('models/', '') : 'Unknown';
     }
 }

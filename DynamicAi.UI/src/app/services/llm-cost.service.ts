@@ -37,7 +37,7 @@ export interface UsageLog {
 })
 export class LlmCostService {
     private readonly http = inject(HttpClient);
-    private readonly baseUrl = 'https://localhost:7196/api/llm-costs'; // Adjust port if needed
+    private readonly baseUrl = 'https://localhost:7257/api/llm-costs'; // Adjust port if needed
 
     getBudgetStatus(): Observable<BudgetInfo> {
         return this.http.get<BudgetInfo>(`${this.baseUrl}/budget-status`);
