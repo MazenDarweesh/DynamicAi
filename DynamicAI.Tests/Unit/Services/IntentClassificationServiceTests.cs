@@ -24,6 +24,7 @@ public class IntentClassificationServiceTests
     private readonly Mock<IEmbeddingGenerator<string, Embedding<float>>> _mockEmbeddingService;
     private readonly Mock<IChatCompletionService> _mockChatService;
     private readonly Mock<IIntentExampleManagementService> _mockIntentManager;
+    private readonly Mock<ILlmUsageTracker> _mockUsageTracker;
     private readonly Mock<IConfiguration> _mockConfiguration;
     private readonly Mock<ILogger<IntentClassificationService>> _mockLogger;
     private readonly IntentClassificationService _service;
@@ -34,6 +35,7 @@ public class IntentClassificationServiceTests
         _mockEmbeddingService = new Mock<IEmbeddingGenerator<string, Embedding<float>>>();
         _mockChatService = new Mock<IChatCompletionService>();
         _mockIntentManager = new Mock<IIntentExampleManagementService>();
+        _mockUsageTracker = new Mock<ILlmUsageTracker>();
         _mockConfiguration = new Mock<IConfiguration>();
         _mockLogger = new Mock<ILogger<IntentClassificationService>>();
 
@@ -51,6 +53,7 @@ public class IntentClassificationServiceTests
             _mockEmbeddingService.Object,
             _mockChatService.Object,
             _mockIntentManager.Object,
+            _mockUsageTracker.Object,
             _mockConfiguration.Object,
             _mockLogger.Object
         );

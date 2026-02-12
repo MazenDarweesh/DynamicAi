@@ -44,14 +44,16 @@ namespace DynamicAI.Tests.Services;
 public class QueryCondenserServiceTests
 {
     private readonly IChatCompletionService _chatService;
+    private readonly ILlmUsageTracker _usageTracker;
     private readonly ILogger<QueryCondenserService> _logger;
     private readonly QueryCondenserService _sut;
 
     public QueryCondenserServiceTests()
     {
         _chatService = A.Fake<IChatCompletionService>();
+        _usageTracker = A.Fake<ILlmUsageTracker>();
         _logger = A.Fake<ILogger<QueryCondenserService>>();
-        _sut = new QueryCondenserService(_chatService, _logger);
+        _sut = new QueryCondenserService(_chatService, _usageTracker, _logger);
     }
 
     #region Identity Fallback Tests
@@ -64,7 +66,7 @@ public class QueryCondenserServiceTests
         var currentQuestion = "هات العملاء";
 
         // Act
-        var result = await _sut.CondenseQuestionAsync(currentQuestion, null, null);
+        var result = await _sut.CondenseQuestionAsync(currentQuestion, null, null, A<string?>.Ignored, A<int?>.Ignored);
 
         // Assert
         result.ActionType.Should().Be(QueryActionType.New);
@@ -84,7 +86,7 @@ public class QueryCondenserServiceTests
         var currentQuestion = "هات الفواتير";
 
         // Act
-        var result = await _sut.CondenseQuestionAsync(currentQuestion, "", null);
+        var result = await _sut.CondenseQuestionAsync(currentQuestion, "", null, A<string?>.Ignored, A<int?>.Ignored);
 
         // Assert
         result.ActionType.Should().Be(QueryActionType.New);
@@ -98,7 +100,7 @@ public class QueryCondenserServiceTests
         var currentQuestion = "هات المنتجات";
 
         // Act
-        var result = await _sut.CondenseQuestionAsync(currentQuestion, "   ", null);
+        var result = await _sut.CondenseQuestionAsync(currentQuestion, "   ", null, A<string?>.Ignored, A<int?>.Ignored);
 
         // Assert
         result.ActionType.Should().Be(QueryActionType.New);
@@ -116,7 +118,7 @@ public class QueryCondenserServiceTests
         SetupMockResponse("ACTION: WRAP\nQUESTION: هات آخر 5 فواتير ورتبهم تنازلياً");
 
         // Act
-        var result = await _sut.CondenseQuestionAsync("رتبهم تنازلياً", "هات آخر 5 فواتير", "SELECT TOP 5 ...");
+        var result = await _sut.CondenseQuestionAsync("رتبهم تنازلياً", "هات آخر 5 فواتير", "SELECT TOP 5 ...", A<string?>.Ignored, A<int?>.Ignored);
 
         // Assert
         result.ActionType.Should().Be(QueryActionType.WrapPrevious);
@@ -131,7 +133,7 @@ public class QueryCondenserServiceTests
         SetupMockResponse("ACTION: REGENERATE\nQUESTION: هات الفواتير الغير مدفوعة");
 
         // Act
-        var result = await _sut.CondenseQuestionAsync("هات الغير مدفوعة منهم", "هات الفواتير", "SELECT ...");
+        var result = await _sut.CondenseQuestionAsync("هات الغير مدفوعة منهم", "هات الفواتير", "SELECT ...", A<string?>.Ignored, A<int?>.Ignored);
 
         // Assert
         result.ActionType.Should().Be(QueryActionType.Regenerate);
@@ -146,7 +148,7 @@ public class QueryCondenserServiceTests
         SetupMockResponse("ACTION: NEW\nQUESTION: هات العملاء");
 
         // Act
-        var result = await _sut.CondenseQuestionAsync("هات العملاء", "هات الفواتير", "SELECT ...");
+        var result = await _sut.CondenseQuestionAsync("هات العملاء", "هات الفواتير", "SELECT ...", A<string?>.Ignored, A<int?>.Ignored);
 
         // Assert
         result.ActionType.Should().Be(QueryActionType.New);
@@ -161,7 +163,7 @@ public class QueryCondenserServiceTests
         SetupMockResponse("action: wrap\nquestion: Test question");
 
         // Act
-        var result = await _sut.CondenseQuestionAsync("sort them", "show invoices", "SELECT ...");
+        var result = await _sut.CondenseQuestionAsync("sort them", "show invoices", "SELECT ...", A<string?>.Ignored, A<int?>.Ignored);
 
         // Assert
         result.ActionType.Should().Be(QueryActionType.WrapPrevious);
@@ -175,7 +177,7 @@ public class QueryCondenserServiceTests
         SetupMockResponse("ACTION: Regenerate\nQUESTION: Mixed case test");
 
         // Act
-        var result = await _sut.CondenseQuestionAsync("test", "prev", "SELECT ...");
+        var result = await _sut.CondenseQuestionAsync("test", "prev", "SELECT ...", A<string?>.Ignored, A<int?>.Ignored);
 
         // Assert
         result.ActionType.Should().Be(QueryActionType.Regenerate);
@@ -193,7 +195,7 @@ public class QueryCondenserServiceTests
         SetupMockResponse("");
 
         // Act
-        var result = await _sut.CondenseQuestionAsync("test question", "previous question", null);
+        var result = await _sut.CondenseQuestionAsync("test question", "previous question", null, A<string?>.Ignored, A<int?>.Ignored);
 
         // Assert
         result.ActionType.Should().Be(QueryActionType.Regenerate);
@@ -208,7 +210,7 @@ public class QueryCondenserServiceTests
         SetupMockResponse("This is not the expected format at all.");
 
         // Act
-        var result = await _sut.CondenseQuestionAsync("current", "previous", null);
+        var result = await _sut.CondenseQuestionAsync("current", "previous", null, A<string?>.Ignored, A<int?>.Ignored);
 
         // Assert
         result.ActionType.Should().Be(QueryActionType.Regenerate);
@@ -225,7 +227,7 @@ public class QueryCondenserServiceTests
             .ThrowsAsync(new Exception("LLM API Error"));
 
         // Act
-        var result = await _sut.CondenseQuestionAsync("test", "previous", null);
+        var result = await _sut.CondenseQuestionAsync("test", "previous", null, A<string?>.Ignored, A<int?>.Ignored);
 
         // Assert
         result.ActionType.Should().Be(QueryActionType.Regenerate);
@@ -240,7 +242,7 @@ public class QueryCondenserServiceTests
         SetupMockResponse("ACTION: WRAP");
 
         // Act
-        var result = await _sut.CondenseQuestionAsync("current question", "previous", null);
+        var result = await _sut.CondenseQuestionAsync("current question", "previous", null, A<string?>.Ignored, A<int?>.Ignored);
 
         // Assert
         result.ActionType.Should().Be(QueryActionType.WrapPrevious);
@@ -255,7 +257,7 @@ public class QueryCondenserServiceTests
         SetupMockResponse("ACTION: WRAP\nQUESTION: ab");
 
         // Act
-        var result = await _sut.CondenseQuestionAsync("current question", "previous", null);
+        var result = await _sut.CondenseQuestionAsync("current question", "previous", null, A<string?>.Ignored, A<int?>.Ignored);
 
         // Assert
         result.CondensedQuestion.Should().Be("current question"); // Ignores short

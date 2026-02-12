@@ -27,6 +27,7 @@ namespace DynamicAi.Application.Services
         private readonly ILlmUsageTracker _usageTracker;
         private readonly ILogger<QueryOrchestrator> _logger;
         private readonly IConversationContextService _contextService;
+        private readonly IFeedbackService _feedbackService;
         private readonly bool _queryCacheEnabled;
 
         #endregion
@@ -39,12 +40,14 @@ namespace DynamicAi.Application.Services
             IIntentExampleManagementService intentExampleManagementService,
             IQueryLogRepository queryLogRepo,
             IConversationContextService contextService,
+            IFeedbackService feedbackService,
             ILlmUsageTracker usageTracker,
             ILogger<QueryOrchestrator> logger,
             IConfiguration configuration)
         {
             _handlerFactory = handlerFactory;
             _contextService = contextService;
+            _feedbackService = feedbackService;
             _intentClassifier = intentClassifier;
             _intentManager = intentExampleManagementService;
             _queryLogRepo = queryLogRepo;
@@ -195,6 +198,10 @@ namespace DynamicAi.Application.Services
                     {
                         await _queryLogRepo.AddAsync(queryLog);
                         _logger.LogDebug("[Orchestrator] Query log saved: {LogId}", queryLogId);
+
+                        // 📋 Auto-Capture for Training Dataset (M13)
+                        // This ensures every successful AI generation is captured for review
+                        _ = _feedbackService.AutoCaptureExampleAsync(queryLogId, comID);
                     }
                     catch (Exception logEx)
                     {
@@ -229,8 +236,11 @@ namespace DynamicAi.Application.Services
 
                 #endregion
 
-                result.Intent = intentResult.Intent.ToString();
-                return result;
+                if (result != null && intentResult != null)
+                {
+                    result.Intent = intentResult.Intent.ToString();
+                }
+                return result!;
 
                 #endregion
             }

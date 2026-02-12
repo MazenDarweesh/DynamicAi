@@ -8,6 +8,11 @@ export interface TrainingStats {
     verified: number;
 
     /**
+     * Total number of examples (verified + pending)
+     */
+    total: number;
+
+    /**
      * Number of examples pending review
      */
     pendingReview: number;

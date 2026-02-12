@@ -21,10 +21,13 @@ export class TrainingDataComponent implements OnInit {
     error: string | null = null;
     exportMessage: string | null = null;
 
-    // Pending examples properties
     pendingExamples: any[] = [];
     loadingPending = false;
     processingId: string | null = null;
+
+    // SQL Modal properties
+    showSqlModal = false;
+    selectedSql = '';
 
     // Manual form properties
     manualForm: ManualTrainingRequest = {
@@ -193,5 +196,17 @@ export class TrainingDataComponent implements OnInit {
                 this.cdr.detectChanges();
             }
         });
+    }
+
+    openSqlModal(sql: string) {
+        this.selectedSql = sql;
+        this.showSqlModal = true;
+        this.cdr.detectChanges();
+    }
+
+    closeSqlModal() {
+        this.showSqlModal = false;
+        this.selectedSql = '';
+        this.cdr.detectChanges();
     }
 }

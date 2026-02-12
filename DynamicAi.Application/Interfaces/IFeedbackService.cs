@@ -27,4 +27,9 @@ public interface IFeedbackService
     /// إدخال يدوي من المطور (للأسئلة الصعبة).
     /// </summary>
     Task<bool> AddManualExampleAsync(string naturalQuery, string sql, string? notes = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// التقاط آلي لكل عملية توليد SQL ناجحة لغرض التدريب.
+    /// </summary>
+    Task<bool> AutoCaptureExampleAsync(Guid queryLogId, int? tenantId = null, CancellationToken cancellationToken = default);
 }

@@ -145,4 +145,38 @@ public class FeedbackService : IFeedbackService
             return false;
         }
     }
+
+    public async Task<bool> AutoCaptureExampleAsync(Guid queryLogId, int? tenantId = null, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var queryLog = await _queryLogRepo.GetByIdAsync(queryLogId, cancellationToken);
+
+            if (queryLog == null || string.IsNullOrEmpty(queryLog.GeneratedSql))
+            {
+                return false;
+            }
+
+            var example = new TrainingExample
+            {
+                NaturalQuery = queryLog.RawQuestion,
+                GeneratedSql = queryLog.GeneratedSql,
+                SchemaContext = queryLog.SchemaContext,
+                FeedbackSource = "AutoCapture",
+                OriginalQueryLogId = queryLogId,
+                TenantId = tenantId ?? queryLog.CompanyId,
+                IsVerified = false
+            };
+
+            await _trainingRepo.AddAsync(example, cancellationToken);
+            _logger.LogInformation("🤖 [Feedback] Auto-Captured Query for review: {QueryLogId}", queryLogId);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Feedback] Error in AutoCapture for {QueryLogId}", queryLogId);
+            return false;
+        }
+    }
 }

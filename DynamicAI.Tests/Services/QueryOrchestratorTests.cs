@@ -27,6 +27,7 @@ public class QueryOrchestratorTests
     private readonly ILogger<QueryOrchestrator> _logger;
     private readonly IConfiguration _configuration;
     private readonly IConversationContextService _contextService;
+    private readonly IFeedbackService _feedbackService;
 
     public QueryOrchestratorTests()
     {
@@ -39,6 +40,7 @@ public class QueryOrchestratorTests
         _logger = A.Fake<ILogger<QueryOrchestrator>>();
         _configuration = A.Fake<IConfiguration>();
         _contextService = A.Fake<IConversationContextService>();
+        _feedbackService = A.Fake<IFeedbackService>();
 
         // Default Configuration
         A.CallTo(() => _configuration["Caching:QueryCache:Enabled"]).Returns("true");
@@ -49,6 +51,7 @@ public class QueryOrchestratorTests
             _intentManager,
             _queryLogRepo,
             _contextService,
+            _feedbackService,
             _usageTracker,
             _logger,
             _configuration
@@ -67,7 +70,7 @@ public class QueryOrchestratorTests
         IIntentHandler? handler = A.Fake<IIntentHandler>();
 
         // 1. Classify
-        A.CallTo(() => _intentClassifier.ClassifyIntentAsync(userQuestion, A<CancellationToken>._))
+        A.CallTo(() => _intentClassifier.ClassifyIntentAsync(userQuestion, A<string?>._, A<int?>._, A<CancellationToken>._))
             .Returns(Task.FromResult(intentResult));
 
         // 2. Get Handler
@@ -112,7 +115,7 @@ public class QueryOrchestratorTests
         IIntentHandler? handler = null;
 
         // 1. Classify
-        A.CallTo(() => _intentClassifier.ClassifyIntentAsync(userQuestion, A<CancellationToken>._))
+        A.CallTo(() => _intentClassifier.ClassifyIntentAsync(userQuestion, A<string?>._, A<int?>._, A<CancellationToken>._))
             .Returns(Task.FromResult(intentResult));
 
         // 2. Get Handler (Fail)
@@ -134,7 +137,7 @@ public class QueryOrchestratorTests
 
         IIntentHandler? handler = null;
 
-        A.CallTo(() => _intentClassifier.ClassifyIntentAsync(userQuestion, A<CancellationToken>._))
+        A.CallTo(() => _intentClassifier.ClassifyIntentAsync(userQuestion, A<string?>._, A<int?>._, A<CancellationToken>._))
             .Returns(Task.FromResult(intentResult));
 
         A.CallTo(() => _handlerFactory.TryGetHandler(intentResult.Intent, out handler))
