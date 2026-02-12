@@ -1,5 +1,7 @@
 <div class="app-container">
   <div class="glass-layout">
+    <!-- Mobile Sidebar Backdrop -->
+    <div class="mobile-sidebar-backdrop" *ngIf="isSidebarOpen" (click)="toggleSidebar()"></div>
     <!-- Sidebar -->
     <div class="sidebar" [class.closed]="!isSidebarOpen">
       <div class="sidebar-header">
