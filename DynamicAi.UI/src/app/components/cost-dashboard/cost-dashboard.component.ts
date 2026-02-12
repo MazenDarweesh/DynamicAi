@@ -168,7 +168,11 @@ export class CostDashboardComponent implements OnInit, OnDestroy {
 
         // 5. Recent Logs
         this.costService.getRecentLogs(20).subscribe(logs => {
-            this.recentLogs = logs;
+            this.recentLogs = logs.map(l => ({
+                ...l,
+                // Force UTC interpretation if 'Z' is missing, so Angular pipe converts correctly
+                createdAt: l.createdAt.endsWith('Z') ? l.createdAt : l.createdAt + 'Z'
+            }));
             this.cdr.markForCheck();
         });
     }
