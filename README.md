@@ -135,6 +135,41 @@ Dynamic AI treats the LLM as a probabilistic component wrapped in a deterministi
 
 ---
 
+## 💎 Enterprise LLM Cost Governance (Financial Guardrails)
+
+> **"AI is only as good as its ROI. We don't just track costs; we control them."**
+
+In v1.6.0, Dynamic AI introduced a sophisticated **LLM Financial Governance System**. This is a mission-critical layer for any production-grade AI system, transforming unpredictable API bills into a predictable, manageable business expense.
+
+### 🛡️ The Financial "Iron Dome" Architecture
+
+We've implemented a **Non-Bypassable Cost Tracking & Limiting Layer** integrated across 16 critical AI call points:
+
+1.  **Precision Unit Tracking (Token Extraction)**:
+    *   **Mechanism**: Uses the official **Google.GenAI / Semantic Kernel SDKs** to extract *actual* token usage from every raw response.
+    *   **Granularity**: Tracks Input Tokens, Output Tokens, and Total Tokens with 100% precision (no estimations).
+
+2.  **Real-time USD Financial Mapping**:
+    *   **Architecture**: A high-performance usage service (`LlmUsageTracker`) maps tokens to current model pricing (e.g., Gemini 2.0 Flash/Pro) with **8-decimal USD precision**.
+    *   **Impact**: Executives see exact financial impact per query, per team, and per dashboard.
+
+3.  **Active Circuit Breakers (Daily Budgeting)**:
+    *   **Dynamic Rate Limiting**: Every Tenant has a **Daily USD Budget**. Once reached, the system triggers an automatic **Circuit Breaker**, gracefully denying new AI requests to prevent "Bill Shock."
+    *   **Self-Healing**: Limits auto-reset at 00:00 UTC, ensuring continuous operations without manual intervention.
+
+4.  **Glassmorphism Financial Dashboard**:
+    *   A premium, real-time UI that visualizes:
+        *   **💰 Total Burn**: Daily spending against quotas.
+        *   **📈 Efficiency Ratio**: Cost vs. Value (Intent distribution).
+        *   **📊 Multi-Tenant Visibility**: Breakdown of usage by Company/User.
+
+### 💰 Why This Matters:
+*   **Prevent "Toxic Queries"**: Automatically blocks infinite character loops or recursive hallucinations from draining tokens.
+*   **ROI Validation**: Quantify the cost of a "Chat" versus a "SQL Generation" to optimize resource allocation.
+*   **Scale with Confidence**: Deploy to 100+ clients knowing that no single user can consume the entire organization's AI budget.
+
+---
+
 ## 🧩 Key Components
 
 ### 1. Schema Generator Pipeline (`SchemaGenerator` & `SchemaBootstrapper`)
@@ -186,6 +221,22 @@ The core of Dynamic AI is its **Intelligent Intent Orchestrator**, which evolves
 3.  **`PredictIntentHandler`**: For future insights. Uses **Conversation Context** to predict trends based on previously fetched data.
 4.  **`PredictionWithDataFetch`**: A **Multi-Step Pipeline** that extracts a data-query first, executes it, and then feeds the result into the prediction engine.
 
+### 💹 Financial Governance Dashboard (Preview)
+
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│ 💎 LLM FINANCIAL GOVERNANCE SYSTEM                                     │
+├────────────────────────────────────────────────────────────────────────┤
+│  [ DAILY BUDGET: $5.00 ]                      [ BURN RATE: $0.12/hr ]  │
+│  ████████░░░░░░░░░░░░░  $1.25 used (25%)                               │
+├────────────────────────────────────────┬───────────────────────────────┤
+│  BY INTENT:                            │  BY MODEL:                    │
+│  - DATA RETRIEVAL: $0.85 (68%)  [■■■]  │  - Gemini 2.0 Flash: $0.95    │
+│  - ANALYSIS:       $0.30 (24%)  [■]    │  - Gemini 2.0 Pro:   $0.30    │
+│  - CHAT:           $0.10 (08%)  [ ]    │                               │
+└────────────────────────────────────────┴───────────────────────────────┘
+```
+
 ---
 
 ## 🔄 Context-Aware Data Loop ("Memory Task")
@@ -222,7 +273,10 @@ A modern, responsive web interface built with **Angular (Latest)**.
 *   **🆕 Dashboard:** Real-time glassmorphism dashboard tracking:
     *   **Performance:** P95/P99 Latency, Error Rates.
     *   **Intelligence:** Intent Distribution (SQL vs. Chat vs. Predict).
-    *   **Cost:** Token usage and estimated USD cost.
+    *   **Cost & Governance (M6/M7):** Glassmorphism dashboard tracking:
+        *   **Daily Quotas**: Progress bars showing usage vs. $USD Limit.
+        *   **Token Breakdown**: Precise Input/Output token split.
+        *   **Cost Distribution**: Tracking expenditure across different Intent types.
     *   **CSAT:** User Satisfaction Score derived from Like/Dislike feedback.
 *   **Feedback System:** Like/Dislike buttons with user comments for Golden Dataset collection.
 *   **SQL Display:** Copy-to-clipboard functionality for viewing generated SQL.
@@ -525,9 +579,16 @@ DynamicAi/
 
 ## 🔮 Future Roadmap
 
-Moving from **Validation (v1.4.0)** to **Scale & Hardening (v1.5.0+)**.
+### ✅ Recently Completed (v1.6.0) - "The Financial Hardening"
 
-### ✅ Recently Completed (v1.5.0)
+| Feature | Status | Impact |
+|:---|:---:|:---|
+| **💎 Cost Governance** | ✅ Done | **Zero Bill Shock:** 100% tracked call points. |
+| **🛡️ Daily Budgeting** | ✅ Done | **Auto-Circuit Breaker:** Per-tenant USD limits. |
+| **📊 Financial Dashboard** | ✅ Done | **Premium Analytics:** Real-time glassmorphic UI. |
+| **M13: Auto-Capture** | ✅ Done | **Self-Learning:** Reliable Training data loop. |
+
+### ✅ Previously Completed (v1.5.0)
 
 | Feature | Status | Impact |
 |:---|:---:|:---|
@@ -563,6 +624,26 @@ Moving from **Validation (v1.4.0)** to **Scale & Hardening (v1.5.0+)**.
 ---
 
 ## 📝 Changelog
+
+### v1.6.0 (2026-02-12) - The Financial Governance & Reliability Update 🛡️
+**"The Enterprise Maturity Milestone"**
+
+**Governance & Financial Controls:**
+*   ✅ **LLM Usage Tracker:** High-precision USD cost calculations across all AI handlers.
+*   ✅ **Token Extraction Engine:** Deep SDK integration for 100% accurate token counting.
+*   ✅ **Daily Budget Limiter:** Per-tenant USD limits with automatic circuit-breaking protection.
+*   ✅ **Glassmorphism Cost Dashboard:** Real-time visual tracking of AI expenditure and efficiency.
+
+**Reliability & Automation:**
+*   ✅ **Training Auto-Capture (M13):** Asynchronous, race-condition-protected loop that captures successful SQL for the "Golden Dataset."
+*   ✅ **ITrainingExampleRepository Expansion:** Added `ExistsByQueryLogIdAsync` to prevent duplicate data captures.
+
+**UI/UX Enhancements:**
+*   ✅ **Data Actions:** Integrated Print and Excel export functionality.
+*   ✅ **Advanced Table Controls:** Horizontal scrolling fix and compact layout for data-heavy grids.
+*   ✅ **Training Stats UI:** Real-time counters for Pending vs. Verified examples.
+
+---
 
 ### v1.5.0 (2026-02-08) - The Performance & Intelligence Update ⚡
 **"The Scalability Milestone"**
