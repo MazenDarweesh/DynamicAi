@@ -483,63 +483,46 @@ docker-compose up
 
 We have successfully deployed the **Triple-Layer Caching Architecture**, transforming Dynamic AI from a reactive system into a proactive, high-performance intelligence engine.
 
-### ✅ Implemented Features (v1.5.0 & v1.4.0)
+### ✅ Implemented Features (v1.6.0, v1.5.0 & v1.4.0)
 
-#### 1. ⚡ The Triple-Layer Caching Engine (New in v1.5.0)
-*   **Layer 1: Semantic Intent Cache (Router)**
-    *   **Goal:** Instant recognition of repeated questions (e.g., "Show revenue" = "Sales").
-    *   **Tech:** Qdrant Vector Search (<50ms).
-*   **Layer 2: RAG Context Cache (The Knowledge)**
-    *   **Goal:** Eliminate redundant Vector DB queries for the same Page context.
-    *   **Tech:** In-Memory Metadata Cache (<10ms).
-*   **Layer 3: Generative Response Cache (The LLM)**
-    *   **Goal:** Smart caching of complex SQL logic.
-    *   **Tech:** Gemini Smart Cache (~1.5s).
+#### 1. 💎 Financial Governance & Cost Excellence (New in v1.6.0)
+*   **Precision Token Extraction**: Integrated directly with Google GenAI SDK for 100% accurate token counting.
+*   **USD Mapping Engine**: Real-time conversion of tokens to actual financial cost ($USD).
+*   **Daily Budget Circuit Breaker**: Automatic stopping of AI requests once a tenant's daily limit is reached.
+*   **Financial Dashboard**: High-fidelity glassmorphism UI for tracking AI spend and ROI.
 
-#### 2. 🛡️ Engineering Excellence: The Context Decoupler (New in v1.5.0)
-*   **Problem:** High-concurrency sometimes led to "stale" metadata.
-*   **Solution:** Decoupled Schema Retrieval from Context Assembly.
-*   **Result:** **100% Schema Accuracy** (Zero Hallucinations on Table Names).
+#### 2. ⚡ The Triple-Layer Caching Engine (v1.5.0 Breakthrough)
+*   **Layer 1: Semantic Intent Cache**: Instant recognition of repeated questions via Qdrant (<50ms).
+*   **Layer 2: RAG Context Cache**: In-memory metadata storage to bypass Vector DB for known pages.
+*   **Layer 3: Gemini Smart Cache**: Context-aware caching of complex SQL generation logic.
 
-#### 3. 🧠 The Hybrid Router (v1.4.0 Baseline)
-*   **Phase 0 - Cold Start:** Incremental Intent Seeding ensures zero-downtime bootstrapping.
-*   **Phase 1 - The Brain:** Vector-based classification with LLM fallback.
-*   **Phase 2 - Safety Net:** Low-confidence queries routed for review.
-*   **Phase 3 - Handlers:** Decoupled execution paths:
-    *   **`SqlIntentHandler`**: Full 7-layer pipeline (Condensing → Cache → RAG → Generation → Validation → Execution).
-    *   **`ChatIntentHandler`**: Lightweight LLM responses (No DB access).
-    *   **`PredictIntentHandler`**: Context-aware predictions on fetched data.
+#### 3. 🛡️ Engineering Excellence: The Context Decoupler (v1.5.0)
+*   **Problem**: High-concurrency "stale" metadata risk.
+*   **Solution**: Decoupled schema fetch from context assembly.
+*   **Result**: 100% schema accuracy and zero table-name hallucinations.
 
-#### 4. 🔄 Context-Aware Data Loop
-*   **`ConversationContextService`**: In-memory + persistent storage of conversation turns.
-*   **Smart Sampling**: Automatically truncates large result sets to stay within token limits.
-*   **Cross-Handler Context**: Predict Handler can "see" data fetched by SQL Handler.
+#### 4. 🧠 The Hybrid Router (v1.4.0 Baseline)
+*   **Phase 0-3 Evolution**: From cold-start seeding to vector-based classification with LLM fallback.
+*   **Specialized Handlers**: Decoupled execution paths for `Sql`, `Chat`, and `Predict` intents.
 
-#### 5. � Training Data Management (New in v1.5.0)
-*   **Goal:** Build a high-quality "Golden Dataset" for future fine-tuning.
-*   **Manual Entry Form:**
-    *   3-Field Input: Natural Language Question, SQL Code, Notes (Optional).
-    *   **Features:** Real-time validation, Auto-reset, and success feedback.
-*   **Golden Dataset Dashboard:**
-    *   **Stats Cards:** Verified Examples, Pending Review, Target Goal (500), Progress Bar.
-    *   **Export:** Download Verified/All examples as `.jsonl` for Gemini fine-tuning.
+#### 5. 🔄 Context-Aware Data Loop & Memory
+*   **Turn-Based Memory**: Persistent storage of conversation history with smart result sampling.
+*   **Cross-Handler Intelligence**: Predict Handler leverages data previously fetched by the SQL Handler.
 
-#### 6. ✅ Query Insights Tab (New in v1.5.0)
-*   **Goal:** Transparency for developers and power users.
-*   **Features:**
-    *   Visualizes the **Latency Breakdown** (Router vs Cache vs LLM).
-    *   Shows the **Exact SQL** generated.
-    *   Displays **Confidence Score** and **Handler Type**.
+#### 6. 🤖 Self-Healing Training Loop (v1.6.0 Enhancement)
+*   **Auto-Capture M13**: Automated background task that saves successful queries to the Training Dataset.
+*   **Golden Dataset Management**: UI for verifying, rejecting, and exporting (`.jsonl`) training examples for fine-tuning.
+*   **Duplicate Prevention**: Backend validation ensures every query is only captured once.
 
-#### 7. �🛠️ Management & Admin Tools
-*   **Incremental Seeding:** `POST /api/DataSeeder/seed-intents` adds missing intents safely.
-*   **Cache Control:** Endpoints for granular cache invalidation.
-*   **Intent Review:** Admin tools for managing low-confidence classifications.
+#### 7. 📈 Enterprise Data Actions (v1.6.0)
+*   **Advanced Export**: One-click Excel/CSV export of AI-generated result sets.
+*   **Smart Print Styling**: Specialized CSS for clean, professional PDF/Paper reporting.
+*   **SQL View Modal**: Instant access to generated code for transparency and debugging.
 
-#### 8. 🔐 Reliability & Safety
-*   **Clarification Loop**: AI asks for clarification instead of guessing.
-*   **SQL Validation**: AST-based parsing blocks dangerous operations (DML/DDL).
-*   **Prompt Optimization**: 96% token reduction via caching.
+#### 8. 🛠️ Management & Reliability
+*   **Incremental Seeding**: Safety injecting new intents without overwriting manual tweaks.
+*   **SQL Validation**: ScriptDom-based AST parsing to block DML/DDL operations.
+*   **Clarification Loop**: System asks for more info rather than guessing ambiguous queries.
 
 ---
 
