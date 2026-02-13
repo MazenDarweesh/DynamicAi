@@ -27,6 +27,7 @@ namespace DynamicAi.Application.Services
         private readonly IGeminiCacheManager _cacheManager;
         private readonly IConfiguration _config;
         private readonly IGeminiPageContextCache _geminiPageCache;
+        private readonly bool _isGeminiCacheEnabled;
 
         #endregion
 
@@ -58,6 +59,7 @@ namespace DynamicAi.Application.Services
             _cacheManager = cacheManager;
             _geminiPageCache = geminiPageCache;
             _config = configuration;
+            _isGeminiCacheEnabled = _config.GetValue<bool>("Caching:GeminiCache:Enabled", true);
         }
 
         #endregion
@@ -403,53 +405,61 @@ namespace DynamicAi.Application.Services
             string? geminiPageCacheId = null;
             int? extractedPageId = null;
 
-            // Try to extract PageID from UnifiedPageContext
-            if (!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))
+            if (_isGeminiCacheEnabled)
             {
-                try
+                // Try to extract PageID from UnifiedPageContext
+                if (!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))
                 {
-                    using var doc = System.Text.Json.JsonDocument.Parse(contextBundle.UnifiedPageContext);
-                    if (doc.RootElement.TryGetProperty("PageID", out var pageIdProp))
+                    try
                     {
-                        extractedPageId = pageIdProp.TryGetInt32(out var pid) ? pid : null;
+                        using var doc = System.Text.Json.JsonDocument.Parse(contextBundle.UnifiedPageContext);
+                        if (doc.RootElement.TryGetProperty("PageID", out var pageIdProp))
+                        {
+                            extractedPageId = pageIdProp.TryGetInt32(out var pid) ? pid : null;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[SqlGeneration] ⚠️ Failed to extract PageID from context");
                     }
                 }
-                catch (Exception ex)
+
+                // Attempt to retrieve Gemini Page Cache if PageID available
+                if (extractedPageId.HasValue)
                 {
-                    _logger.LogWarning(ex, "[SqlGeneration] ⚠️ Failed to extract PageID from context");
-                }
-            }
+                    _logger.LogInformation("[SqlGeneration] 🔍 Checking Gemini Page Cache for PageID {PageId}...", extractedPageId.Value);
 
-            // Attempt to retrieve Gemini Page Cache if PageID available
-            if (extractedPageId.HasValue)
-            {
-                _logger.LogInformation("[SqlGeneration] 🔍 Checking Gemini Page Cache for PageID {PageId}...", extractedPageId.Value);
-
-                try
-                {
-                    geminiPageCacheId = await _geminiPageCache.GetOrCreateGeminiPageCacheAsync(
-                        extractedPageId.Value,
-                        CancellationToken.None
-                    );
-
-                    if (!string.IsNullOrEmpty(geminiPageCacheId))
+                    try
                     {
-                        _logger.LogInformation("[SqlGeneration] ✅ Gemini Page Cache HIT! Resource: {CacheId}", geminiPageCacheId);
-                        _logger.LogInformation("[SqlGeneration] 💰 Expected savings: ~75% cost reduction + ~3-5s latency improvement");
+                        geminiPageCacheId = await _geminiPageCache.GetOrCreateGeminiPageCacheAsync(
+                            extractedPageId.Value,
+                            CancellationToken.None
+                        );
+
+                        if (!string.IsNullOrEmpty(geminiPageCacheId))
+                        {
+                            _logger.LogInformation("[SqlGeneration] ✅ Gemini Page Cache HIT! Resource: {CacheId}", geminiPageCacheId);
+                            _logger.LogInformation("[SqlGeneration] 💰 Expected savings: ~75% cost reduction + ~3-5s latency improvement");
+                        }
+                        else
+                        {
+                            _logger.LogWarning("[SqlGeneration] ⚠️ Gemini Page Cache returned null for PageID {PageId}, falling back to full prompt", extractedPageId.Value);
+                        }
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        _logger.LogWarning("[SqlGeneration] ⚠️ Gemini Page Cache returned null for PageID {PageId}, falling back to full prompt", extractedPageId.Value);
+                        _logger.LogError(ex, "[SqlGeneration] ❌ Gemini Page Cache retrieval failed for PageID {PageId}, using full prompt", extractedPageId.Value);
                     }
                 }
-                catch (Exception ex)
+                else
                 {
-                    _logger.LogError(ex, "[SqlGeneration] ❌ Gemini Page Cache retrieval failed for PageID {PageId}, using full prompt", extractedPageId.Value);
+                    _logger.LogDebug("[SqlGeneration] ℹ️ No PageID found in context, skipping Gemini Page Cache");
                 }
             }
             else
             {
-                _logger.LogDebug("[SqlGeneration] ℹ️ No PageID found in context, skipping Gemini Page Cache");
+                _logger.LogInformation("[SqlGeneration] ℹ️ Gemini Explicit Cache is DISABLED in config.");
+                _logger.LogInformation("[SqlGeneration] ↪️ Falling back to Full Prompt (Preserving Implicit Cache / Static Rules).");
             }
 
             #endregion
