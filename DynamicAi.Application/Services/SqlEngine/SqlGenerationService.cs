@@ -59,7 +59,17 @@ namespace DynamicAi.Application.Services
             _cacheManager = cacheManager;
             _geminiPageCache = geminiPageCache;
             _config = configuration;
-            _isGeminiCacheEnabled = _config.GetValue<bool>("Caching:GeminiCache:Enabled", true);
+
+            // Use TryParse for defense (Rule 8: Defensive Configuration)
+            var configValue = _config["Caching:GeminiCache:Enabled"];
+            if (bool.TryParse(configValue, out bool isEnabled))
+            {
+                _isGeminiCacheEnabled = isEnabled;
+            }
+            else
+            {
+                _isGeminiCacheEnabled = true; // Default to true if missing or invalid
+            }
         }
 
         #endregion
