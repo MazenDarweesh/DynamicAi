@@ -87,22 +87,14 @@ namespace DynamicAi.Application.Services
 
             try
             {
-                #region Context Injection (Layer -1)
 
-                var recentContext = await _contextService.GetRecentContextAsync(sessionId);
-                var augmentedQuestion = BuildPromptWithContext(userQuestion, recentContext);
-
-                // Use augmented question for classification and handling to ensure context awareness
-                var questionToProcess = augmentedQuestion;
-
-                #endregion
 
                 #region Layer 0: Intent Classification
 
                 _logger.LogInformation("[Orchestrator] Layer 0: Classifying Intent...");
                 var intentStart = DateTime.UtcNow;
-                // We pass the augmented question so the classifier sees "Previous: SQL... Current: Why low?"
-                intentResult = await _intentClassifier.ClassifyIntentAsync(questionToProcess);
+                // ✅ Pass ONLY the clean user question — not the SQL-augmented context
+                intentResult = await _intentClassifier.ClassifyIntentAsync(userQuestion);
                 var intentDuration = (DateTime.UtcNow - intentStart).TotalMilliseconds;
 
                 _logger.LogInformation("[Orchestrator] ✓ Intent Detected: {Intent} (Confidence: {Confidence:F2}) in {Duration:F0}ms",
@@ -292,33 +284,7 @@ namespace DynamicAi.Application.Services
 
         #endregion
 
-        #region Private Methods
 
-        private string BuildPromptWithContext(string question, List<ConversationTurn> context)
-        {
-            if (context == null || !context.Any())
-                return question;
-
-            var sb = new StringBuilder();
-            sb.AppendLine("CONVERSATION HISTORY (Youngest to Oldest):");
-            sb.AppendLine("---");
-
-            foreach (var turn in context)
-            {
-                sb.AppendLine($"User: {turn.Question}");
-                if (!string.IsNullOrEmpty(turn.SqlExecuted))
-                    sb.AppendLine($"Executed SQL: {turn.SqlExecuted}");
-                if (!string.IsNullOrEmpty(turn.ResultSampleJson))
-                    sb.AppendLine($"Result Sample: {turn.ResultSampleJson}");
-                sb.AppendLine();
-            }
-            sb.AppendLine("---");
-            sb.AppendLine($"CURRENT QUESTION: {question}");
-
-            return sb.ToString();
-        }
-
-        #endregion
 
         #region Multi-Step Prediction Pipeline
 
