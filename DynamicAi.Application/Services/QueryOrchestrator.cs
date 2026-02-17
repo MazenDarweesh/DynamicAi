@@ -1,4 +1,3 @@
-using System.Text;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Exceptions;
@@ -26,7 +25,6 @@ namespace DynamicAi.Application.Services
         private readonly IQueryLogRepository _queryLogRepo;
         private readonly ILlmUsageTracker _usageTracker;
         private readonly ILogger<QueryOrchestrator> _logger;
-        private readonly IConversationContextService _contextService;
         private readonly IFeedbackService _feedbackService;
         private readonly bool _queryCacheEnabled;
 
@@ -39,14 +37,12 @@ namespace DynamicAi.Application.Services
             IIntentClassificationService intentClassifier,
             IIntentExampleManagementService intentExampleManagementService,
             IQueryLogRepository queryLogRepo,
-            IConversationContextService contextService,
             IFeedbackService feedbackService,
             ILlmUsageTracker usageTracker,
             ILogger<QueryOrchestrator> logger,
             IConfiguration configuration)
         {
             _handlerFactory = handlerFactory;
-            _contextService = contextService;
             _feedbackService = feedbackService;
             _intentClassifier = intentClassifier;
             _intentManager = intentExampleManagementService;
