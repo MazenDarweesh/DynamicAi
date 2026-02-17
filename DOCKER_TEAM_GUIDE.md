@@ -11,7 +11,7 @@
 ```yaml
 services:
   dynamicai-app:
-    image: mazendarweesh/dynamicai:latest
+    image: mazendarweesh/dynamicai:v1.6.0-enterprise-hardening
     container_name: dynamicai-app
     ports:
       - "9090:8080"
@@ -26,10 +26,14 @@ services:
       # External Production Database (where AI queries run)
       - ConnectionStrings__DefaultConnection=Server=66.94.98.79;Database=QualityControl;User Id=SchemaPipelineUser;Password=P@ssw0rdStr0ng!;MultipleActiveResultSets=True;TrustServerCertificate=True;Encrypt=False;
       - Database__Name=QualityControl
-      - Gemini__ApiKey=AIzaSyA4dPq_dSwR3afMp-JpXivjZaWyKefLJTA
+      - Gemini__ApiKey=AIzaSyBi_XZrF0iLYzVB5GNzNhw5bltGc1dfBo4
       - Qdrant__Host=https://776996c7-2269-49ec-83eb-b88ba99d13a8.us-east4-0.gcp.cloud.qdrant.io
       - Qdrant__ApiKey=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.ot1PhqlKlYKNw1UqNd2-qKCuuzZlWj9IU9XGoI0JHE0
-      - Qdrant__CollectionName=quality_control_schema
+      - Qdrant__CollectionName=erp_knowledge_base_v3_indexed
+      - Qdrant__IntentCollectionName=intent_examples
+      - Caching__QueryCache__CollectionName=query_cache
+      - IntentRouter__ConfidenceThreshold=0.75
+      - Caching__QueryCache__SimilarityThreshold=0.97
     healthcheck:
       test: [ "NONE" ]
     networks:

@@ -1,4 +1,4 @@
-# Dynamic AI 🧠
+# DynamicAI 🧠
 
 > **The Enterprise-Grade Generative BI Platform for SQL Server**
 
