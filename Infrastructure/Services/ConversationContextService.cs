@@ -3,6 +3,7 @@ using System.Text.Json;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Domain.Entities;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Configuration; // ✅ Added for GetValue<T>
 using Microsoft.Extensions.Logging;
 
 namespace DynamicAi.Infrastructure.Services;
@@ -11,14 +12,26 @@ public class ConversationContextService : IConversationContextService
 {
     private readonly IMemoryCache _cache;
     private readonly ILogger<ConversationContextService> _logger;
-    private const int MAX_HISTORY_PER_SESSION = 5; // Keep last 5 turns in memory
+    private readonly int _maxHistoryTurns;
+    private readonly int _ttlMinutes;
+    private readonly bool _enabled;
 
     public ConversationContextService(
         IMemoryCache cache,
-        ILogger<ConversationContextService> logger)
+        ILogger<ConversationContextService> logger,
+        Microsoft.Extensions.Configuration.IConfiguration configuration)
     {
         _cache = cache;
         _logger = logger;
+
+        // Load configuration with defensive fallbacks
+        var section = configuration.GetSection("Caching:SessionMemory");
+        _enabled = section.GetValue<bool>("Enabled", true);
+        _ttlMinutes = section.GetValue<int>("TTLMinutes", 30);
+        _maxHistoryTurns = section.GetValue<int>("MaxHistoryTurns", 5);
+
+        _logger.LogInformation("SessionMemory Initialized: Enabled={Enabled}, TTL={TTL}m, MaxHistory={Max}", 
+            _enabled, _ttlMinutes, _maxHistoryTurns);
     }
 
     public Task SaveTurnAsync(
@@ -29,6 +42,8 @@ public class ConversationContextService : IConversationContextService
         dynamic? resultData = null,
         CancellationToken cancellationToken = default)
     {
+        if (!_enabled) return Task.CompletedTask;
+
         try
         {
             string? sampleJson = null;
@@ -93,7 +108,7 @@ public class ConversationContextService : IConversationContextService
             // Get existing history or create new
             var history = _cache.GetOrCreate(cacheKey, entry =>
             {
-                entry.SlidingExpiration = TimeSpan.FromMinutes(30);
+                entry.SlidingExpiration = TimeSpan.FromMinutes(_ttlMinutes);
                 return new List<ConversationTurn>();
             }) ?? new List<ConversationTurn>();
 
@@ -101,15 +116,15 @@ public class ConversationContextService : IConversationContextService
             history.Add(turn);
 
             // Limit size to prevent memory bloat
-            if (history.Count > MAX_HISTORY_PER_SESSION)
+            if (history.Count > _maxHistoryTurns)
             {
-                history = history.OrderByDescending(x => x.CreatedAt).Take(MAX_HISTORY_PER_SESSION).OrderBy(x => x.CreatedAt).ToList();
+                history = history.OrderByDescending(x => x.CreatedAt).Take(_maxHistoryTurns).OrderBy(x => x.CreatedAt).ToList();
             }
 
             // Update cache
             _cache.Set(cacheKey, history, new MemoryCacheEntryOptions
             {
-                SlidingExpiration = TimeSpan.FromMinutes(30)
+                SlidingExpiration = TimeSpan.FromMinutes(_ttlMinutes)
             });
 
             // ✅ Enhanced Logging: Show what was stored
@@ -149,9 +164,12 @@ public class ConversationContextService : IConversationContextService
         int limit = 3,
         CancellationToken cancellationToken = default)
     {
+        if (!_enabled) return Task.FromResult(new List<ConversationTurn>());
+
         var cacheKey = $"context-{sessionId}";
         if (_cache.TryGetValue<List<ConversationTurn>>(cacheKey, out var history))
         {
+            if (history == null) return Task.FromResult(new List<ConversationTurn>()); // Defensive Null Check
             // Filter and take random/last N? Logic says "Recent Context" -> Last N
             var relevant = history!
                 .Where(x => x.IsRelevantForContext)
