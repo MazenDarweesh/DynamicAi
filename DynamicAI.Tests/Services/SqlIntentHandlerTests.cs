@@ -1,6 +1,7 @@
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Services.Handlers;
 using DynamicAi.Application.Models;
+using DynamicAi.Application.Models.Sql;
 using DynamicAi.Domain.Entities;
 using FakeItEasy;
 using FluentAssertions;
@@ -27,6 +28,7 @@ public class SqlIntentHandlerTests
     private readonly IQueryCacheService _queryCacheService;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
     private readonly ILlmUsageTracker _usageTracker;
+    private readonly ISqlSanitizerService _sanitizerService;
     private readonly IConfiguration _configuration;
 
     public SqlIntentHandlerTests()
@@ -40,10 +42,16 @@ public class SqlIntentHandlerTests
         _queryCacheService = A.Fake<IQueryCacheService>();
         _embeddingService = A.Fake<IEmbeddingGenerator<string, Embedding<float>>>();
         _usageTracker = A.Fake<ILlmUsageTracker>();
+        _sanitizerService = A.Fake<ISqlSanitizerService>();
         _configuration = A.Fake<IConfiguration>();
 
         // Default Configuration
         A.CallTo(() => _configuration["Caching:QueryCache:Enabled"]).Returns("true");
+        A.CallTo(() => _configuration["Experimental:SanitizeSql"]).Returns("true");
+
+        // Mock Sanitizer (Default: No modification)
+        A.CallTo(() => _sanitizerService.SanitizeAsync(A<string>._, A<string>._))
+            .ReturnsLazily((string sql, string tid) => Task.FromResult(new SanitizationResult { SafeSql = sql, WasModified = false }));
 
         // Mock Condenser (Identity Fallback)
         A.CallTo(() => _condenserService.CondenseQuestionAsync(A<string>._, A<string?>._, A<string?>._, A<string?>._, A<int?>._))
@@ -71,6 +79,7 @@ public class SqlIntentHandlerTests
             _queryCacheService,
             _embeddingService,
             _usageTracker,
+            _sanitizerService,
             logger,
             _configuration
         );

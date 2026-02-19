@@ -41,6 +41,7 @@ public class SqlIntentHandler : IIntentHandler
         IQueryCacheService queryCacheService,
         IEmbeddingGenerator<string, Embedding<float>> embeddingService,
         ILlmUsageTracker usageTracker,
+        ISqlSanitizerService sanitizerService,
         ILogger<SqlIntentHandler> logger,
         IConfiguration configuration)
     {

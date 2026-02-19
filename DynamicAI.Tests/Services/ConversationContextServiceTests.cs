@@ -2,6 +2,7 @@ using DynamicAi.Domain.Entities;
 using DynamicAi.Infrastructure.Services;
 using FluentAssertions;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Xunit;
 using FakeItEasy;
@@ -13,12 +14,15 @@ namespace DynamicAI.Tests.Services
         private readonly ConversationContextService _sut;
         private readonly IMemoryCache _cache;
         private readonly ILogger<ConversationContextService> _logger;
+        private readonly IConfiguration _configuration;
 
         public ConversationContextServiceTests()
         {
             _cache = new MemoryCache(new MemoryCacheOptions());
             _logger = A.Fake<ILogger<ConversationContextService>>();
-            _sut = new ConversationContextService(_cache, _logger);
+            _configuration = A.Fake<IConfiguration>();
+            
+            _sut = new ConversationContextService(_cache, _logger, _configuration);
         }
 
         [Fact]

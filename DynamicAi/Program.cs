@@ -16,6 +16,7 @@ using System.Net;
 using Serilog;
 using DynamicAi.Application.Services.Handlers;
 using DynamicAi.Application.Services.LLM;
+using DynamicAi.Application.Services.SqlEngine;
 
 // 1. بناء الـ Builder (لقراءة الإعدادات و DI)
 // ensure console output uses UTF-8 so Arabic characters render correctly
@@ -107,6 +108,11 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddTransient<IQueryCondenserService, QueryCondenserService>(); // Layer 0.5 - Query Condensing
     services.AddTransient<IQueryOrchestrator, QueryOrchestrator>();
     services.AddTransient<ISqlGenerationService, SqlGenerationService>();
+    services.AddTransient<ISqlGenerationService, SqlGenerationService>();
+    
+    // --- Phase 2.7: SQL Sanitization & Validation ---
+    services.AddTransient<IDbSchemaProvider, DbSchemaProvider>();
+    services.AddTransient<ISqlSanitizerService, SqlSanitizerService>();
     services.AddTransient<ISqlValidatorService, SqlValidatorService>();
     services.AddTransient<ISqlRewriterService, SqlRewriterService>();
     services.AddTransient<ISandboxedSqlExecutor, SandboxedSqlExecutor>();

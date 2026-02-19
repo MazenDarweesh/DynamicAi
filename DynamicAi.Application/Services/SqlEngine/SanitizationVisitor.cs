@@ -1,0 +1,168 @@
+using Microsoft.SqlServer.TransactSql.ScriptDom;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace DynamicAi.Application.Services.SqlEngine
+{
+    /// <summary>
+    /// زائر مزدوج الغرض (Dual-Purpose Visitor):
+    /// 1. يبني خريطة الـ Aliases (لربط كل اسم مختصر بالجدول الحقيقي).
+    /// 2. يجمع الأعمدة غير الصالحة (Invalid Columns) التي يجب حذفها.
+    /// </summary>
+    public class SanitizationVisitor : TSqlFragmentVisitor
+    {
+        private readonly Dictionary<string, HashSet<string>> _schemaMap;
+        
+        // خريطة الـ Aliases: 
+        // Key = Alias (e.g., "u")
+        // Value = Real Table Name (e.g., "users")
+        public Dictionary<string, string> AliasMap { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        // قائمة الأعمدة المراد حذفها (نخزن الـ Node نفسه)
+        public List<ColumnReferenceExpression> ColumnsToRemove { get; } = new List<ColumnReferenceExpression>();
+
+        public List<string> Warnings { get; } = new List<string>();
+
+        // حالة الزيارة الحالية
+        private bool _isInSelectClause = false;
+
+        public SanitizationVisitor(Dictionary<string, HashSet<string>> schemaMap)
+        {
+            _schemaMap = schemaMap;
+        }
+
+        // ============================================================================
+        // PHASE 1: Alias Mapping (FROM / JOIN)
+        // ============================================================================
+
+        public override void Visit(NamedTableReference node)
+        {
+            // استخراج اسم الجدول الحقيقي
+            string realTableName = node.SchemaObject.BaseIdentifier.Value;
+
+            // التحقق من وجود الجدول في الـ Schema (للعلم فقط)
+            if (!_schemaMap.ContainsKey(realTableName))
+            {
+                Warnings.Add($"Table '{realTableName}' not found in schema. Skipping validation for its columns.");
+                // لا نحذفه حسب طلب المستخدم، لكن نسجله عشان نتجاهل أعمدته
+                return;
+            }
+
+            // تسجيل الـ Alias إذا وجد
+            if (node.Alias != null)
+            {
+                AliasMap[node.Alias.Value] = realTableName;
+            }
+            else
+            {
+                // إذا لم يكن هناك Alias، فالاسم نفسه هو الـ key
+                AliasMap[realTableName] = realTableName;
+            }
+
+            base.Visit(node);
+        }
+
+        // ============================================================================
+        // PHASE 2: Column Validation (SELECT)
+        // ============================================================================
+
+        public override void Visit(QuerySpecification node)
+        {
+            // نحن هنا ندخل داخل جملة SELECT ... FROM ...
+            // عملية الـ Visit للأبناء ستتم تلقائياً، لكن نحتاج تحديد أننا في الـ Select Elements
+            
+            // زيارة الـ FROM أولاً لبناء الـ Aliases (مهم جداً)
+            if (node.FromClause != null)
+            {
+                node.FromClause.Accept(this);
+            }
+
+            // ثم زيارة الـ SELECT Elements للتحقق من الأعمدة
+            foreach (var element in node.SelectElements)
+            {
+                // نفعل هذا Flag عشان لما نوصل لـ ColumnReferenceExpression نعرف إننا في الـ Select list
+                _isInSelectClause = true;
+                element.Accept(this);
+                _isInSelectClause = false;
+            }
+
+            // زيارة باقي الأجزاء (Where, OrderBy, etc.) بدون وضع Flag
+            // لأننا حالياً نركز على حذف أعمدة الـ SELECT فقط (الأكثر أماناً)
+            if (node.WhereClause != null) node.WhereClause.Accept(this);
+            if (node.OrderByClause != null) node.OrderByClause.Accept(this);
+        }
+
+        public override void Visit(ColumnReferenceExpression node)
+        {
+            // نتحقق فقط من الأعمدة الموجودة في جملة SELECT
+            // حذف الأعمدة من WHERE أو JOIN خطير جداً وقد يكسر الـ Query، لذا نتركه (المستخدم قال "مش هيحصل خطا")
+            if (!_isInSelectClause) return;
+
+            // استخراج اسم العمود
+            // MultiPartIdentifier قد يكون:
+            // - ColName (Length 1)
+            // - Alias.ColName (Length 2)
+            // - Schema.Table.ColName (Length 3)
+            
+            var identifiers = node.MultiPartIdentifier.Identifiers;
+            string columnName = identifiers.Last().Value; // دائماً الأخير هو اسم العمود
+            string tableNameOrAlias = null;
+
+            if (identifiers.Count > 1)
+            {
+                // الحالة الشائعة: Alias.ColumnName
+                tableNameOrAlias = identifiers[identifiers.Count - 2].Value;
+            }
+
+            // 1. إذا لم نعرف الجدول (لا يوجد Alias)، هل هو موجود في أي من الجداول المعروفة؟
+            // هذه حالة صعبة (Ambiguous)، لكن في الـ Sanitization، إذا لم نعرف المصدر، نفترض أنه صحيح (Innocent until proven guilty).
+            // إلا إذا كان لدينا جدول واحد فقط في الـ FROM، وقتها يمكننا التحقق.
+            string targetRealTable = null;
+
+            if (tableNameOrAlias != null)
+            {
+                // محاولة حل الـ Alias
+                if (AliasMap.TryGetValue(tableNameOrAlias, out var mappedTable))
+                {
+                    targetRealTable = mappedTable;
+                }
+                else
+                {
+                    // الـ Alias نفسه غير معروف! هل نعتبره خطأ؟
+                    // ربما هو جدول غير موجود، وبما أننا لا نحذف الجداول، فلن نحذف أعمدتها (لأننا لا نملك Schema لها).
+                    return; 
+                }
+            }
+            else
+            {
+                // لا يوجد Alias. 
+                // إذا كان لدينا جدول واحد فقط في الخريطة، نستخدمه.
+                if (AliasMap.Count == 1)
+                {
+                    targetRealTable = AliasMap.Values.First();
+                }
+                else
+                {
+                    // أكثر من جدول ولا يوجد Alias. لا يمكننا التحقق بدقة. نتجاوز.
+                    return;
+                }
+            }
+
+            // الآن لدينا: targetRealTable + columnName
+            // نتحقق من الـ Schema
+            if (_schemaMap.TryGetValue(targetRealTable, out var validColumns))
+            {
+                // هل العمود موجود؟
+                if (columnName != "*" && !validColumns.Contains(columnName))
+                {
+                    // 🚨 العمود غير موجود!
+                    // هذا هو الهدف: Mark for Deletion
+                    ColumnsToRemove.Add(node);
+                    Warnings.Add($"Detected invalid column '{columnName}' in table '{targetRealTable}'. Scheduled for removal.");
+                }
+            }
+            // إذا الجدول نفسه غير موجود في الـ Schema (لم يظهر في الـ Check الأول)، نتجاوز.
+        }
+    }
+}
