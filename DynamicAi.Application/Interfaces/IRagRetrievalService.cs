@@ -19,7 +19,8 @@ namespace DynamicAi.Application.Interfaces
         Task<RetrievalContextBundle> RetrieveContextAsync(
             string userQuestion,
             string tenantId,
-            int? companyId = null
+            int? companyId = null,
+            float[]? precomputedEmbedding = null
         );
 
         /// <summary>

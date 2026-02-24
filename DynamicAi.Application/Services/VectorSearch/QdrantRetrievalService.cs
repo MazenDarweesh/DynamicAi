@@ -59,7 +59,8 @@ namespace DynamicAi.Application.Services
         public async Task<RetrievalContextBundle> RetrieveContextAsync(
             string userQuestion,
             string tenantId,
-            int? companyId = null)
+            int? companyId = null,
+            float[]? precomputedEmbedding = null)
         {
             // ============================================================================
             // [LOGGING] بداية عملية RAG Retrieval (Multi-Step)
@@ -113,20 +114,29 @@ namespace DynamicAi.Application.Services
             _logger.LogInformation("[RagRetrieval] STEP 1: Converting question to embedding vector...");
 
             var embeddingStart = DateTime.UtcNow;
-            var embedding = await _embeddingService.GenerateAsync(userQuestion);
-            
-            // Track Embedding Usage
-            var embedTokens = userQuestion.Length / 4; // Approx
-            await _usageTracker.TrackEmbeddingCallAsync(
-                LlmOperationType.Embedding, // Or Retrieval
-                Guid.NewGuid().ToString(),
-                embedTokens,
-                tenantId,
-                companyId);
+            Embedding<float> embedding;
+
+            if (precomputedEmbedding != null)
+            {
+                _logger.LogInformation("[RagRetrieval] ✓ Using precomputed embedding (saved ~500ms)");
+                embedding = new Embedding<float>(precomputedEmbedding);
+            }
+            else
+            {
+                embedding = await _embeddingService.GenerateAsync(userQuestion);
+
+                // Track Embedding Usage
+                var embedTokens = userQuestion.Length / 4; // Approx
+                await _usageTracker.TrackEmbeddingCallAsync(
+                    LlmOperationType.Embedding, // Or Retrieval
+                    Guid.NewGuid().ToString(),
+                    embedTokens,
+                    tenantId,
+                    companyId);
+            }
             var embeddingDuration = (DateTime.UtcNow - embeddingStart).TotalMilliseconds;
 
-            _logger.LogInformation("[RagRetrieval] ✓ Embedding generated in {EmbeddingDuration:F0}ms", embeddingDuration);
-            _logger.LogDebug("[RagRetrieval] Vector dimensions: {VectorLength}", embedding.Vector.Length);
+            _logger.LogInformation("[RagRetrieval] ✓ Embedding ready in {EmbeddingDuration:F0}ms", embeddingDuration);
 
             // ============================================================================
             // STEP 2: إيجاد الشاشة (Page Discovery) - [SMART RE-RANKING]

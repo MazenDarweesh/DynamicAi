@@ -22,6 +22,7 @@ public class QueryOrchestratorTests
     private readonly IIntentHandlerFactory _handlerFactory;
     private readonly IIntentClassificationService _intentClassifier;
     private readonly IIntentExampleManagementService _intentManager;
+    private readonly IQueryCondenserService _condenserService;
     private readonly IQueryLogRepository _queryLogRepo;
     private readonly ILlmUsageTracker _usageTracker;
     private readonly ILogger<QueryOrchestrator> _logger;
@@ -34,6 +35,7 @@ public class QueryOrchestratorTests
         _handlerFactory = A.Fake<IIntentHandlerFactory>();
         _intentClassifier = A.Fake<IIntentClassificationService>();
         _intentManager = A.Fake<IIntentExampleManagementService>();
+        _condenserService = A.Fake<IQueryCondenserService>();
         _queryLogRepo = A.Fake<IQueryLogRepository>();
         _usageTracker = A.Fake<ILlmUsageTracker>();
         A.CallTo(() => _usageTracker.GetSessionSummary()).Returns(new LlmSessionSummary());
@@ -45,10 +47,15 @@ public class QueryOrchestratorTests
         // Default Configuration
         A.CallTo(() => _configuration["Caching:QueryCache:Enabled"]).Returns("true");
 
+        // Default Condenser Mock (Identity Fallback)
+        A.CallTo(() => _condenserService.CondenseQuestionAsync(A<string>._, A<string?>._, A<string?>._, A<string?>._, A<int?>._))
+            .ReturnsLazily((string q, string? prev, string? sql, string? tid, int? cid) => Task.FromResult(CondenserResult.AsNew(q)));
+
         _sut = new QueryOrchestrator(
             _handlerFactory,
             _intentClassifier,
             _intentManager,
+            _condenserService,
             _queryLogRepo,
             _contextService,
             _feedbackService,

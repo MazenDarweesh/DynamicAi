@@ -81,13 +81,24 @@ public class SqlIntentHandler : IIntentHandler
 
         #region Phase 1: Query Condensing
 
-        _logger.LogInformation("[SqlHandler] Layer 0.5: Condensing Query...");
-        var condenserResult = await _condenserService.CondenseQuestionAsync(
-            userQuestion,
-            context?.PreviousQuestion,
-            context?.PreviousSql,
-            context?.TenantId,
-            context?.CompanyId);
+        // P1-2: Use precomputed result from Orchestrator's parallel execution, or fallback to direct call
+        CondenserResult condenserResult;
+        if (context?.PrecomputedCondenserResult != null)
+        {
+            _logger.LogInformation("[SqlHandler] Layer 0.5: Using precomputed condenser result (Action={Action})",
+                context.PrecomputedCondenserResult.ActionType);
+            condenserResult = context.PrecomputedCondenserResult;
+        }
+        else
+        {
+            _logger.LogInformation("[SqlHandler] Layer 0.5: Condensing Query (no precomputed result)...");
+            condenserResult = await _condenserService.CondenseQuestionAsync(
+                userQuestion,
+                context?.PreviousQuestion,
+                context?.PreviousSql,
+                context?.TenantId,
+                context?.CompanyId);
+        }
 
         var condensedQuestion = condenserResult.CondensedQuestion;
         var actionType = condenserResult.ActionType;
@@ -126,7 +137,7 @@ public class SqlIntentHandler : IIntentHandler
                 var cachedInsights = new List<string> { "⚡ Retrieved from Query Cache" };
                 var cachedReasoning = $"This query was previously executed with {cachedResult.Score:P0} similarity. Serving cached SQL for faster response.";
 
-                return await ExecutePipelineFromValidationAsync(
+                var cachedPipelineResult = await ExecutePipelineFromValidationAsync(
                     cachedResult.Sql,
                     context,
                     cachedResult.CacheId,
@@ -136,6 +147,17 @@ public class SqlIntentHandler : IIntentHandler
                     cachedResult.PageId, // NEW: Pass PageId from cache
                     cachedInsights, 
                     cachedReasoning);
+
+                // P1-3: If cached SQL failed validation, fall through to full pipeline
+                if (cachedPipelineResult.ErrorMessage == "CACHE_INVALID_REGENERATE")
+                {
+                    _logger.LogWarning("[SqlHandler] 🔄 Cached SQL was invalid. Falling through to full RAG + SQL Generation pipeline...");
+                    // Continue to Phase 3 below — do NOT return
+                }
+                else
+                {
+                    return cachedPipelineResult;
+                }
             }
         }
 
@@ -147,7 +169,8 @@ public class SqlIntentHandler : IIntentHandler
         var retrievalResult = await _retrievalService.RetrieveContextAsync(
             condensedQuestion,
             context?.TenantId ?? "default",
-            context?.CompanyId
+            context?.CompanyId,
+            precomputedEmbedding: questionEmbedding // Reuse from cache check (P1-1)
         );
 
         #endregion
@@ -194,19 +217,9 @@ public class SqlIntentHandler : IIntentHandler
 
         #endregion
 
-        #region Phase 5: SQL Validation
+        // NOTE: SQL Validation is handled in ExecutePipelineFromValidationAsync
+        // which also includes auto-cache-invalidation logic.
 
-        _logger.LogInformation("[SqlHandler] Layer 3: Validating SQL...");
-        try
-        {
-            await _validatorService.ValidateSqlAsync(sqlResult.Sql, context?.TenantId ?? "default");
-        }
-        catch (Exception ex)
-        {
-            return new QueryExecutionResult { ErrorMessage = $"SQL Validation Failed: {ex.Message}" };
-        }
-
-        #endregion
 
         #region Phase 6: Cache Storage
 
@@ -284,8 +297,9 @@ public class SqlIntentHandler : IIntentHandler
 
             return new QueryExecutionResult
             {
-                ErrorMessage = $"SQL Validation Failed: {ex.Message}. " +
-                    (isCached ? "Bad cache entry has been removed. Please retry your question." : "")
+                ErrorMessage = isCached
+                    ? "CACHE_INVALID_REGENERATE" // P1-3: Signal caller to regenerate
+                    : $"SQL Validation Failed: {ex.Message}"
             };
         }
 

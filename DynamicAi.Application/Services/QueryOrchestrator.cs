@@ -22,6 +22,7 @@ namespace DynamicAi.Application.Services
         private readonly IIntentHandlerFactory _handlerFactory;
         private readonly IIntentClassificationService _intentClassifier;
         private readonly IIntentExampleManagementService _intentManager;
+        private readonly IQueryCondenserService _condenserService;
         private readonly IQueryLogRepository _queryLogRepo;
         private readonly ILlmUsageTracker _usageTracker;
         private readonly ILogger<QueryOrchestrator> _logger;
@@ -37,6 +38,7 @@ namespace DynamicAi.Application.Services
             IIntentHandlerFactory handlerFactory,
             IIntentClassificationService intentClassifier,
             IIntentExampleManagementService intentExampleManagementService,
+            IQueryCondenserService condenserService,
             IQueryLogRepository queryLogRepo,
             IConversationContextService contextService,
             IFeedbackService feedbackService,
@@ -49,6 +51,7 @@ namespace DynamicAi.Application.Services
             _feedbackService = feedbackService;
             _intentClassifier = intentClassifier;
             _intentManager = intentExampleManagementService;
+            _condenserService = condenserService;
             _queryLogRepo = queryLogRepo;
             _usageTracker = usageTracker;
             _logger = logger;
@@ -101,16 +104,27 @@ namespace DynamicAi.Application.Services
 
                 #endregion
 
-                #region Layer 0: Intent Classification
+                #region Layer 0: Intent Classification + Query Condensing (PARALLEL)
 
-                _logger.LogInformation("[Orchestrator] Layer 0: Classifying Intent...");
-                var intentStart = DateTime.UtcNow;
-                // ✅ Pass ONLY the clean user question — not the SQL-augmented context
-                intentResult = await _intentClassifier.ClassifyIntentAsync(userQuestion);
-                var intentDuration = (DateTime.UtcNow - intentStart).TotalMilliseconds;
+                _logger.LogInformation("[Orchestrator] Layer 0: Starting Intent Classification + Query Condensing in PARALLEL...");
+                var parallelStart = DateTime.UtcNow;
 
-                _logger.LogInformation("[Orchestrator] ✓ Intent Detected: {Intent} (Confidence: {Confidence:F2}) in {Duration:F0}ms",
-                    intentResult.Intent, intentResult.ConfidenceScore, intentDuration);
+                // Both tasks are independent: intent uses the raw question, condenser uses question + previous context
+                var intentTask = _intentClassifier.ClassifyIntentAsync(userQuestion);
+                var condenserTask = _condenserService.CondenseQuestionAsync(
+                    userQuestion, previousQuestion, previousSql, tenantId, comID);
+
+                await Task.WhenAll(intentTask, condenserTask);
+
+                intentResult = await intentTask;
+                var condenserResult = await condenserTask;
+
+                var parallelDuration = (DateTime.UtcNow - parallelStart).TotalMilliseconds;
+                _logger.LogInformation("[Orchestrator] ✓ Parallel Layer 0 completed in {Duration:F0}ms", parallelDuration);
+                _logger.LogInformation("[Orchestrator]   → Intent: {Intent} (Confidence: {Confidence:F2})",
+                    intentResult.Intent, intentResult.ConfidenceScore);
+                _logger.LogInformation("[Orchestrator]   → Condenser: Action={Action}, Question=\"{Question}\"",
+                    condenserResult.ActionType, condenserResult.CondensedQuestion);
 
                 // [USER_REQUEST]: Save ALL queries for review in this stage (Data Gathering)
                 // if (intentResult.ConfidenceScore < 0.75f) <--- Disabled for now
@@ -159,7 +173,8 @@ namespace DynamicAi.Application.Services
                         TenantId = tenantId,
                         CompanyId = comID,
                         SessionId = sessionId,  // Phase 4: For PredictIntentHandler context retrieval
-                        PreviousPageId = previousPageId
+                        PreviousPageId = previousPageId,
+                        PrecomputedCondenserResult = condenserResult // P1-2: Pass precomputed condenser result
                     };
 
                     result = await handler.HandleAsync(userQuestion, intentResult, context);

@@ -103,7 +103,7 @@ public class SqlIntentHandlerTests
             .Returns(Task.FromResult<CachedQueryResult?>(null));
 
         // 2. Retrieval
-        A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, context.TenantId, A<int?>._))
+        A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, context.TenantId, A<int?>._, A<float[]?>.Ignored))
             .Returns(Task.FromResult(contextBundle));
 
         // 3. Generation
@@ -136,7 +136,7 @@ public class SqlIntentHandlerTests
         result.IsCached.Should().BeFalse();
 
         // Verify calls
-        A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, context.TenantId, A<int?>.Ignored)).MustHaveHappened();
+        A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, context.TenantId, A<int?>.Ignored, A<float[]?>.Ignored)).MustHaveHappened();
         A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored)).MustHaveHappened();
         A.CallTo(() => _validatorService.ValidateSqlAsync(rawSql, context.TenantId)).MustHaveHappened();
         A.CallTo(() => _rewriterService.RewriteAsync(rawSql, context.TenantId, A<int?>.Ignored)).MustHaveHappened();
@@ -189,7 +189,7 @@ public class SqlIntentHandlerTests
         result.RewrittenSql.Should().Be(rewrittenSql);
 
         // Verify Skipped Layers
-        A.CallTo(() => _retrievalService.RetrieveContextAsync(A<string>.Ignored, A<string>.Ignored, A<int?>.Ignored))
+        A.CallTo(() => _retrievalService.RetrieveContextAsync(A<string>.Ignored, A<string>.Ignored, A<int?>.Ignored, A<float[]?>.Ignored))
             .MustNotHaveHappened();
         A.CallTo(() => _generationService.GenerateSqlAsync(A<string>.Ignored, A<RetrievalContextBundle>.Ignored, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored))
             .MustNotHaveHappened();
@@ -213,7 +213,7 @@ public class SqlIntentHandlerTests
         A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>.Ignored, context.TenantId, A<int>.Ignored))
             .Returns(Task.FromResult<CachedQueryResult?>(null));
 
-        A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, context.TenantId, A<int?>.Ignored))
+        A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, context.TenantId, A<int?>.Ignored, A<float[]?>.Ignored))
             .Returns(Task.FromResult(contextBundle));
 
         A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored))

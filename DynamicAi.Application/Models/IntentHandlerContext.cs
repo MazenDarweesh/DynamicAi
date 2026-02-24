@@ -42,4 +42,10 @@ public class IntentHandlerContext
     /// Used to detect scope shifts and prevent invalid SQL wrapping.
     /// </summary>
     public int? PreviousPageId { get; init; }
+
+    /// <summary>
+    /// Precomputed condenser result from parallel execution in Orchestrator.
+    /// When set, handlers should use this instead of calling the condenser service again.
+    /// </summary>
+    public CondenserResult? PrecomputedCondenserResult { get; init; }
 }

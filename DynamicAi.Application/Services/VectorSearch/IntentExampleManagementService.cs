@@ -19,6 +19,7 @@ public class IntentExampleManagementService : IIntentExampleManagementService
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
     private readonly ILogger<IntentExampleManagementService> _logger;
     private readonly string _intentCollectionName;
+    private bool _collectionInitialized;
 
     // Mapping helper (can be shared or duplicated, duplication is safe for decoupling)
     private static readonly Dictionary<string, IntentType> IntentMapping = new()
@@ -209,6 +210,8 @@ public class IntentExampleManagementService : IIntentExampleManagementService
     /// <inheritdoc />
     public async Task<bool> EnsureCollectionExistsAsync(CancellationToken cancellationToken = default)
     {
+        if (_collectionInitialized) return true;
+
         try
         {
             var exists = await _vectorDb.CollectionExistsAsync(_intentCollectionName, cancellationToken);
@@ -220,13 +223,14 @@ public class IntentExampleManagementService : IIntentExampleManagementService
 
                 // Seed defaults
                 await SeedDefaultIntentExamplesAsync(cancellationToken);
-                return true;
             }
 
-            // Always check/create indexes to ensure performance as schema evolves
+            // Check/create indexes to ensure performance as schema evolves
             await EnsureIndexesAsync(cancellationToken);
 
-            return exists;
+            _collectionInitialized = true;
+            _logger.LogInformation("[IntentManager] ✅ Collection initialized. Index checks will be skipped for subsequent requests.");
+            return true;
         }
         catch (Exception ex)
         {
