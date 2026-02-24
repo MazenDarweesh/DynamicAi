@@ -133,8 +133,9 @@ public class SqlIntentHandler : IIntentHandler
                     true, // isCached
                     cachedResult.Score,
                     null, // schemaContext
-                    cachedInsights, // NEW: Pass cache-specific insights
-                    cachedReasoning); // NEW: Pass cache explanation
+                    cachedResult.PageId, // NEW: Pass PageId from cache
+                    cachedInsights, 
+                    cachedReasoning);
             }
         }
 
@@ -148,6 +149,20 @@ public class SqlIntentHandler : IIntentHandler
             context?.TenantId ?? "default",
             context?.CompanyId
         );
+
+        #endregion
+
+        #region Phase 3.5: Scope Guard (NEW)
+
+        if (context?.PreviousPageId != null && retrievalResult.PageId != null && context.PreviousPageId != retrievalResult.PageId)
+        {
+            if (actionType == QueryActionType.WrapPrevious)
+            {
+                _logger.LogWarning("[SqlHandler] 🛡️ Scope Shift Detected! PreviousPageId={Prev} vs CurrentPageId={Curr}. Downgrading WrapPrevious -> Regenerate.", 
+                    context.PreviousPageId, retrievalResult.PageId);
+                actionType = QueryActionType.Regenerate;
+            }
+        }
 
         #endregion
 
@@ -197,7 +212,7 @@ public class SqlIntentHandler : IIntentHandler
 
         if (_queryCacheEnabled && questionEmbedding != null && !isCached && context?.QueryLogId != null)
         {
-            var pageId = 0;
+            var pageId = retrievalResult.PageId ?? 0;
 
             await _queryCacheService.StoreCachedSqlAsync(
                 context.QueryLogId.Value,
@@ -220,6 +235,7 @@ public class SqlIntentHandler : IIntentHandler
             false, // isCached
             sqlResult.Confidence,
             retrievalResult.UnifiedPageContext,
+            retrievalResult.PageId, // NEW: Pass PageId
             sqlResult.RetrievedContext, // NEW: Pass context for insights
             sqlResult.Reasoning); // NEW: Pass reasoning for insights
 
@@ -237,6 +253,7 @@ public class SqlIntentHandler : IIntentHandler
         bool isCached,
         float? confidence,
         string? schemaContext,
+        int? pageId = null, // NEW: Pass PageId
         List<string>? retrievedContext = null,
         string? reasoning = null)
     {
@@ -291,6 +308,7 @@ public class SqlIntentHandler : IIntentHandler
             Data = executionResult,
             IsCached = isCached,
             CacheId = cacheId,
+            PageId = pageId, // NEW: Flow PageId back to orchestrator
             QueryLogId = context?.QueryLogId,
             SchemaContext = schemaContext,
             ConfidenceScore = confidence,

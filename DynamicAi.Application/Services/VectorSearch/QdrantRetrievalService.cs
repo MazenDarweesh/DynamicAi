@@ -129,35 +129,102 @@ namespace DynamicAi.Application.Services
             _logger.LogDebug("[RagRetrieval] Vector dimensions: {VectorLength}", embedding.Vector.Length);
 
             // ============================================================================
-            // STEP 2: إيجاد الشاشة (Page Discovery) - [OPTIMIZED]
+            // STEP 2: إيجاد الشاشة (Page Discovery) - [SMART RE-RANKING]
             // ============================================================================
             _logger.LogInformation("[RagRetrieval] STEP 2: Searching for relevant Page...");
 
             Filter pageFilter;
+            int pageSearchLimit;
             if (explicitPageId.HasValue)
             {
                 pageFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.Pages, filterVisibleOnly: false, (QdrantConstants.PageId, explicitPageId.Value));
                 _logger.LogInformation("[RagRetrieval] Using EXACT filter for PageID: {ExplicitPageId}", explicitPageId.Value);
+                pageSearchLimit = 1;
             }
             else
             {
                 pageFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.Pages);
-                _logger.LogInformation("[RagRetrieval] Using SEMANTIC search for Page.");
+                _logger.LogInformation("[RagRetrieval] Using SEMANTIC search for Page (Top-3 with Re-Ranking).");
+                pageSearchLimit = 3;
             }
 
-            var pageResults = await SearchQdrantAsync(embedding, pageFilter, 1, "Pages");
+            var pageCandidates = await SearchQdrantWithScoresAsync(embedding, pageFilter, pageSearchLimit, "Pages");
 
-            if (!pageResults.Any())
+            if (!pageCandidates.Any())
             {
                 _logger.LogWarning("[RagRetrieval] ⚠ No Page found - returning empty context bundle");
                 return contextBundle;
             }
 
-            var matchedPageJson = pageResults.First();
+            // ── Log all candidates with scores (including PageDisplay) ──
+            _logger.LogInformation("[RagRetrieval] 📊 Page Candidates ({Count}):", pageCandidates.Count);
+            for (int i = 0; i < pageCandidates.Count; i++)
+            {
+                var candidate = pageCandidates[i];
+                var cPageId = candidate.ParsedJson?[DbColumns.PageID_Upper]?.GetValue<int>() ?? 0;
+                var cPageDisplay = candidate.PageDisplay ?? "?";
+                var cPageName = candidate.ParsedJson?["PageName"]?.GetValue<string>() ?? "?";
+                var cEnName = candidate.ParsedJson?["EnName"]?.GetValue<string>() ?? "?";
+                _logger.LogInformation("[RagRetrieval]   #{Rank}: PageID={PageId} (Score: {Score:F4}) Display=\"{PageDisplay}\" Name=\"{PageName}\" / \"{EnName}\"",
+                    i + 1, cPageId, candidate.Score, cPageDisplay, cPageName, cEnName);
+            }
+
+            // ── Smart Re-Ranking: Keyword tiebreaker (PageDisplay-first) ──
+            var selectedCandidate = pageCandidates[0]; // Default: top semantic match
+            if (pageCandidates.Count > 1 && !explicitPageId.HasValue)
+            {
+                var topScore = pageCandidates[0].Score;
+
+                // Extract meaningful keywords from question (Arabic-aware)
+                var questionWords = userQuestion.Split(new[] { ' ', '\t', '\n', '؟', '?' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Where(w => w.Length > 2) // Skip very short words
+                    .ToList();
+
+                for (int i = 1; i < pageCandidates.Count; i++)
+                {
+                    var challenger = pageCandidates[i];
+                    var scoreDelta = topScore - challenger.Score;
+
+                    // Only re-rank if scores are close (delta < 0.05)
+                    if (scoreDelta > 0.05f) break;
+
+                    // PageDisplay (Arabic) is the PRIMARY match field
+                    var challengerDisplay = challenger.PageDisplay ?? "";
+                    var topDisplay = selectedCandidate.PageDisplay ?? "";
+                    var challengerPageName = challenger.ParsedJson?["PageName"]?.GetValue<string>() ?? "";
+                    var challengerEnName = challenger.ParsedJson?["EnName"]?.GetValue<string>() ?? "";
+                    var topPageName = selectedCandidate.ParsedJson?["PageName"]?.GetValue<string>() ?? "";
+                    var topEnName = selectedCandidate.ParsedJson?["EnName"]?.GetValue<string>() ?? "";
+
+                    // Check keyword overlap: PageDisplay (Arabic) first, then PageName + EnName
+                    int challengerKeywordHits = questionWords.Count(w =>
+                        challengerDisplay.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+                        challengerPageName.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+                        challengerEnName.Contains(w, StringComparison.OrdinalIgnoreCase));
+
+                    int topKeywordHits = questionWords.Count(w =>
+                        topDisplay.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+                        topPageName.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+                        topEnName.Contains(w, StringComparison.OrdinalIgnoreCase));
+
+                    if (challengerKeywordHits > topKeywordHits)
+                    {
+                        var challengerPageId = challenger.ParsedJson?[DbColumns.PageID_Upper]?.GetValue<int>() ?? 0;
+                        var topPageId = selectedCandidate.ParsedJson?[DbColumns.PageID_Upper]?.GetValue<int>() ?? 0;
+                        _logger.LogInformation(
+                            "[RagRetrieval] 🔄 Re-Ranking: PageDisplay keywords match PageID={ChallengerId} \"{ChallengerDisplay}\" ({ChallengerHits} hits) over PageID={TopId} \"{TopDisplay}\" ({TopHits} hits). Delta={Delta:F4}. Promoting!",
+                            challengerPageId, challengerDisplay, challengerKeywordHits, topPageId, topDisplay, topKeywordHits, scoreDelta);
+                        selectedCandidate = challenger;
+                    }
+                }
+            }
+
+            var matchedPageJson = selectedCandidate.Text;
             var pageNode = JsonNode.Parse(matchedPageJson)!.AsObject();
             int pageId = pageNode[DbColumns.PageID_Upper]!.GetValue<int>();
+            contextBundle.PageId = pageId;
 
-            _logger.LogInformation("[RagRetrieval] ✓ Using Page with PageID: {PageId}", pageId);
+            _logger.LogInformation("[RagRetrieval] ✓ Using Page with PageID: {PageId} (Score: {Score:F4})", pageId, selectedCandidate.Score);
 
             // ============================================================================
             // RAG CONTEXT CACHE CHECK (L2) - Check if we have cached context for this page
@@ -406,11 +473,11 @@ namespace DynamicAi.Application.Services
                 string cacheKey = $"RagContext:{tenantId}:{pageId}";
                 var cachedContext = new CachedPageContext
                 {
-                    PageId = pageId,
-                    UnifiedPageContext = contextBundle.UnifiedPageContext,
-                    DictionaryEntries = contextBundle.DictionaryEntries,
-                    BusinessRules = contextBundle.BusinessRules,
-                    CachedAt = DateTime.UtcNow
+                PageId = pageId,
+                UnifiedPageContext = contextBundle.UnifiedPageContext ?? string.Empty,
+                DictionaryEntries = contextBundle.DictionaryEntries,
+                BusinessRules = contextBundle.BusinessRules,
+                CachedAt = DateTime.UtcNow
                 };
 
                 var cacheOptions = new MemoryCacheEntryOptions()
@@ -532,8 +599,8 @@ namespace DynamicAi.Application.Services
             {
                 // We link details to attributes using AttributeId (Foreign Key in PageDetail)
                 detailsLookup = explicitPageDetails
-                    .Where(d => d != null && d["AttributeId"] != null)
-                    .ToLookup(d => d["AttributeId"].GetValue<int>(), d => d!);
+                    .Where(d => d != null && d!["AttributeId"] != null)
+                    .ToLookup(d => d!["AttributeId"]!.GetValue<int>(), d => d!);
             }
 
             foreach (var attr in attributesToProcess)
@@ -923,6 +990,63 @@ namespace DynamicAi.Application.Services
                     var preview = results[0].Length > 100 ? results[0].Substring(0, 100) + "..." : results[0];
                     _logger.LogDebug("[RagRetrieval]   → Content preview: {Preview}", preview);
                 }
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// Searches Qdrant and returns results WITH scores and PageDisplay for re-ranking.
+        /// PageDisplay (Arabic name) is extracted from the Qdrant payload metadata field "page_name".
+        /// </summary>
+        private async Task<List<(string Text, float Score, JsonObject? ParsedJson, string? PageDisplay)>> SearchQdrantWithScoresAsync(
+            Embedding<float> embedding,
+            Filter filter,
+            int limit,
+            string stepName)
+        {
+            var searchStart = DateTime.UtcNow;
+
+            var searchResult = await _qdrantClient.SearchAsync(
+                _collectionName,
+                embedding.Vector.ToArray(),
+                filter,
+                null, // scoreThreshold
+                (ulong)limit,
+                0, // offset
+                new WithPayloadSelector { Enable = true },
+                null, // withVectors
+                null, // readConsistency
+                null, // shardKeySelector
+                null, // timeout
+                null, // searchParams
+                null, // headers
+                null, // deadline
+                CancellationToken.None
+            );
+
+            var searchDuration = (DateTime.UtcNow - searchStart).TotalMilliseconds;
+            _logger.LogDebug("[RagRetrieval] → {StepName} scored search completed in {Duration:F0}ms, {Count} results",
+                stepName, searchDuration, searchResult.Count);
+
+            var results = new List<(string Text, float Score, JsonObject? ParsedJson, string? PageDisplay)>();
+            foreach (var point in searchResult)
+            {
+                var text = point.Payload[QdrantConstants.OriginalText]?.StringValue ?? string.Empty;
+                if (string.IsNullOrEmpty(text)) continue;
+
+                JsonObject? parsed = null;
+                try { parsed = JsonNode.Parse(text)?.AsObject(); }
+                catch { /* Non-JSON text, ignore */ }
+
+                // Extract PageDisplay (Arabic name) from Qdrant payload metadata
+                string? pageDisplay = null;
+                if (point.Payload.TryGetValue(QdrantConstants.PageName, out var pageNamePayload))
+                {
+                    pageDisplay = pageNamePayload?.StringValue;
+                }
+
+                results.Add((text, point.Score, parsed, pageDisplay));
             }
 
             return results;

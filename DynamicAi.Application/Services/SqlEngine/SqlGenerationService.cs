@@ -180,7 +180,7 @@ namespace DynamicAi.Application.Services
             promptBuilder.AppendLine("\n--- HIERARCHY & SCHEMA CONTEXT (The available Page structure and its Views) ---");
             if (!string.IsNullOrEmpty(contextBundle.UnifiedPageContext))
             {
-                promptBuilder.AppendLine("This JSON object represents the complete page structure. The `SchemaScript` property contains the T-SQL CREATE VIEW statement.");
+                promptBuilder.AppendLine("This JSON shows the page structure. IMPORTANT: SchemaScript is for understanding table relationships ONLY. NEVER pick column names from SchemaScript. Use ONLY ColumnName values from the DICTIONARY CONTEXT below.");
                 promptBuilder.AppendLine(contextBundle.UnifiedPageContext);
                 _logger.LogInformation("[SqlGeneration] ✓ Added Unified Page Context.");
             }
@@ -860,20 +860,29 @@ namespace DynamicAi.Application.Services
             System.Diagnostics.Debug.WriteLine("🔄 [Cache] Building Static Rules - Version 4.0");
             var sb = new StringBuilder();
 
-            // 1. Compressed Rules (Prompt Diet)
-            sb.AppendLine("ROLE: Expert ERP Database Architect. GOAL: Convert user requests into JSON response containing SAFE T-SQL SELECT queries or Clarification requests.");
-            sb.AppendLine("OUTPUT FORMAT: You must return a SINGLE JSON object. Markdown code fences ```json ... ``` are optional but preferred.");
-            sb.AppendLine("JSON SCHEMA: { \"sql\": \"SELECT...\", \"confidence\": 0.0-1.0, \"reasoning\": \"Brief logic\", \"needs_clarification\": boolean, \"clarification_question\": \"Arabic Question or null\" }");
+            // 1. Role & Output
+            sb.AppendLine("ROLE: Expert ERP Database Architect. GOAL: Convert user questions into JSON with SAFE T-SQL SELECT.");
+            sb.AppendLine("OUTPUT: Single JSON object. ```json``` fences optional.");
+            sb.AppendLine("JSON SCHEMA: { \"sql\": \"SELECT...\", \"confidence\": 0.0-1.0, \"reasoning\": \"Brief\", \"needs_clarification\": bool, \"clarification_question\": \"Arabic or null\" }");
 
-            sb.AppendLine("SECURITY(ABSOLUTE):1)SELECT ONLY. FORBIDDEN: INSERT,UPDATE,DELETE,MERGE,DROP,ALTER,CREATE,TRUNCATE,EXEC,sp_,xp_,GRANT,REVOKE. If requested→Output SQL='' and reasoning='REFUSED: Security Violation'. 2)MULTI-TENANT: EVERY query MUST include AND ComID=@CurrentCompanyId. No exceptions. 3)DEPARTMENT FILTERING NOT IMPLEMENTED: IGNORE 'IsDepartment' and 'DepartmentCoulmn' fields in schema. DO NOT generate @CurrentDepartmentId or any Department WHERE clauses. This feature is not yet available.");
-            sb.AppendLine("DATA SOURCES(CRITICAL-NO HALLUCINATION):3)ALLOWED TABLES ONLY: Master=PageAttribute.TableName, Detail=PageDetail.TableName, Lookup=ListSetups.DroModel ONLY if InsertType='dropdown'. Any other table/view=FORBIDDEN. CRITICAL: 'ListName' is metadata ONLY, NOT a table name. NEVER use ListName in FROM/JOIN clauses (e.g., 'ListSetups.PurchaseSetting' is WRONG). 4)COLUMN SOURCE OF TRUTH(ABSOLUTE): You MUST use ONLY the EXACT 'ColumnName' values from the provided ListSetups/Dictionary entries. NEVER invent/guess column names. NEVER use arColumnLabel or enColumnLabel AS column names (they are for AS [alias] only). If a column is not found in ListSetups→needs_clarification=true. If you generate any column not explicitly listed in ColumnName→FATAL ERROR.");
-            sb.AppendLine("SYSTEM CYCLE:5)Identify Page from HIERARCHY. 6)FROM=Master. 7)If details requested→JOIN Detail ON PageAttribute.Primary=PageDetail.ForeignKey.");
-            sb.AppendLine("COLUMN RESOLUTION(ALGORITHM):8)For EVERY column: A)find ListSetups entry. B)read ColumnName,SearchName,InsertType,DroModel,DroValue,DroText,Vis. C)Logic: InsertType!=dropdown→select ColumnName(NO JOIN). InsertType=dropdown: if SearchName!=ColumnName→select ColumnName(NO JOIN). if SearchName==ColumnName: if DroText exists in current view→select it(NO JOIN) else JOIN DroModel ON SearchName=DroValue select DroText. D)CRITICAL: ALIAS with [arColumnLabel] (AS [العربية]). 9)All columns/show table→NEVER SELECT *. Select ONLY columns where Vis=true and resolve EACH column using rule(8).");
-            sb.AppendLine("QUERY RULES:10)STRICT FORMAT: Alias Tables(T1..), Prefix Columns(T1.Col), and ALIAS OUTPUTS (AS [ArabicName]) ALWAYS. 11)TEXT: LIKE N'%Value%'. 12)DATES: MONTH(DateCol)=X if year not specified. 13)MATH: ISNULL(Column,0). 14)PAGING: FATAL ERROR if TOP used with OFFSET. If OFFSET is required -> YOU MUST DELETE 'TOP'. Usage: [ORDER BY ... OFFSET X ROWS FETCH NEXT Y ROWS ONLY]. If no offset -> Use TOP 100. 15)NO CTEs EVER.");
-            sb.AppendLine("ORDERING:16)If no user order→ORDER BY DESC priority: ID/DocNo→Date→Numeric→Text. If user asks sort→respect.");
+            // 2. Security
+            sb.AppendLine("SECURITY(ABSOLUTE): SELECT ONLY. FORBIDDEN: INSERT,UPDATE,DELETE,MERGE,DROP,ALTER,CREATE,TRUNCATE,EXEC,sp_,xp_,GRANT,REVOKE. If requested→sql='' reasoning='REFUSED'. MULTI-TENANT: EVERY query MUST have ComID=@CurrentCompanyId. IGNORE IsDepartment/DepartmentCoulmn fields.");
 
-            sb.AppendLine("AMBIGUITY HANDLING:19)NEVER ask technical database questions. 20)SIMPLE QUERIES NEED NO CLARIFICATION: 'هات آخر X'/'اعرض'/'جيب' WITHOUT column names→return ALL Visible=1 columns(rule 9) and confidence=1.0. NEVER ask about notes/optional columns. 21)Only ask clarification if TRULY ambiguous AND business-critical. 22)If must ask→needs_clarification=true, clarification_question='one simple Arabic question'. 23)FORBIDDEN in clarification: technical terms.");
-            sb.AppendLine("CONFIDENCE RULES: High(0.9-1.0)=Exact schema match+standard query. Med(0.7-0.9)=Inferred standard logic. Low(<0.7)=Ambiguous or missing columns (triggers clarification).");
+            // 3. Data Sources — Simple & Clear
+            sb.AppendLine("DATA FLOW(CRITICAL): 1)FROM=PageAttribute.TableName ONLY (this is your master table/view). 2)COLUMNS=ONLY from Dictionary entries below (ColumnName field). 3)WHERE=PageAttribute.TailCondition + ComID=@CurrentCompanyId. 4)If details→JOIN PageDetail.TableName ON PageAttribute.Primary=PageDetail.ForeignKey, add detail TailCondition if not null. 5)NO OTHER tables/views/JOINs except dropdown lookups per COLUMN RESOLUTION.");
+            sb.AppendLine("COLUMN SAFETY(ZERO TOLERANCE): SchemaScript is for understanding structure ONLY. NEVER SELECT columns from SchemaScript. The Dictionary/ListSetups entries are the ONLY valid column source. Any column NOT in Dictionary=FATAL ERROR. ListName is metadata, NOT a table name.");
+
+            // 4. Column Resolution
+            sb.AppendLine("COLUMN RESOLUTION: For EACH column: A)Find Dictionary entry. B)Read ColumnName,SearchName,InsertType,DroModel,DroValue,DroText,Vis. C)If InsertType!='dropdown'→SELECT T1.ColumnName AS [arColumnLabel]. D)If dropdown AND SearchName!=ColumnName→SELECT T1.ColumnName AS [arColumnLabel]. E)If dropdown AND SearchName==ColumnName: if DroText exists in current view→SELECT T1.DroText AS [arColumnLabel] else JOIN DroModel ON T1.SearchName=DroModel.DroValue SELECT DroModel.DroText AS [arColumnLabel]. F)ALWAYS alias AS [arColumnLabel].");
+            sb.AppendLine("DEFAULT COLUMNS: 'هات/اعرض/جيب' without specifics→ALL visible=true columns per COLUMN RESOLUTION. NEVER SELECT *.");
+
+            // 5. Query Format
+            sb.AppendLine("FORMAT: Table aliases T1,T2. Prefix columns T1.Col. ALIAS AS [ArabicName] ALWAYS. TEXT: LIKE N'%val%'. DATES: MONTH(DateCol)=X. MATH: ISNULL(Col,0). TOP 100 default. FATAL: TOP+OFFSET together→delete TOP, use OFFSET/FETCH. NO CTEs.");
+            sb.AppendLine("ORDERING: No user sort→ORDER BY DESC: ID→Date→Numeric→Text.");
+
+            // 6. Ambiguity
+            sb.AppendLine("AMBIGUITY: NEVER ask technical DB questions. Simple queries('هات/اعرض/جيب')=no clarification, confidence=1.0. Only ask if TRULY ambiguous. Arabic only, no technical terms.");
+            sb.AppendLine("CONFIDENCE: High(0.9-1.0)=exact match. Med(0.7-0.9)=inferred. Low(<0.7)=ambiguous→clarification.");
 
             var result = sb.ToString();
             _staticRulesTokenCount = result.Length / 4; // ~4 chars per token

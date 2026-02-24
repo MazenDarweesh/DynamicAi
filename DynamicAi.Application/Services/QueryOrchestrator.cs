@@ -86,7 +86,20 @@ namespace DynamicAi.Application.Services
 
             try
             {
+                #region Context Loading (Phase 0)
 
+                _logger.LogInformation("[Orchestrator] Loading recent context for session: {SessionId}", sessionId);
+                var recentTurns = await _contextService.GetRecentContextAsync(sessionId, 1);
+                var lastTurn = recentTurns.FirstOrDefault();
+                int? previousPageId = lastTurn?.PageId;
+
+                if (lastTurn != null)
+                {
+                    _logger.LogInformation("[Orchestrator] Prior context found. PrevQuestion=\"{PrevQ}\", PrevPageId={PrevPageId}",
+                        lastTurn.Question, previousPageId);
+                }
+
+                #endregion
 
                 #region Layer 0: Intent Classification
 
@@ -145,7 +158,8 @@ namespace DynamicAi.Application.Services
                         QueryLogId = queryLogId,
                         TenantId = tenantId,
                         CompanyId = comID,
-                        SessionId = sessionId  // Phase 4: For PredictIntentHandler context retrieval
+                        SessionId = sessionId,  // Phase 4: For PredictIntentHandler context retrieval
+                        PreviousPageId = previousPageId
                     };
 
                     result = await handler.HandleAsync(userQuestion, intentResult, context);
@@ -217,13 +231,14 @@ namespace DynamicAi.Application.Services
 
                 if (result != null && result.IsSuccess)
                 {
-                    // Save the turn asynchronously (fire and forget-ish, but awaited)
+                    // Save the turn asynchronously
                     await _contextService.SaveTurnAsync(
                         sessionId,
-                        userQuestion, // Save original question
+                        userQuestion, 
                         intentResult?.Intent.ToString() ?? "Unknown",
-                        result.RewrittenSql, // Or executed SQL
-                        result.Data // The service will handle sampling
+                        result.RewrittenSql,
+                        result.Data,
+                        result.PageId // Pass the PageId from RAG
                     );
                 }
 
@@ -376,6 +391,7 @@ namespace DynamicAi.Application.Services
                     "DataRetrieval",
                     dataResult.RewrittenSql,
                     dataResult.Data,
+                    dataResult.PageId,
                     cancellationToken);
                 _logger.LogInformation("[MultiStep] ✓ Context saved for session: {SessionId}", sessionId);
             }

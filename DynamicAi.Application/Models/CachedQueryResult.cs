@@ -21,6 +21,11 @@ public class CachedQueryResult
     public float Score { get; set; }
 
     /// <summary>
+    /// The PageID associated with this query.
+    /// </summary>
+    public int PageId { get; set; }
+
+    /// <summary>
     /// The original question that generated this SQL.
     /// </summary>
     public required string OriginalQuestion { get; set; }

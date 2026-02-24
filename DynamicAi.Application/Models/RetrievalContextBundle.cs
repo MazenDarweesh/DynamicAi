@@ -14,6 +14,11 @@ namespace DynamicAi.Application.Models
         public string? UnifiedPageContext { get; set; }
 
         /// <summary>
+        /// (جديد) معرف الصفحة المستخرج من البحث (PageID).
+        /// </summary>
+        public int? PageId { get; set; }
+
+        /// <summary>
         /// "القاموس" - صفوف البيانات من ListSetups (كنصوص JSON)
         /// </summary>
         public List<string> DictionaryEntries { get; set; } = new List<string>();

@@ -38,6 +38,7 @@ public class CachedPageContext
     {
         return new RetrievalContextBundle
         {
+            PageId = this.PageId,
             UnifiedPageContext = this.UnifiedPageContext,
             DictionaryEntries = this.DictionaryEntries,
             BusinessRules = this.BusinessRules

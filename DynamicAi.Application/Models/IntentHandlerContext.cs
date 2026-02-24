@@ -36,4 +36,10 @@ public class IntentHandlerContext
     /// Used by PredictIntentHandler to retrieve previous query results.
     /// </summary>
     public string? SessionId { get; init; }
+
+    /// <summary>
+    /// The PageID associated with the previous turn's RAG context.
+    /// Used to detect scope shifts and prevent invalid SQL wrapping.
+    /// </summary>
+    public int? PreviousPageId { get; init; }
 }

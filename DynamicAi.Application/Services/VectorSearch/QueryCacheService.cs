@@ -43,8 +43,6 @@ public class QueryCacheService : IQueryCacheService
         try
         {
             var collections = await _qdrantClient.ListCollectionsAsync();
-            bool collectionCreated = false;
-
             if (!collections.Any(c => c == _collectionName))
             {
                 _logger.LogInformation("[QueryCache] Creating collection: {Collection}", _collectionName);
@@ -57,7 +55,6 @@ public class QueryCacheService : IQueryCacheService
                         Distance = Distance.Cosine
                     });
 
-                collectionCreated = true;
                 _logger.LogInformation("[QueryCache] ✓ Collection created successfully");
             }
 
@@ -156,6 +153,7 @@ public class QueryCacheService : IQueryCacheService
                     CacheId = topResult.Id.Uuid,
                     Sql = payload["generated_sql"].StringValue,
                     Score = topResult.Score,
+                    PageId = payload.ContainsKey("page_id") ? (int)payload["page_id"].IntegerValue : 0,
                     OriginalQuestion = payload["original_question"].StringValue,
                     CreatedAt = DateTime.Parse(payload["created_at"].StringValue)
                 };

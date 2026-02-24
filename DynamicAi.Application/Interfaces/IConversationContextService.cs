@@ -10,6 +10,7 @@ public interface IConversationContextService
         string intent,
         string? sqlExecuted = null,
         dynamic? resultData = null,
+        int? pageId = null,
         CancellationToken cancellationToken = default);
 
     Task<List<ConversationTurn>> GetRecentContextAsync(

@@ -78,22 +78,30 @@ public class QueryCondenserService : IQueryCondenserService
         // ============================================================================
         var hasPreviousSql = !string.IsNullOrWhiteSpace(previousSql);
 
-        // Compressed prompt to minimize tokens
-        var condensingPrompt = $@"ROLE:Query Analyzer for Text-to-SQL.
-TASK:Analyze New Question vs Previous Question and determine:1)Standalone rephrased question 2)Action type
+        // Precise prompt for better decision making
+        var condensingPrompt = $@"ROLE: Senior Query Context Analyzer.
+TASK: Compare the New Question against the Conversation History. Produce a standalone question and select the best action.
+
 ACTIONS:
--WRAP:Simple result modification(sort,filter,limit).Wrap prev SQL in subquery.Use when modifying output only.
--REGENERATE:Related context but needs new SQL.Use when adding WHERE/columns.
--NEW:Completely unrelated topic.
-RULES:1)Sort/order/top/limit keywords on prev results→WRAP 2)New conditions(values,dates,states)→REGENERATE 3)Different topic→NEW 4)Keep original language 5)Be concise
+- WRAP: Use ONLY if the New Question is a simple post-processing request on the previous results (e.g., 'sort them', 'give me the top 10', 'show counts only'). No new business logic or filters.
+- REGENERATE: Use if the New Question adds new filters, conditions, or requires joining tables within the SAME TOPIC/PAGE (e.g., 'only for 2023', 'show active ones').
+- NEW: Use if the New Question switches to a completely DIFFERENT TOPIC, entity, or table (e.g., from 'Sales' to 'Employees', or 'Show me the cars' when talking about 'Contract').
+
+RULES:
+1. If the subject/entity changes dramatically → ACTION: NEW.
+2. If the user asks for a specific value change (e.g., 'make it for company X') → ACTION: REGENERATE.
+3. Standalone QUESTION must be fully qualified (include entity names) and in the same language as the input.
+4. Be decisive. If unsure about the link, choose NEW to avoid context contamination.
+
 ---
-Prev:{previousQuestion}
-HasPrevSQL:{(hasPreviousSql ? "Yes" : "No")}
-New:{currentQuestion}
+PREVIOUS QUESTION: {previousQuestion}
+HAS PREVIOUS SQL: {(hasPreviousSql ? "Yes" : "No")}
+NEW QUESTION: {currentQuestion}
 ---
-Reply exactly(2 lines):
-ACTION:[WRAP|REGENERATE|NEW]
-QUESTION:[standalone rephrased question]";
+
+Reply strictly in this format:
+ACTION: [WRAP|REGENERATE|NEW]
+QUESTION: [rephrased standalone question]";
 
 
         var sw = System.Diagnostics.Stopwatch.StartNew();

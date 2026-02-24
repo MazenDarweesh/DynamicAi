@@ -31,6 +31,8 @@ namespace DynamicAi.Domain.Entities
 
         public bool IsRelevantForContext { get; set; } = true; // false for "Chat"
 
+        public int? PageId { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

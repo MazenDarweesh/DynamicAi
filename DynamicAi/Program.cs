@@ -150,6 +150,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddSingleton<IGeminiCacheManager, GeminiCacheManager>(); // Gemini Context Caching
     services.AddSingleton<IGeminiPageContextCache, GeminiPageContextCacheService>(); // Gemini Page-Scoped Context Caching
     services.AddSingleton<ITokenCounter, GeminiTokenCounter>(); // Phase E: Token Counter
+    services.AddTransient<ISchemaTokenAnalyzerService, DynamicAi.Application.Services.Diagnostics.SchemaTokenAnalyzerService>(); // Diagnostic: Schema Token Analyzer
 
 
     // --- تسجيل عميل Qdrant ---
