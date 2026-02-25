@@ -188,9 +188,16 @@
     <div class="input-area">
         <div class="input-wrapper">
             <textarea [(ngModel)]="question" (keydown.enter)="onEnter($event)" placeholder="Message DynamicAi..."
-                rows="1" [disabled]="loading"></textarea>
-            <button (click)="sendQuestion()" [disabled]="loading || !question.trim()" class="send-btn">
+                rows="1"></textarea>
+            <!-- Send Button (visible when NOT loading) -->
+            <button *ngIf="!loading" (click)="sendQuestion()" [disabled]="!question.trim()" class="send-btn">
                 ➤
+            </button>
+            <!-- Stop Button (visible when loading) -->
+            <button *ngIf="loading" (click)="stopGeneration()" class="stop-btn" title="إيقاف التوليد">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+                </svg>
             </button>
         </div>
         <div class="footer-text">

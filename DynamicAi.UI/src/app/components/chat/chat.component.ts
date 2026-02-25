@@ -5,7 +5,7 @@ import { ApiService } from '../../services/api.service';
 import { ChatSignalService } from '../../services/chat-signal.service';
 import { environment } from '../../../environments/environment';
 import { ChatMessage } from '../../models';
-import { Observable } from 'rxjs';
+import { Observable, Subscription } from 'rxjs';
 import * as xlsx from 'xlsx';
 
 @Component({
@@ -31,6 +31,9 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     messages: ChatMessage[] = [];
     loading = false;
     // sidebar state is now managed by parent (App), we emit event to toggle it
+
+    // Stop Generation
+    private activeSubscription: Subscription | null = null;
 
     // Context
     lastQuestion: string | undefined = undefined;
@@ -175,7 +178,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
 
         // Use race to handle timeout vs API response
         import('rxjs').then(({ race }) => {
-            race(
+            this.activeSubscription = race(
                 this.apiService.ask(currentQ, this.lastQuestion, this.lastSql, sessionId),
                 timeout$
             ).subscribe({
@@ -289,6 +292,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                     this.lastQuestion = currentQ;
                     this.lastSql = sql;
 
+                    this.activeSubscription = null;
                     this.cdr.detectChanges();
                 },
                 error: (err) => {
@@ -317,10 +321,25 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                         sql: sql,
                         queryLogId: queryLogId
                     });
+                    this.activeSubscription = null;
                     this.cdr.detectChanges();
                 }
             });
         });
+    }
+
+    stopGeneration() {
+        if (this.activeSubscription) {
+            this.activeSubscription.unsubscribe();
+            this.activeSubscription = null;
+        }
+        this.loading = false;
+        this.messages.push({
+            isAi: true,
+            text: '⛔ تم إيقاف التوليد بواسطة المستخدم.',
+            isLogged: true
+        });
+        this.cdr.detectChanges();
     }
 
     dislikeResponse(msg: ChatMessage) {

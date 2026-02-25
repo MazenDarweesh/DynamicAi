@@ -322,6 +322,33 @@ textarea {
     background: #475569;
 }
 
+/* Stop Generation Button */
+.stop-btn {
+    background: #ef4444;
+    color: white;
+    border: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    margin-right: 5px;
+    animation: stop-pulse 2s infinite;
+}
+
+.stop-btn:hover {
+    background: #dc2626;
+    transform: scale(1.05);
+}
+
+@keyframes stop-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+    50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+
 .footer-text {
     margin-top: 12px;
     font-size: 0.75rem;
