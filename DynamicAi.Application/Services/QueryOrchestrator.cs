@@ -237,6 +237,19 @@ namespace DynamicAi.Application.Services
                     if (result.ErrorMessage?.StartsWith("CLARIFICATION_REQUIRED:") == true)
                     {
                         var clarification = result.ErrorMessage.Replace("CLARIFICATION_REQUIRED:", "").Trim();
+
+                        // 🛡️ Save clarification turn to session so the next followup answer (e.g. "نعم") has context.
+                        // Without this, the Condenser won't know about the AI's question and will treat "نعم" as a standalone Chat query.
+                        await _contextService.SaveTurnAsync(
+                            sessionId,
+                            clarification,                          // AI's clarification question becomes "previous question"
+                            intentResult?.Intent.ToString() ?? "Unknown",
+                            result.RewrittenSql,                    // Preserve generated SQL for potential reuse
+                            null,                                   // No result data yet
+                            result.PageId                           // Keep PageId for context continuity
+                        );
+                        _logger.LogInformation("[Orchestrator] 📝 Clarification turn saved to session for followup context");
+
                         throw new InteractionRequiredException(clarification, queryLogId, result.ConfidenceScore ?? 0);
                     }
                 }

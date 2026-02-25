@@ -207,7 +207,7 @@ public class IntentExampleManagementService : IIntentExampleManagementService
         }
     }
 
-    /// <inheritdoc />
+
     public async Task<bool> EnsureCollectionExistsAsync(CancellationToken cancellationToken = default)
     {
         if (_collectionInitialized) return true;

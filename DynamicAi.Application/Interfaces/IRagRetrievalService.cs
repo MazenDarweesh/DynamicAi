@@ -4,10 +4,6 @@ using System.Threading.Tasks;
 
 namespace DynamicAi.Application.Interfaces
 {
-    /// <summary>
-    /// (مُعدل) مسؤول عن تنفيذ "البحث الذكي متعدد الخطوات"
-    /// لجلب السياق الكامل (Schema, Data, Rules).
-    /// </summary>
     public interface IRagRetrievalService
     {
         /// <summary>

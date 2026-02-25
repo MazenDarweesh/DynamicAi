@@ -24,6 +24,7 @@ public class SqlIntentHandler : IIntentHandler
     private readonly IQueryCacheService _queryCacheService;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
     private readonly ILlmUsageTracker _usageTracker; // For tracking token usage
+    private readonly ISqlSanitizerService _sanitizerService;
     private readonly ILogger<SqlIntentHandler> _logger;
     private readonly bool _queryCacheEnabled;
 
@@ -54,7 +55,7 @@ public class SqlIntentHandler : IIntentHandler
         _queryCacheService = queryCacheService;
         _embeddingService = embeddingService;
         _usageTracker = usageTracker;
-        _logger = logger;
+        _sanitizerService = sanitizerService;
         _logger = logger;
         _queryCacheEnabled = !bool.TryParse(configuration["Caching:QueryCache:Enabled"], out var enabled) || enabled; // Default true
     }
@@ -301,6 +302,20 @@ public class SqlIntentHandler : IIntentHandler
                     ? "CACHE_INVALID_REGENERATE" // P1-3: Signal caller to regenerate
                     : $"SQL Validation Failed: {ex.Message}"
             };
+        }
+
+        // 3.5. Layer 3.5: Sanitization (Remove invalid columns not in DB schema)
+        _logger.LogInformation("[SqlHandler] Layer 3.5: Sanitizing SQL...");
+        var sanitizationResult = await _sanitizerService.SanitizeAsync(rawSql, context?.TenantId ?? "default");
+        if (sanitizationResult.WasModified)
+        {
+            _logger.LogWarning("[SqlHandler] ⚠️ Sanitizer removed {Count} invalid column(s): {Columns}",
+                sanitizationResult.Changes.Count, string.Join(", ", sanitizationResult.Changes));
+            rawSql = sanitizationResult.SafeSql;
+        }
+        foreach (var warning in sanitizationResult.Warnings)
+        {
+            _logger.LogWarning("[SqlHandler] [Sanitizer] {Warning}", warning);
         }
 
         // 4. Layer 4: Rewriting (Security)

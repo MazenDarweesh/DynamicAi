@@ -205,7 +205,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                     let newMessage: ChatMessage;
                     const intent = res.intent ?? res.Intent;
                     // Detect Rich Text Intents (Non-SQL)
-                    const isRichTextIntent = ['Prediction', 'PredictionWithDataFetch', 'Chat', 'Analysis'].includes(intent);
+                    const isRichTextIntent = ['Prediction', 'PredictionWithDataFetch', 'Chat'].includes(intent);
 
                     // Attempt to parse string data if it looks like JSON, UNLESS it's a rich text intent that returns a string
                     if (typeof data === 'string' && !isRichTextIntent) {
