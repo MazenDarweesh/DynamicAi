@@ -30,7 +30,7 @@ namespace DynamicAi.Application.Services.SqlEngine
             try
             {
                 // 1. Get Schema Map (Cached)
-                var schemaMap = await _schemaProvider.GetSchemaMapAsync();
+                var schemaMap = await _schemaProvider.GetSchemaMapAsync(ct);
 
                 // 2. Parse SQL
                 TSqlParser parser = new TSql160Parser(false);
@@ -93,22 +93,21 @@ namespace DynamicAi.Application.Services.SqlEngine
             // ثم نستخدم ScriptGenerator لتوليد SQL جديد.
             
             // 1. تجميع الـ SelectElements الآباء للأعمدة المحذوفة
-            var elementsToRemove = new HashSet<SelectElement>();
-            
-            // نحتاج DataFinder لنبحث عن الـ SelectScalarExpression الذي يحتوي الـ ColumnReferenceExpression
-            // هذا معقد قليلاً لأن الـ Column قد يكون جزءاً من Expression (e.g. SUM(Col)).
-            // للتبسيط في هذا الـ MVP: سنحذف الـ SelectElement بالكامل إذا كان يحتوي على عمود سيء.
-            
-            // سنقوم بعمل Visitor سريع آخر لتحديد الـ Elements
             var parentFinder = new SelectElementFinder(columnsToRemove);
             fragment.Accept(parentFinder);
             
-            // الآن لدينا قائمة بالـ SelectElements التي يجب حذفها
-            // المشكلة: ScriptDom AST objects are managed by the Parser locally.
-            // We need to modify the QuerySpecification.SelectElements list.
-            
             var cleaner = new SelectElementRemover(parentFinder.ElementsToRemove);
             fragment.Accept(cleaner);
+
+            // 1.5 إزالة الأعمدة من GROUP BY و ORDER BY
+            var clauseCleaner = new ClauseElementRemover(columnsToRemove);
+            fragment.Accept(clauseCleaner);
+
+            // 1.6 إزالة الشروط من WHERE (إذا كان الشرط يحتوي على العمود المحذوف)
+            // هذا معقد جداً في AST لأنه قد يكون جزء من شجرة AND/OR معقدة.
+            // للتبسيط في هذا الـ MVP: إذا وجدنا العمود في WHERE سنحاول إزالة تعبير المقارنة الأقرب
+            var whereCleaner = new WhereClauseRemover(columnsToRemove);
+            fragment.Accept(whereCleaner);
 
             // 2. Generate New SQL
             var generator = new Sql160ScriptGenerator();
@@ -199,6 +198,108 @@ namespace DynamicAi.Application.Services.SqlEngine
                     node.SelectElements.Clear();
                     foreach (var el in validElements) node.SelectElements.Add(el);
                 }
+            }
+        }
+
+        // Helper to remove elements from GROUP BY, ORDER BY
+        private class ClauseElementRemover : TSqlFragmentVisitor
+        {
+            private readonly HashSet<ColumnReferenceExpression> _targets;
+
+            public ClauseElementRemover(List<ColumnReferenceExpression> targets)
+            {
+                _targets = new HashSet<ColumnReferenceExpression>(targets);
+            }
+
+            public override void Visit(GroupByClause node)
+            {
+                var validElements = new List<GroupingSpecification>();
+                foreach (var element in node.GroupingSpecifications)
+                {
+                    var finder = new ColumnInElementFinder(_targets);
+                    element.Accept(finder);
+                    if (!finder.FoundAny)
+                    {
+                        validElements.Add(element);
+                    }
+                }
+
+                node.GroupingSpecifications.Clear();
+                foreach (var el in validElements)
+                {
+                    node.GroupingSpecifications.Add(el);
+                }
+            }
+
+            public override void Visit(OrderByClause node)
+            {
+                var validElements = new List<ExpressionWithSortOrder>();
+                foreach (var element in node.OrderByElements)
+                {
+                    var finder = new ColumnInElementFinder(_targets);
+                    element.Accept(finder);
+                    if (!finder.FoundAny)
+                    {
+                        validElements.Add(element);
+                    }
+                }
+
+                node.OrderByElements.Clear();
+                foreach (var el in validElements) node.OrderByElements.Add(el);
+            }
+        }
+
+        // ⚠️ التحذير: تبسيط مفرط لـ WHERE - في الواقع يجب إعادة كتابة الشجرة بعناية.
+        // في هذا الإصدار، سنقوم بإزالة الشرط إذا كان BooleanComparisonExpression بسيط.
+        private class WhereClauseRemover : TSqlFragmentVisitor
+        {
+            private readonly HashSet<ColumnReferenceExpression> _targets;
+
+            public WhereClauseRemover(List<ColumnReferenceExpression> targets)
+            {
+                _targets = new HashSet<ColumnReferenceExpression>(targets);
+            }
+
+            public override void Visit(QuerySpecification node)
+            {
+                if (node.WhereClause == null) return;
+
+                node.WhereClause.SearchCondition = PruneExpression(node.WhereClause.SearchCondition);
+                
+                // إذا تم مسح الشرط بالكامل
+                if (node.WhereClause.SearchCondition == null)
+                {
+                    node.WhereClause = null;
+                }
+            }
+
+            private BooleanExpression PruneExpression(BooleanExpression expr)
+            {
+                if (expr == null) return null;
+
+                if (expr is BooleanBinaryExpression binExpr)
+                {
+                    var left = PruneExpression(binExpr.FirstExpression);
+                    var right = PruneExpression(binExpr.SecondExpression);
+
+                    if (left == null && right == null) return null;
+                    if (left == null) return right;
+                    if (right == null) return left;
+
+                    binExpr.FirstExpression = left;
+                    binExpr.SecondExpression = right;
+                    return binExpr;
+                }
+
+                // BooleanComparisonExpression (A = B) or InPredicate or LikePredicate etc.
+                var finder = new ColumnInElementFinder(_targets);
+                expr.Accept(finder);
+                if (finder.FoundAny)
+                {
+                    return null; // Remove this part of the condition
+                }
+
+                return expr;
             }
         }
     }

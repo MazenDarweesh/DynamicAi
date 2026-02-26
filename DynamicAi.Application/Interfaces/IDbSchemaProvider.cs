@@ -10,10 +10,7 @@ namespace DynamicAi.Application.Interfaces
     public interface IDbSchemaProvider
     {
         /// <summary>
-        /// يجلب خريطة كاملة للـ Schema:
-        /// Key: اسم الجدول (Lower Case)
-        /// Value: مجموعة بأسماء الأعمدة (Lower Case HashSet للسرعة)
         /// </summary>
-        Task<Dictionary<string, HashSet<string>>> GetSchemaMapAsync();
+        Task<Dictionary<string, HashSet<string>>> GetSchemaMapAsync(System.Threading.CancellationToken ct = default);
     }
 }

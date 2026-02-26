@@ -87,17 +87,17 @@ namespace DynamicAi.Application.Services.SqlEngine
                 _isInSelectClause = false;
             }
 
-            // زيارة باقي الأجزاء (Where, OrderBy, etc.) بدون وضع Flag
-            // لأننا حالياً نركز على حذف أعمدة الـ SELECT فقط (الأكثر أماناً)
+            // زيارة باقي الأجزاء (Where, GroupBy, OrderBy, etc.) للبحث عن الأعمدة غير الصالحة فيها أيضاً
             if (node.WhereClause != null) node.WhereClause.Accept(this);
             if (node.OrderByClause != null) node.OrderByClause.Accept(this);
+            if (node.GroupByClause != null) node.GroupByClause.Accept(this);
+            if (node.HavingClause != null) node.HavingClause.Accept(this);
         }
 
         public override void Visit(ColumnReferenceExpression node)
         {
-            // نتحقق فقط من الأعمدة الموجودة في جملة SELECT
-            // حذف الأعمدة من WHERE أو JOIN خطير جداً وقد يكسر الـ Query، لذا نتركه (المستخدم قال "مش هيحصل خطا")
-            if (!_isInSelectClause) return;
+            // سابقاً كنا نتحقق فقط من جملة SELECT، ولكن إذا تُرك عمود خاطئ في WHERE أو GROUP BY 
+            // سيفشل الاستعلام بأكمله في SQL Server. لذا يجب فحصه في كل مكان.
 
             // استخراج اسم العمود
             // MultiPartIdentifier قد يكون:

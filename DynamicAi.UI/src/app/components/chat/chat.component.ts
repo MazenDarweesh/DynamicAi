@@ -5,7 +5,7 @@ import { ApiService } from '../../services/api.service';
 import { ChatSignalService } from '../../services/chat-signal.service';
 import { environment } from '../../../environments/environment';
 import { ChatMessage } from '../../models';
-import { Observable, Subscription } from 'rxjs';
+import { Observable, Subscription, race } from 'rxjs';
 import * as xlsx from 'xlsx';
 
 @Component({
@@ -176,155 +176,152 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
             return () => clearTimeout(timer);
         });
 
-        // Use race to handle timeout vs API response
-        import('rxjs').then(({ race }) => {
-            this.activeSubscription = race(
-                this.apiService.ask(currentQ, this.lastQuestion, this.lastSql, sessionId),
-                timeout$
-            ).subscribe({
-                next: (res: any) => {
-                    this.loading = false;
-                    console.log('API Response:', res);
+        this.activeSubscription = race(
+            this.apiService.ask(currentQ, this.lastQuestion, this.lastSql, sessionId),
+            timeout$
+        ).subscribe({
+            next: (res: any) => {
+                this.loading = false;
+                console.log('API Response:', res);
 
-                    let data = res;
-                    let sql: string | undefined = undefined;
-                    let cacheId: string | undefined = undefined;
+                let data = res;
+                let sql: string | undefined = undefined;
+                let cacheId: string | undefined = undefined;
 
-                    if (res) {
-                        if (res.data !== undefined) {
-                            data = res.data;
-                            sql = res.rewrittenSql;
-                            cacheId = res.cacheId;
-                        } else if (res.Data !== undefined) {
-                            data = res.Data;
-                            sql = res.RewrittenSql;
-                            cacheId = res.CacheId;
-                        }
+                if (res) {
+                    if (res.data !== undefined) {
+                        data = res.data;
+                        sql = res.rewrittenSql;
+                        cacheId = res.cacheId;
+                    } else if (res.Data !== undefined) {
+                        data = res.Data;
+                        sql = res.RewrittenSql;
+                        cacheId = res.CacheId;
                     }
+                }
 
-                    // Helper to get case-insensitive property
-                    const getProp = (obj: any, key: string) => obj && (obj[key] || obj[key.toLowerCase()] || obj[key.charAt(0).toUpperCase() + key.slice(1)]);
+                // Helper to get case-insensitive property
+                const getProp = (obj: any, key: string) => obj && (obj[key] || obj[key.toLowerCase()] || obj[key.charAt(0).toUpperCase() + key.slice(1)]);
 
-                    let newMessage: ChatMessage;
-                    const intent = res.intent ?? res.Intent;
-                    // Detect Rich Text Intents (Non-SQL)
-                    const isRichTextIntent = ['Prediction', 'PredictionWithDataFetch', 'Chat'].includes(intent);
+                let newMessage: ChatMessage;
+                const intent = res.intent ?? res.Intent;
+                // Detect Rich Text Intents (Non-SQL)
+                const isRichTextIntent = ['Prediction', 'PredictionWithDataFetch', 'Chat'].includes(intent);
 
-                    // Attempt to parse string data if it looks like JSON, UNLESS it's a rich text intent that returns a string
-                    if (typeof data === 'string' && !isRichTextIntent) {
-                        try {
-                            const parsed = JSON.parse(data);
-                            // Only use parsed if it's an object/array, otherwise keep as string
-                            if (typeof parsed === 'object') data = parsed;
-                        } catch (e) {
-                            // Keep as string
-                        }
+                // Attempt to parse string data if it looks like JSON, UNLESS it's a rich text intent that returns a string
+                if (typeof data === 'string' && !isRichTextIntent) {
+                    try {
+                        const parsed = JSON.parse(data);
+                        // Only use parsed if it's an object/array, otherwise keep as string
+                        if (typeof parsed === 'object') data = parsed;
+                    } catch (e) {
+                        // Keep as string
                     }
+                }
 
-                    const msgType = getProp(data, 'Type');
-                    const msgText = getProp(data, 'Message');
+                const msgType = getProp(data, 'Type');
+                const msgText = getProp(data, 'Message');
 
-                    if (isRichTextIntent) {
-                        // Force text/rich display for these intents
-                        let content = '';
+                if (isRichTextIntent) {
+                    // Force text/rich display for these intents
+                    let content = '';
 
-                        // Handle Array response (PredictionWithDataFetch often returns [ { prediction: "..." } ])
-                        if (Array.isArray(data) && data.length > 0) {
-                            const firstItem = data[0];
-                            // Check for prediction property (case-insensitive)
-                            const prediction = firstItem.prediction || firstItem.Prediction || firstItem.Message || firstItem.message;
-                            if (prediction) {
-                                content = prediction;
-                            } else {
-                                content = JSON.stringify(data, null, 2);
-                            }
-                        }
-                        else if (typeof data === 'string') content = data;
-                        else if (msgText) content = msgText;
-                        else if (data && typeof data === 'object') content = JSON.stringify(data, null, 2);
-
-                        newMessage = {
-                            isAi: true,
-                            text: content,
-                            originalQuestion: currentQ,
-                            retryCount: retryCount,
-                            isRichText: true // Enable HTML rendering
-                        };
-                    }
-                    else if (msgText && !msgType) {
-                        // Standard message
-                        newMessage = { isAi: true, text: msgText, originalQuestion: currentQ, retryCount: retryCount };
-                    } else if (msgType === 'Question') {
-                        // Clarification Question
-                        newMessage = { isAi: true, text: msgText, originalQuestion: currentQ, retryCount: retryCount };
-                    } else if (Array.isArray(data)) {
-                        if (data.length > 0) {
-                            newMessage = { isAi: true, tableData: data, originalQuestion: currentQ, retryCount: retryCount };
+                    // Handle Array response (PredictionWithDataFetch often returns [ { prediction: "..." } ])
+                    if (Array.isArray(data) && data.length > 0) {
+                        const firstItem = data[0];
+                        // Check for prediction property (case-insensitive)
+                        const prediction = firstItem.prediction || firstItem.Prediction || firstItem.Message || firstItem.message;
+                        if (prediction) {
+                            content = prediction;
                         } else {
-                            newMessage = { isAi: true, text: 'No results found.', originalQuestion: currentQ, retryCount: retryCount };
-                        }
-                    } else {
-                        // Fallback for objects (Data Response)
-                        // Check if data is just a string after all
-                        if (typeof data === 'string') {
-                            newMessage = { isAi: true, text: data, originalQuestion: currentQ, retryCount: retryCount };
-                        } else {
-                            newMessage = { isAi: true, data: data, originalQuestion: currentQ, retryCount: retryCount };
+                            content = JSON.stringify(data, null, 2);
                         }
                     }
+                    else if (typeof data === 'string') content = data;
+                    else if (msgText) content = msgText;
+                    else if (data && typeof data === 'object') content = JSON.stringify(data, null, 2);
 
-                    newMessage.sql = sql;
-                    newMessage.cacheId = cacheId;
-                    newMessage.isLogged = false;
-                    newMessage.queryLogId = res.queryLogId || res.QueryLogId;
-                    newMessage.intent = intent;
-
-                    // Capture Query Insights (NEW)
-                    if (res.queryInsights || res.QueryInsights) {
-                        newMessage.queryInsights = res.queryInsights || res.QueryInsights;
-                        newMessage.showInsights = false; // Initially collapsed
-                    }
-
-                    this.messages.push(newMessage);
-
-                    this.confirmedQuestion = this.lastQuestion;
-                    this.confirmedSql = this.lastSql;
-                    this.lastQuestion = currentQ;
-                    this.lastSql = sql;
-
-                    this.activeSubscription = null;
-                    this.cdr.detectChanges();
-                },
-                error: (err) => {
-                    this.loading = false;
-                    console.error('❌ [SendQuestion] Error:', err);
-
-                    let errorMsg = err.message;
-                    let sql = undefined;
-                    let queryLogId = undefined;
-
-                    if (err.message && err.message.includes('Timeout')) {
-                        errorMsg = '⚠️ المعالج استغرق وقتاً طويلاً جداً (أكثر من 60 ثانية). يرجى محاولة صياغة السؤال بشكل أبسط.';
-                    }
-
-                    if (err.error && typeof err.error === 'object') {
-                        if (err.error.sql) sql = err.error.sql;
-                        if (err.error.error) errorMsg = err.error.error;
-                        if (err.error.queryLogId) queryLogId = err.error.queryLogId;
-                    }
-
-                    this.messages.push({
+                    newMessage = {
                         isAi: true,
-                        text: 'Error: ' + errorMsg,
+                        text: content,
                         originalQuestion: currentQ,
                         retryCount: retryCount,
-                        sql: sql,
-                        queryLogId: queryLogId
-                    });
-                    this.activeSubscription = null;
-                    this.cdr.detectChanges();
+                        isRichText: true // Enable HTML rendering
+                    };
                 }
-            });
+                else if (msgText && !msgType) {
+                    // Standard message
+                    newMessage = { isAi: true, text: msgText, originalQuestion: currentQ, retryCount: retryCount };
+                } else if (msgType === 'Question') {
+                    // Clarification Question
+                    newMessage = { isAi: true, text: msgText, originalQuestion: currentQ, retryCount: retryCount };
+                } else if (Array.isArray(data)) {
+                    if (data.length > 0) {
+                        newMessage = { isAi: true, tableData: data, originalQuestion: currentQ, retryCount: retryCount };
+                    } else {
+                        newMessage = { isAi: true, text: 'No results found.', originalQuestion: currentQ, retryCount: retryCount };
+                    }
+                } else {
+                    // Fallback for objects (Data Response)
+                    // Check if data is just a string after all
+                    if (typeof data === 'string') {
+                        newMessage = { isAi: true, text: data, originalQuestion: currentQ, retryCount: retryCount };
+                    } else {
+                        newMessage = { isAi: true, data: data, originalQuestion: currentQ, retryCount: retryCount };
+                    }
+                }
+
+                newMessage.sql = sql;
+                newMessage.cacheId = cacheId;
+                newMessage.isLogged = false;
+                newMessage.queryLogId = res.queryLogId || res.QueryLogId;
+                newMessage.intent = intent;
+
+                // Capture Query Insights (NEW)
+                if (res.queryInsights || res.QueryInsights) {
+                    newMessage.queryInsights = res.queryInsights || res.QueryInsights;
+                    newMessage.showInsights = false; // Initially collapsed
+                }
+
+                this.messages.push(newMessage);
+
+                this.confirmedQuestion = this.lastQuestion;
+                this.confirmedSql = this.lastSql;
+                this.lastQuestion = currentQ;
+                this.lastSql = sql;
+
+                this.activeSubscription = null;
+                this.cdr.detectChanges();
+            },
+            error: (err) => {
+                this.loading = false;
+                console.error('❌ [SendQuestion] Error:', err);
+
+                let errorMsg = err.message;
+                let sql = undefined;
+                let queryLogId = undefined;
+
+                if (err.message && err.message.includes('Timeout')) {
+                    errorMsg = '⚠️ المعالج استغرق وقتاً طويلاً جداً (أكثر من 60 ثانية). يرجى محاولة صياغة السؤال بشكل أبسط.';
+                }
+
+                if (err.error && typeof err.error === 'object') {
+                    if (err.error.sql) sql = err.error.sql;
+                    if (err.error.error) errorMsg = err.error.error;
+                    if (err.error.queryLogId) queryLogId = err.error.queryLogId;
+                }
+
+                this.messages.push({
+                    isAi: true,
+                    text: 'Error: ' + errorMsg,
+                    originalQuestion: currentQ,
+                    retryCount: retryCount,
+                    sql: sql,
+                    queryLogId: queryLogId
+                });
+                this.activeSubscription = null;
+                this.cdr.detectChanges();
+            }
         });
     }
 

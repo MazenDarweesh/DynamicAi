@@ -34,7 +34,7 @@ namespace DynamicAi.Application.Services.SqlEngine
             _logger = logger;
         }
 
-        public async Task<Dictionary<string, HashSet<string>>> GetSchemaMapAsync()
+        public async Task<Dictionary<string, HashSet<string>>> GetSchemaMapAsync(System.Threading.CancellationToken ct = default)
         {
             // محاولة الجلب من الكاش أولاً
             if (_memoryCache.TryGetValue(CACHE_KEY, out Dictionary<string, HashSet<string>> cachedSchema))
@@ -59,7 +59,7 @@ namespace DynamicAi.Application.Services.SqlEngine
                 AND t.TABLE_NAME <> 'sysdiagrams'
                 ORDER BY t.TABLE_NAME";
 
-            var flatData = await connection.QueryAsync<(string TableName, string ColumnName)>(sql);
+            var flatData = await connection.QueryAsync<(string TableName, string ColumnName)>(new CommandDefinition(sql, cancellationToken: ct));
 
             // تحويل البيانات إلى Dictionary<TableName, HashSet<ColumnName>>
             var schemaMap = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
