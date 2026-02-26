@@ -26,6 +26,7 @@ namespace DynamicAi.Application.Services.SqlEngine
 
         // حالة الزيارة الحالية
         private bool _isInSelectClause = false;
+        private string _currentClause = "UNKNOWN";
 
         public SanitizationVisitor(Dictionary<string, HashSet<string>> schemaMap)
         {
@@ -38,13 +39,14 @@ namespace DynamicAi.Application.Services.SqlEngine
 
         public override void Visit(NamedTableReference node)
         {
+            _currentClause = "FROM/JOIN";
             // استخراج اسم الجدول الحقيقي
             string realTableName = node.SchemaObject.BaseIdentifier.Value;
 
             // التحقق من وجود الجدول في الـ Schema (للعلم فقط)
             if (!_schemaMap.ContainsKey(realTableName))
             {
-                Warnings.Add($"Table '{realTableName}' not found in schema. Skipping validation for its columns.");
+                Warnings.Add($"[Sanitizer] Table '{realTableName}' not found in schema. Skipping validation for its columns.");
                 // لا نحذفه حسب طلب المستخدم، لكن نسجله عشان نتجاهل أعمدته
                 return;
             }
@@ -79,6 +81,7 @@ namespace DynamicAi.Application.Services.SqlEngine
             }
 
             // ثم زيارة الـ SELECT Elements للتحقق من الأعمدة
+            _currentClause = "SELECT";
             foreach (var element in node.SelectElements)
             {
                 // نفعل هذا Flag عشان لما نوصل لـ ColumnReferenceExpression نعرف إننا في الـ Select list
@@ -88,10 +91,29 @@ namespace DynamicAi.Application.Services.SqlEngine
             }
 
             // زيارة باقي الأجزاء (Where, GroupBy, OrderBy, etc.) للبحث عن الأعمدة غير الصالحة فيها أيضاً
-            if (node.WhereClause != null) node.WhereClause.Accept(this);
-            if (node.OrderByClause != null) node.OrderByClause.Accept(this);
-            if (node.GroupByClause != null) node.GroupByClause.Accept(this);
-            if (node.HavingClause != null) node.HavingClause.Accept(this);
+            if (node.WhereClause != null) 
+            {
+                _currentClause = "WHERE";
+                node.WhereClause.Accept(this);
+            }
+
+            if (node.OrderByClause != null) 
+            {
+                _currentClause = "ORDER BY";
+                node.OrderByClause.Accept(this);
+            }
+
+            if (node.GroupByClause != null) 
+            {
+                _currentClause = "GROUP BY";
+                node.GroupByClause.Accept(this);
+            }
+
+            if (node.HavingClause != null) 
+            {
+                _currentClause = "HAVING";
+                node.HavingClause.Accept(this);
+            }
         }
 
         public override void Visit(ColumnReferenceExpression node)
@@ -159,7 +181,7 @@ namespace DynamicAi.Application.Services.SqlEngine
                     // 🚨 العمود غير موجود!
                     // هذا هو الهدف: Mark for Deletion
                     ColumnsToRemove.Add(node);
-                    Warnings.Add($"Detected invalid column '{columnName}' in table '{targetRealTable}'. Scheduled for removal.");
+                    Warnings.Add($"[Sanitizer] Invalid column '{columnName}' found in '{targetRealTable}' (Clause: {_currentClause}). Scheduled for removal.");
                 }
             }
             // إذا الجدول نفسه غير موجود في الـ Schema (لم يظهر في الـ Check الأول)، نتجاوز.

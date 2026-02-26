@@ -51,12 +51,15 @@ namespace DynamicAi.Application.Services.SqlEngine
                 var visitor = new SanitizationVisitor(schemaMap);
                 fragment.Accept(visitor);
 
-                result.Warnings.AddRange(visitor.Warnings);
+                foreach (var warning in visitor.Warnings)
+                {
+                    _logger.LogWarning(warning);
+                }
 
                 if (visitor.ColumnsToRemove.Any())
                 {
                     // 4. Rewrite SQL (The Surgery)
-                    _logger.LogInformation("[SqlSanitizer] Found {Count} invalid columns. Removing...", visitor.ColumnsToRemove.Count);
+                    _logger.LogInformation("[SqlSanitizer] Found {Count} invalid columns. Rewriting SQL tree...", visitor.ColumnsToRemove.Count);
                     
                     var rewrittenSql = RemoveInvalidColumns(rawSql, fragment, visitor.ColumnsToRemove);
                     
