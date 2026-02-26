@@ -36,13 +36,13 @@ public class QueryCacheService : IQueryCacheService
     /// <summary>
     /// Ensures the query_cache collection exists in Qdrant with proper payload indexes.
     /// </summary>
-    private async Task EnsureCollectionExistsAsync()
+    private async Task EnsureCollectionExistsAsync(CancellationToken ct)
     {
         if (_collectionInitialized) return;
 
         try
         {
-            var collections = await _qdrantClient.ListCollectionsAsync();
+            var collections = await _qdrantClient.ListCollectionsAsync(ct);
             if (!collections.Any(c => c == _collectionName))
             {
                 _logger.LogInformation("[QueryCache] Creating collection: {Collection}", _collectionName);
@@ -53,14 +53,15 @@ public class QueryCacheService : IQueryCacheService
                     {
                         Size = 3072, // Gemini embedding size
                         Distance = Distance.Cosine
-                    });
+                    },
+                    cancellationToken: ct);
 
                 _logger.LogInformation("[QueryCache] ✓ Collection created successfully");
             }
 
             // Ensure payload indexes exist for efficient filtering
             // This is idempotent - Qdrant will skip indexes that already exist
-            await EnsurePayloadIndexesAsync();
+            await EnsurePayloadIndexesAsync(ct);
 
             _collectionInitialized = true;
         }
@@ -75,7 +76,7 @@ public class QueryCacheService : IQueryCacheService
     /// Ensures all required payload indexes exist for the query cache collection.
     /// This is idempotent - Qdrant will skip indexes that already exist.
     /// </summary>
-    private async Task EnsurePayloadIndexesAsync()
+    private async Task EnsurePayloadIndexesAsync(CancellationToken ct)
     {
         var requiredIndexes = new Dictionary<string, PayloadSchemaType>
         {
@@ -91,7 +92,8 @@ public class QueryCacheService : IQueryCacheService
                 await _qdrantClient.CreatePayloadIndexAsync(
                     _collectionName,
                     fieldName,
-                    fieldType);
+                    fieldType,
+                    cancellationToken: ct);
             }
             catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument
                 && ex.Status.Detail.Contains("already exists"))
@@ -108,11 +110,12 @@ public class QueryCacheService : IQueryCacheService
     public async Task<CachedQueryResult?> TryGetCachedSqlAsync(
         float[] questionEmbedding,
         string tenantId,
-        int companyId)
+        int companyId,
+        CancellationToken ct = default)
     {
         try
         {
-            await EnsureCollectionExistsAsync();
+            await EnsureCollectionExistsAsync(ct);
 
             _logger.LogInformation("[QueryCache] Searching for similar cached queries...");
 
@@ -140,7 +143,8 @@ public class QueryCacheService : IQueryCacheService
                 questionEmbedding,
                 filter: filter,
                 limit: 1,
-                scoreThreshold: _similarityThreshold
+                scoreThreshold: _similarityThreshold,
+                cancellationToken: ct
             );
 
             if (searchResult.Any())
@@ -185,11 +189,12 @@ public class QueryCacheService : IQueryCacheService
         string sql,
         int pageId,
         string tenantId,
-        int companyId)
+        int companyId,
+        CancellationToken ct = default)
     {
         try
         {
-            await EnsureCollectionExistsAsync();
+            await EnsureCollectionExistsAsync(ct);
 
             var pointId = id; // Use specific ID provided by orchestrator
             var now = DateTime.UtcNow;
@@ -208,11 +213,10 @@ public class QueryCacheService : IQueryCacheService
                     ["created_at"] = now.ToString("o"),
                     ["expires_at"] = now.AddDays(_ttlDays).ToString("o"),
                     ["hit_count"] = 0,
-                    ["was_successful"] = true
-                }
+                    }
             };
 
-            await _qdrantClient.UpsertAsync(_collectionName, new[] { point });
+            await _qdrantClient.UpsertAsync(_collectionName, new[] { point }, cancellationToken: ct);
 
             _logger.LogInformation("[QueryCache] ✓ Stored new cache entry (ID: {PointId}). Question: \"{QuestionFragment}...\"",
                 pointId,
@@ -231,17 +235,18 @@ public class QueryCacheService : IQueryCacheService
     }
 
     /// <inheritdoc/>
-    public async Task<bool> DeleteCacheEntryAsync(string cacheId)
+    public async Task<bool> DeleteCacheEntryAsync(string cacheId, CancellationToken ct = default)
     {
         try
         {
-            await EnsureCollectionExistsAsync();
+            await EnsureCollectionExistsAsync(ct);
 
             _logger.LogInformation("[QueryCache] Deleting cache entry: {CacheId}", cacheId);
 
             await _qdrantClient.DeleteAsync(
                 _collectionName,
-                new PointId { Uuid = cacheId }
+                new PointId { Uuid = cacheId },
+                cancellationToken: ct
             );
 
             _logger.LogInformation("[QueryCache] ✓ Cache entry deleted successfully");
@@ -258,11 +263,11 @@ public class QueryCacheService : IQueryCacheService
     }
 
     /// <inheritdoc/>
-    public async Task<bool> DeleteSimilarCacheAsync(float[] embedding, string tenantId, int companyId)
+    public async Task<bool> DeleteSimilarCacheAsync(float[] embedding, string tenantId, int companyId, CancellationToken ct = default)
     {
         try
         {
-            await EnsureCollectionExistsAsync();
+            await EnsureCollectionExistsAsync(ct);
 
             _logger.LogInformation("[QueryCache] Searching for similar entries to delete...");
 
@@ -291,7 +296,8 @@ public class QueryCacheService : IQueryCacheService
                 embedding,
                 filter: filter,
                 limit: 5,
-                scoreThreshold: _similarityThreshold
+                scoreThreshold: _similarityThreshold,
+                cancellationToken: ct
             );
 
             if (!searchResult.Any())
@@ -305,7 +311,7 @@ public class QueryCacheService : IQueryCacheService
 
             foreach (var pointId in pointIds)
             {
-                await _qdrantClient.DeleteAsync(_collectionName, pointId);
+                await _qdrantClient.DeleteAsync(_collectionName, pointId, cancellationToken: ct);
             }
 
             _logger.LogInformation("[QueryCache] ✓ Deleted {Count} similar cache entries", pointIds.Length);

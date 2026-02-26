@@ -20,7 +20,17 @@ namespace DynamicAI.Tests.Services
         {
             _cache = new MemoryCache(new MemoryCacheOptions());
             _logger = A.Fake<ILogger<ConversationContextService>>();
-            _configuration = A.Fake<IConfiguration>();
+            
+            var myConfiguration = new Dictionary<string, string?>
+            {
+                {"Caching:SessionMemory:Enabled", "true"},
+                {"Caching:SessionMemory:TTLMinutes", "30"},
+                {"Caching:SessionMemory:MaxHistoryTurns", "5"}
+            };
+
+            _configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(myConfiguration)
+                .Build();
             
             _sut = new ConversationContextService(_cache, _logger, _configuration);
         }

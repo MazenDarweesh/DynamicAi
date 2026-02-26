@@ -16,6 +16,6 @@ namespace DynamicAi.Application.Interfaces
         /// <param name="rewrittenSql">الـ SQL المحصن من Layer 4.</param>
         /// <param name="parameters">الباراميترات المعزولة لتجنب SQL Injection.</param>
         /// <returns>البيانات الناتجة.</returns>
-        Task<IEnumerable<dynamic>> ExecuteSqlAsync(string rewrittenSql, Dictionary<string, object> parameters);
+        Task<IEnumerable<dynamic>> ExecuteSqlAsync(string rewrittenSql, Dictionary<string, object> parameters, CancellationToken ct = default);
     }
 }

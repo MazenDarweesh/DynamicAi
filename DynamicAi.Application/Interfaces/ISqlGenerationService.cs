@@ -29,6 +29,7 @@ namespace DynamicAi.Application.Interfaces
             string? previousSql = null,
             QueryActionType actionType = QueryActionType.Regenerate,
             string? tenantId = null,
-            int? companyId = null);
+            int? companyId = null,
+            CancellationToken ct = default);
     }
 }

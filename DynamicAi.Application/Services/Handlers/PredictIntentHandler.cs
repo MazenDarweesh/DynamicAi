@@ -151,7 +151,8 @@ public class PredictIntentHandler : IIntentHandler
                 outputTokens: outputTokens,
                 cachedTokens: 0,
                 tenantId: context?.TenantId,
-                companyId: context?.CompanyId
+                companyId: context?.CompanyId,
+                cancellationToken: cancellationToken
             );
 
             _logger.LogInformation("[PredictHandler] 💰 Token Usage ({Source}) — Input: {Input}, Output: {Output}",

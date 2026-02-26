@@ -97,7 +97,8 @@ namespace DynamicAi.Application.Services
             string? previousSql = null,
             QueryActionType actionType = QueryActionType.Regenerate,
             string? tenantId = null,
-            int? companyId = null)
+            int? companyId = null,
+            CancellationToken ct = default)
         {
             #region Initialization and Logging
 
@@ -443,7 +444,7 @@ namespace DynamicAi.Application.Services
                     {
                         geminiPageCacheId = await _geminiPageCache.GetOrCreateGeminiPageCacheAsync(
                             extractedPageId.Value,
-                            CancellationToken.None
+                            ct
                         );
 
                         if (!string.IsNullOrEmpty(geminiPageCacheId))
@@ -562,7 +563,7 @@ namespace DynamicAi.Application.Services
                 CachedContent = cachedContentId  // Reference to cached static rules
             };
 
-            var response = await _chatService.GetChatMessageContentAsync(chatHistory, executionSettings);
+            var response = await _chatService.GetChatMessageContentAsync(chatHistory, executionSettings, cancellationToken: ct);
             var aiDuration = (DateTime.UtcNow - aiStart).TotalMilliseconds;
 
             _logger.LogInformation("[SqlGeneration] ✓ AI response received in {Duration:F0}ms", aiDuration);
@@ -659,7 +660,8 @@ namespace DynamicAi.Application.Services
                 outputTokens: completionTokens,
                 cachedTokens: cachedTokens,
                 tenantId: tenantId, 
-                companyId: companyId 
+                companyId: companyId,
+                cancellationToken: ct 
             );
 
             // Display cache status

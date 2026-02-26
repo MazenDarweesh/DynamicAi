@@ -22,7 +22,7 @@ namespace DynamicAi.Application.Services
             _logger = logger;
         }
 
-        public Task<RewrittenSqlResult> RewriteAsync(string safeSql, string tenantId, int? comID = 1)
+        public Task<RewrittenSqlResult> RewriteAsync(string safeSql, string tenantId, int? comID = 1, CancellationToken ct = default)
         {
             // 1. إعداد المحلل (Parser)
             TSqlParser parser = new TSql160Parser(false);

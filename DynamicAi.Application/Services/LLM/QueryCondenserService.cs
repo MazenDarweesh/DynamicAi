@@ -59,7 +59,8 @@ public class QueryCondenserService : IQueryCondenserService
         string? previousQuestion,
         string? previousSql = null,
         string? tenantId = null,
-        int? companyId = null)
+        int? companyId = null,
+        CancellationToken ct = default)
     {
         // ============================================================================
         // IDENTITY FALLBACK: If no history, return as NEW
@@ -107,7 +108,7 @@ QUESTION: [rephrased standalone question]";
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            var result = await _chatService.GetChatMessageContentAsync(condensingPrompt);
+            var result = await _chatService.GetChatMessageContentAsync(condensingPrompt, cancellationToken: ct);
             sw.Stop();
 
             var response = result?.Content?.Trim() ?? string.Empty;
@@ -129,7 +130,8 @@ QUESTION: [rephrased standalone question]";
                 outputTokens: outputTokens,
                 cachedTokens: 0,
                 tenantId: tenantId,
-                companyId: companyId);
+                companyId: companyId,
+                cancellationToken: ct);
 
             _logger.LogDebug("[Condenser] Raw LLM Response: {Response}", response);
 

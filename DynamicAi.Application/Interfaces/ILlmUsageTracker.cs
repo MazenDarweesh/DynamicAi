@@ -21,7 +21,8 @@ namespace DynamicAi.Application.Interfaces
             int outputTokens,
             int cachedTokens = 0,
             string? tenantId = null,
-            int? companyId = null);
+            int? companyId = null,
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// يسجل استدعاء Embedding API.
@@ -31,7 +32,8 @@ namespace DynamicAi.Application.Interfaces
             string requestId,
             int tokenCount,
             string? tenantId = null,
-            int? companyId = null);
+            int? companyId = null,
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// يحصل على إجمالي تكلفة اليوم بالدولار.

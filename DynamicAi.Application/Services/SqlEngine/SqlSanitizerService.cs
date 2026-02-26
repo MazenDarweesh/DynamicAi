@@ -23,7 +23,7 @@ namespace DynamicAi.Application.Services.SqlEngine
             _logger = logger;
         }
 
-        public async Task<SanitizationResult> SanitizeAsync(string rawSql, string tenantId)
+        public async Task<SanitizationResult> SanitizeAsync(string rawSql, string tenantId, CancellationToken ct = default)
         {
             var result = new SanitizationResult { SafeSql = rawSql, WasModified = false };
 

@@ -65,7 +65,8 @@ namespace DynamicAi.Api.Controllers
                     request.TenantId,
                     request.ComID,
                     request.PreviousQuestion,  // Layer 0.5: للـ Query Condensing
-                    request.PreviousSql);      // Layer 2: للـ Subquery Wrapping
+                    request.PreviousSql,       // Layer 2: للـ Subquery Wrapping
+                    HttpContext.RequestAborted);
 
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
 

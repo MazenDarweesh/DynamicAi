@@ -17,7 +17,8 @@ public interface IQueryCacheService
     Task<CachedQueryResult?> TryGetCachedSqlAsync(
         float[] questionEmbedding,
         string tenantId,
-        int companyId);
+        int companyId,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Stores a successful SQL generation result in the cache.
@@ -35,14 +36,15 @@ public interface IQueryCacheService
         string sql,
         int pageId,
         string tenantId,
-        int companyId);
+        int companyId,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Deletes a cached query by its Qdrant point ID.
     /// </summary>
     /// <param name="cacheId">The Qdrant point UUID.</param>
     /// <returns>True if deletion was successful.</returns>
-    Task<bool> DeleteCacheEntryAsync(string cacheId);
+    Task<bool> DeleteCacheEntryAsync(string cacheId, CancellationToken ct = default);
 
     /// <summary>
     /// Finds and deletes cache entries similar to the given embedding.
@@ -51,5 +53,5 @@ public interface IQueryCacheService
     /// <param name="tenantId">The tenant identifier.</param>
     /// <param name="companyId">The company identifier.</param>
     /// <returns>True if any entries were deleted.</returns>
-    Task<bool> DeleteSimilarCacheAsync(float[] embedding, string tenantId, int companyId);
+    Task<bool> DeleteSimilarCacheAsync(float[] embedding, string tenantId, int companyId, CancellationToken ct = default);
 }

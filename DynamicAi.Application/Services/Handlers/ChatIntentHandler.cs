@@ -108,7 +108,8 @@ public class ChatIntentHandler : IIntentHandler
                 outputTokens: (int)actualOutputTokens,
                 cachedTokens: 0,
                 tenantId: context?.TenantId,
-                companyId: context?.CompanyId
+                companyId: context?.CompanyId,
+                cancellationToken: cancellationToken
             );
 
             return new QueryExecutionResult

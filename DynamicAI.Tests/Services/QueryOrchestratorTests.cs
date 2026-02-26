@@ -48,8 +48,8 @@ public class QueryOrchestratorTests
         A.CallTo(() => _configuration["Caching:QueryCache:Enabled"]).Returns("true");
 
         // Default Condenser Mock (Identity Fallback)
-        A.CallTo(() => _condenserService.CondenseQuestionAsync(A<string>._, A<string?>._, A<string?>._, A<string?>._, A<int?>._))
-            .ReturnsLazily((string q, string? prev, string? sql, string? tid, int? cid) => Task.FromResult(CondenserResult.AsNew(q)));
+        A.CallTo(() => _condenserService.CondenseQuestionAsync(A<string>._, A<string?>._, A<string?>._, A<string?>._, A<int?>._, A<CancellationToken>._))
+            .ReturnsLazily((string q, string? prev, string? sql, string? tid, int? cid, CancellationToken ct) => Task.FromResult(CondenserResult.AsNew(q)));
 
         _sut = new QueryOrchestrator(
             _handlerFactory,

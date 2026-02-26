@@ -16,6 +16,6 @@ namespace DynamicAi.Application.Interfaces
         /// <param name="tenantId">معرف الشركة (لتحديد الـ Whitelist مستقبلاً).</param>
         /// <exception cref="SecurityException">يُطلق (Throws) خطأ إذا كان الـ SQL غير آمن.</exception>
         /// <exception cref="InvalidSqlException">يُطلق (Throws) خطأ إذا كان بناء الجملة خاطئاً.</exception>
-        Task ValidateSqlAsync(string rawSql, string tenantId);
+        Task ValidateSqlAsync(string rawSql, string tenantId, CancellationToken ct = default);
     }
 }

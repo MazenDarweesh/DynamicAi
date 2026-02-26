@@ -26,6 +26,7 @@ namespace DynamicAi.Application.Interfaces
             string tenantId,
             int? comID = null,
             string? previousQuestion = null,
-            string? previousSql = null);
+            string? previousSql = null,
+            CancellationToken ct = default);
     }
 }

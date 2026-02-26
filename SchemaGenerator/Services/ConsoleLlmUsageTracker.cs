@@ -48,7 +48,8 @@ namespace SchemaGenerator.Services
             int outputTokens,
             int cachedTokens = 0,
             string? tenantId = null,
-            int? companyId = null)
+            int? companyId = null,
+            CancellationToken cancellationToken = default)
         {
             // Read dynamic pricing
             var inputPrice = GetPricing("GeminiInputPricePer1k", DefaultGeminiInputPricePer1k);
@@ -79,7 +80,8 @@ namespace SchemaGenerator.Services
             string requestId,
             int tokenCount,
             string? tenantId = null,
-            int? companyId = null)
+            int? companyId = null,
+            CancellationToken cancellationToken = default)
         {
             // Read dynamic pricing
             var embeddingPrice = GetPricing("EmbeddingPricePer1k", DefaultEmbeddingPricePer1k);

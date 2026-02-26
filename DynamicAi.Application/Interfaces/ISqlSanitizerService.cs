@@ -13,6 +13,6 @@ namespace DynamicAi.Application.Interfaces
         /// <summary>
         /// يراجع الـ SQL ويقوم بحذف الأعمدة غير الموجودة.
         /// </summary>
-        Task<SanitizationResult> SanitizeAsync(string rawSql, string tenantId);
+        Task<SanitizationResult> SanitizeAsync(string rawSql, string tenantId, CancellationToken ct = default);
     }
 }

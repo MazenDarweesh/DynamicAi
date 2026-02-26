@@ -50,12 +50,12 @@ public class SqlIntentHandlerTests
         A.CallTo(() => _configuration["Experimental:SanitizeSql"]).Returns("true");
 
         // Mock Sanitizer (Default: No modification)
-        A.CallTo(() => _sanitizerService.SanitizeAsync(A<string>._, A<string>._))
-            .ReturnsLazily((string sql, string tid) => Task.FromResult(new SanitizationResult { SafeSql = sql, WasModified = false }));
+        A.CallTo(() => _sanitizerService.SanitizeAsync(A<string>._, A<string>._, A<CancellationToken>._))
+            .ReturnsLazily((string sql, string tid, CancellationToken ct) => Task.FromResult(new SanitizationResult { SafeSql = sql, WasModified = false }));
 
         // Mock Condenser (Identity Fallback)
-        A.CallTo(() => _condenserService.CondenseQuestionAsync(A<string>._, A<string?>._, A<string?>._, A<string?>._, A<int?>._))
-            .ReturnsLazily((string q, string? prev, string? sql, string? tid, int? cid) => Task.FromResult(CondenserResult.AsNew(q)));
+        A.CallTo(() => _condenserService.CondenseQuestionAsync(A<string>._, A<string?>._, A<string?>._, A<string?>._, A<int?>._, A<CancellationToken>._))
+            .ReturnsLazily((string q, string? prev, string? sql, string? tid, int? cid, CancellationToken ct) => Task.FromResult(CondenserResult.AsNew(q)));
 
         // Mock Embedding Generation
         var fakeEmbedding = new GeneratedEmbeddings<Embedding<float>>(
@@ -99,19 +99,19 @@ public class SqlIntentHandlerTests
         var execResultData = new List<dynamic> { new { Name = "Mazen" } };
 
         // 1. Cache Miss
-        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>._, context.TenantId, A<int>._))
+        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>._, context.TenantId, A<int>._, A<CancellationToken>._))
             .Returns(Task.FromResult<CachedQueryResult?>(null));
 
         // 2. Retrieval
-        A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, context.TenantId, A<int?>._, A<float[]?>.Ignored))
+        A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, context.TenantId, A<int?>._, A<float[]?>.Ignored, A<CancellationToken>._))
             .Returns(Task.FromResult(contextBundle));
 
         // 3. Generation
-        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._, A<QueryActionType>._, A<string?>._, A<int?>._))
+        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._, A<QueryActionType>._, A<string?>._, A<int?>._, A<CancellationToken>._))
             .Returns(Task.FromResult(new SqlGenerationResult { Sql = rawSql, Confidence = 1.0f }));
 
         // 4. Validation (Success - void)
-        A.CallTo(() => _validatorService.ValidateSqlAsync(rawSql, context.TenantId))
+        A.CallTo(() => _validatorService.ValidateSqlAsync(rawSql, context.TenantId, A<CancellationToken>._))
             .Returns(Task.CompletedTask);
 
         // 5. Rewriter
@@ -119,11 +119,11 @@ public class SqlIntentHandlerTests
             rewrittenSql,
             new Dictionary<string, object> { { "p1", 1 } }
         );
-        A.CallTo(() => _rewriterService.RewriteAsync(rawSql, context.TenantId, A<int?>._))
+        A.CallTo(() => _rewriterService.RewriteAsync(rawSql, context.TenantId, A<int?>._, A<CancellationToken>._))
             .Returns(Task.FromResult(rewrittenResult));
 
         // 6. Execution
-        A.CallTo(() => _executionService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters))
+        A.CallTo(() => _executionService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters, A<CancellationToken>._))
             .Returns(Task.FromResult((IEnumerable<dynamic>)execResultData));
 
         // Act
@@ -136,12 +136,19 @@ public class SqlIntentHandlerTests
         result.IsCached.Should().BeFalse();
 
         // Verify calls
-        A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, context.TenantId, A<int?>.Ignored, A<float[]?>.Ignored)).MustHaveHappened();
-        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored)).MustHaveHappened();
-        A.CallTo(() => _validatorService.ValidateSqlAsync(rawSql, context.TenantId)).MustHaveHappened();
-        A.CallTo(() => _rewriterService.RewriteAsync(rawSql, context.TenantId, A<int?>.Ignored)).MustHaveHappened();
-        A.CallTo(() => _executionService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters)).MustHaveHappened();
-        A.CallTo(() => _usageTracker.TrackEmbeddingCallAsync(LlmOperationType.Embedding, A<string>.That.Matches(s => s != null), A<int>.Ignored, A<string>.Ignored, A<int?>.Ignored)).MustHaveHappened();
+        A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, context.TenantId, A<int?>.Ignored, A<float[]?>.Ignored, A<CancellationToken>._)).MustHaveHappened();
+        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored, A<CancellationToken>._)).MustHaveHappened();
+        A.CallTo(() => _validatorService.ValidateSqlAsync(rawSql, context.TenantId, A<CancellationToken>._)).MustHaveHappened();
+        A.CallTo(() => _rewriterService.RewriteAsync(rawSql, context.TenantId, A<int?>.Ignored, A<CancellationToken>._)).MustHaveHappened();
+        A.CallTo(() => _executionService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters, A<CancellationToken>._)).MustHaveHappened();
+        A.CallTo(() => _usageTracker.TrackEmbeddingCallAsync(
+            LlmOperationType.Embedding,
+            A<string>.That.Matches(s => s != null),
+            A<int>.Ignored,
+            A<string>.Ignored,
+            A<int?>.Ignored,
+            A<CancellationToken>._))
+            .MustHaveHappened();
     }
 
     [Fact]
@@ -165,7 +172,7 @@ public class SqlIntentHandlerTests
         var execResultData = new List<dynamic>();
 
         // 1. Cache HIT
-        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>._, context.TenantId, A<int>._))
+        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>._, context.TenantId, A<int>._, A<CancellationToken>._))
             .Returns(Task.FromResult<CachedQueryResult?>(cachedResult));
 
         // Validation & Rewriting should still happen
@@ -174,11 +181,11 @@ public class SqlIntentHandlerTests
             rewrittenSql,
             new Dictionary<string, object>()
         );
-        A.CallTo(() => _rewriterService.RewriteAsync(cachedSql, context.TenantId, A<int?>._))
+        A.CallTo(() => _rewriterService.RewriteAsync(cachedSql, context.TenantId, A<int?>._, A<CancellationToken>._))
             .Returns(Task.FromResult(rewrittenResult));
 
         // 6. Execution
-        A.CallTo(() => _executionService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters))
+        A.CallTo(() => _executionService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters, A<CancellationToken>._))
             .Returns(Task.FromResult((IEnumerable<dynamic>)execResultData));
 
         // Act
@@ -189,14 +196,14 @@ public class SqlIntentHandlerTests
         result.RewrittenSql.Should().Be(rewrittenSql);
 
         // Verify Skipped Layers
-        A.CallTo(() => _retrievalService.RetrieveContextAsync(A<string>.Ignored, A<string>.Ignored, A<int?>.Ignored, A<float[]?>.Ignored))
+        A.CallTo(() => _retrievalService.RetrieveContextAsync(A<string>.Ignored, A<string>.Ignored, A<int?>.Ignored, A<float[]?>.Ignored, A<CancellationToken>._))
             .MustNotHaveHappened();
-        A.CallTo(() => _generationService.GenerateSqlAsync(A<string>.Ignored, A<RetrievalContextBundle>.Ignored, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored))
+        A.CallTo(() => _generationService.GenerateSqlAsync(A<string>.Ignored, A<RetrievalContextBundle>.Ignored, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored, A<CancellationToken>._))
             .MustNotHaveHappened();
 
         // Verify Executed Layers
-        A.CallTo(() => _validatorService.ValidateSqlAsync(cachedSql, context.TenantId)).MustHaveHappened();
-        A.CallTo(() => _rewriterService.RewriteAsync(cachedSql, context.TenantId, A<int?>.Ignored)).MustHaveHappened();
+        A.CallTo(() => _validatorService.ValidateSqlAsync(cachedSql, context.TenantId, A<CancellationToken>._)).MustHaveHappened();
+        A.CallTo(() => _rewriterService.RewriteAsync(cachedSql, context.TenantId, A<int?>.Ignored, A<CancellationToken>._)).MustHaveHappened();
     }
 
     [Fact]
@@ -210,18 +217,18 @@ public class SqlIntentHandlerTests
         var contextBundle = new RetrievalContextBundle();
 
         // 1. Cache Miss
-        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>.Ignored, context.TenantId, A<int>.Ignored))
+        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>.Ignored, context.TenantId, A<int>.Ignored, A<CancellationToken>._))
             .Returns(Task.FromResult<CachedQueryResult?>(null));
 
-        A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, context.TenantId, A<int?>.Ignored, A<float[]?>.Ignored))
+        A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, context.TenantId, A<int?>.Ignored, A<float[]?>.Ignored, A<CancellationToken>._))
             .Returns(Task.FromResult(contextBundle));
 
-        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored))
+        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored, A<CancellationToken>._))
             .Returns(Task.FromResult(new SqlGenerationResult { Sql = generatedSql, Confidence = 1.0f }));
 
         // Fail Validation
         var securityEx = new System.Security.SecurityException("DROP not allowed");
-        A.CallTo(() => _validatorService.ValidateSqlAsync(generatedSql, context.TenantId))
+        A.CallTo(() => _validatorService.ValidateSqlAsync(generatedSql, context.TenantId, A<CancellationToken>._))
             .Throws(securityEx);
 
         // Act

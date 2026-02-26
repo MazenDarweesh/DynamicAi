@@ -26,7 +26,7 @@ namespace DynamicAi.Application.Services
         /// <summary>
         /// يقوم بتحليل الـ SQL والتحقق من صحة بناء الجملة (Syntax) والأمان (Security).
         /// </summary>
-        public Task ValidateSqlAsync(string rawSql, string tenantId)
+        public Task ValidateSqlAsync(string rawSql, string tenantId, CancellationToken ct = default)
         {
             _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
             _logger.LogInformation("║              [Layer 3: SQL VALIDATOR] - STARTING VALIDATION            ║");

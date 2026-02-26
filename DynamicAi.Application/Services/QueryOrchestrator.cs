@@ -68,7 +68,8 @@ namespace DynamicAi.Application.Services
             string tenantId,
             int? comID = null,
             string? previousQuestion = null,
-            string? previousSql = null)
+            string? previousSql = null,
+            CancellationToken ct = default)
         {
             #region Setup & Logging
 
@@ -140,6 +141,8 @@ namespace DynamicAi.Application.Services
                 }
 
                 #endregion
+                
+                ct.ThrowIfCancellationRequested(); // ✂️ Checkpoint after Layer 0 (Intent/Condenser)
 
                 #region Routing to Handler
 
@@ -159,7 +162,7 @@ namespace DynamicAi.Application.Services
                         previousSql,
                         queryLogId,
                         intentResult,
-                        CancellationToken.None);
+                        ct);
                 }
                 else if (_handlerFactory.TryGetHandler(intentResult.Intent, out var handler))
                 {
@@ -176,6 +179,8 @@ namespace DynamicAi.Application.Services
                         PreviousPageId = previousPageId,
                         PrecomputedCondenserResult = condenserResult // P1-2: Pass precomputed condenser result
                     };
+
+                    ct.ThrowIfCancellationRequested(); // ✂️ Checkpoint before Handler delegation
 
                     result = await handler.HandleAsync(userQuestion, intentResult, context);
                 }

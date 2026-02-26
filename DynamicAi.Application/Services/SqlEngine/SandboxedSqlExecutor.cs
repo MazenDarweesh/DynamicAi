@@ -31,7 +31,7 @@ namespace DynamicAi.Application.Services
         /// <summary>
         /// (مُعدل) أصبح الآن يقبل قاموس الباراميترات للتنفيذ الآمن.
         /// </summary>
-        public async Task<IEnumerable<dynamic>> ExecuteSqlAsync(string rewrittenSql, Dictionary<string, object> parameters)
+        public async Task<IEnumerable<dynamic>> ExecuteSqlAsync(string rewrittenSql, Dictionary<string, object> parameters, CancellationToken ct = default)
         {
             // ============================================================================
             // [DIAGNOSTIC] طباعة الـ SQL الفعلي المُنفذ
@@ -57,7 +57,8 @@ namespace DynamicAi.Application.Services
             await using var connection = new SqlConnection(_readOnlyConnectionString);
 
             // Dapper سيقوم تلقائياً بربط الباراميترات بشكل آمن
-            return await connection.QueryAsync(rewrittenSql, parameters);
+            ct.ThrowIfCancellationRequested();
+            return await connection.QueryAsync(new CommandDefinition(rewrittenSql, parameters, cancellationToken: ct));
         }
     }
 }

@@ -60,7 +60,8 @@ namespace DynamicAi.Application.Services
             string userQuestion,
             string tenantId,
             int? companyId = null,
-            float[]? precomputedEmbedding = null)
+            float[]? precomputedEmbedding = null,
+            CancellationToken ct = default)
         {
             // ============================================================================
             // [LOGGING] بداية عملية RAG Retrieval (Multi-Step)
@@ -123,7 +124,7 @@ namespace DynamicAi.Application.Services
             }
             else
             {
-                embedding = await _embeddingService.GenerateAsync(userQuestion);
+                embedding = await _embeddingService.GenerateAsync(userQuestion, cancellationToken: ct);
 
                 // Track Embedding Usage
                 var embedTokens = userQuestion.Length / 4; // Approx
@@ -132,7 +133,8 @@ namespace DynamicAi.Application.Services
                     Guid.NewGuid().ToString(),
                     embedTokens,
                     tenantId,
-                    companyId);
+                    companyId,
+                    cancellationToken: ct);
             }
             var embeddingDuration = (DateTime.UtcNow - embeddingStart).TotalMilliseconds;
 
@@ -158,7 +160,7 @@ namespace DynamicAi.Application.Services
                 pageSearchLimit = 3;
             }
 
-            var pageCandidates = await SearchQdrantWithScoresAsync(embedding, pageFilter, pageSearchLimit, "Pages");
+            var pageCandidates = await SearchQdrantWithScoresAsync(embedding, pageFilter, pageSearchLimit, "Pages", ct);
 
             if (!pageCandidates.Any())
             {
@@ -236,6 +238,8 @@ namespace DynamicAi.Application.Services
 
             _logger.LogInformation("[RagRetrieval] ✓ Using Page with PageID: {PageId} (Score: {Score:F4})", pageId, selectedCandidate.Score);
 
+            ct.ThrowIfCancellationRequested(); // ✂️ Checkpoint after Page Discovery
+
             // ============================================================================
             // RAG CONTEXT CACHE CHECK (L2) - Check if we have cached context for this page
             // ============================================================================
@@ -274,14 +278,14 @@ namespace DynamicAi.Application.Services
             _logger.LogInformation("[RagRetrieval] STEP 2.5: Fetching Module & Menu context for PageID: {PageId}...", pageId);
 
             var moduleFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.Modul, filterVisibleOnly: false, (QdrantConstants.PageId, pageId));
-            var moduleResults = await SearchQdrantAsync(embedding, moduleFilter, 1, DbTables.Modul);
+            var moduleResults = await SearchQdrantAsync(embedding, moduleFilter, 1, DbTables.Modul, ct);
             if (moduleResults.Any())
             {
                 pageNode["ModuleContext"] = JsonNode.Parse(moduleResults.First());
             }
 
             var menuMasterFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.MenuMaster, filterVisibleOnly: false, (QdrantConstants.PageId, pageId));
-            var menuMasterResults = await SearchQdrantAsync(embedding, menuMasterFilter, 1, DbTables.MenuMaster);
+            var menuMasterResults = await SearchQdrantAsync(embedding, menuMasterFilter, 1, DbTables.MenuMaster, ct);
             if (menuMasterResults.Any())
             {
                 pageNode["MenuMasterContext"] = JsonNode.Parse(menuMasterResults.First());
@@ -306,7 +310,7 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("[RagRetrieval] Using SEMANTIC search for PageAttributes related to PageID: {PageId}", pageId);
             }
 
-            var attrResults = await SearchQdrantAsync(embedding, attrFilter, 20, "PageAttribute");
+            var attrResults = await SearchQdrantAsync(embedding, attrFilter, 20, "PageAttribute", ct);
 
             if (!attrResults.Any())
             {
@@ -340,7 +344,7 @@ namespace DynamicAi.Application.Services
                     // ⚠️ NOTE: visible filter moved to app-layer (Qdrant payload doesn't have visible as top-level field)
                     var listFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups, 
                         filterVisibleOnly: false, (QdrantConstants.ListName, listName));
-                    var listResults = await SearchQdrantAsync(embedding, listFilter, 250, DbTables.ListSetups);
+                    var listResults = await SearchQdrantAsync(embedding, listFilter, 250, DbTables.ListSetups, ct);
                     contextBundle.DictionaryEntries.AddRange(listResults);
                 }
 
@@ -350,7 +354,7 @@ namespace DynamicAi.Application.Services
                 if (!string.IsNullOrEmpty(viewName))
                 {
                     var schemaFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeSchema, null, filterVisibleOnly: false, (QdrantConstants.ObjectName, viewName));
-                    var schemaResults = await SearchQdrantAsync(embedding, schemaFilter, 1, "Schema");
+                    var schemaResults = await SearchQdrantAsync(embedding, schemaFilter, 1, "Schema", ct);
                     if (schemaResults.Any())
                     {
                         attrNode["SchemaScript"] = schemaResults.First();
@@ -377,7 +381,7 @@ namespace DynamicAi.Application.Services
                         filterVisibleOnly: false,
                         (QdrantConstants.AttributeId, attributeId));
 
-                    var detailResults = await SearchQdrantAsync(embedding, detailFilter, 50, $"{DbTables.PageDetail} (Attribute {attributeId})");
+                    var detailResults = await SearchQdrantAsync(embedding, detailFilter, 50, $"{DbTables.PageDetail} (Attribute {attributeId})", ct);
 
                     foreach (var detailJson in detailResults)
                     {
@@ -878,7 +882,8 @@ namespace DynamicAi.Application.Services
             Embedding<float> embedding,
             Filter filter,
             int limit,
-            string stepName)
+            string stepName,
+            CancellationToken ct = default)
         {
             var searchStart = DateTime.UtcNow;
 
@@ -956,7 +961,7 @@ namespace DynamicAi.Application.Services
                         null, // searchParams
                         null, // headers
                         null, // deadline
-                        CancellationToken.None
+                        ct
                     );
 
                     if (diagnosticResult.Count > 0)
@@ -1013,7 +1018,8 @@ namespace DynamicAi.Application.Services
             Embedding<float> embedding,
             Filter filter,
             int limit,
-            string stepName)
+            string stepName,
+            CancellationToken ct = default)
         {
             var searchStart = DateTime.UtcNow;
 
@@ -1113,14 +1119,15 @@ namespace DynamicAi.Application.Services
         public async Task<FullPageContextForLlmCache> GetFullPageContextForLlmCachingAsync(
             int pageId,
             string tenantId,
-            int? companyId = null)
+            int? companyId = null,
+            CancellationToken ct = default)
         {
             _logger.LogInformation("[LLM Cache] Retrieving FULL page context for PageID {PageId}...", pageId);
 
             try
             {
                 // [1] Generate embedding for page schema search
-                var pageEmbedding = await _embeddingService.GenerateAsync($"Page schema for PageID {pageId}");
+                var pageEmbedding = await _embeddingService.GenerateAsync($"Page schema for PageID {pageId}", cancellationToken: ct);
 
                 // [2] Retrieve FULL Page Node (schema context)
                 var pageNodeFilter = CreateFilter(
@@ -1135,7 +1142,8 @@ namespace DynamicAi.Application.Services
                     pageEmbedding,
                     pageNodeFilter,
                     limit: 1,
-                    stepName: "Page Schema for Cache"
+                    stepName: "Page Schema for Cache",
+                    ct: ct
                 );
 
                 if (pageNodesRaw.Count == 0)
@@ -1167,7 +1175,8 @@ namespace DynamicAi.Application.Services
                     pageEmbedding,
                     attrFilter,
                     limit: 100,
-                    stepName: "PageAttributes for Cache"
+                    stepName: "PageAttributes for Cache",
+                    ct: ct
                 );
 
                 _logger.LogInformation("[LLM Cache] Found {Count} PageAttributes for PageID {PageId}",
@@ -1227,7 +1236,8 @@ namespace DynamicAi.Application.Services
                             pageEmbedding,
                             detailFilter,
                             limit: 50,
-                            stepName: $"PageDetail[AttributeId={attributeId}]"
+                            stepName: $"PageDetail[AttributeId={attributeId}]",
+                            ct: ct
                         );
 
                         foreach (var detailJson in detailResults)
@@ -1261,7 +1271,7 @@ namespace DynamicAi.Application.Services
 
                 // [5] Retrieve Dictionary entries by ListName (NOT PageId!)
                 var grouped = new Dictionary<string, List<string>>();
-                var dictionaryEmbedding = await _embeddingService.GenerateAsync($"Dictionary data for PageID {pageId}");
+                var dictionaryEmbedding = await _embeddingService.GenerateAsync($"Dictionary data for PageID {pageId}", cancellationToken: ct);
 
                 foreach (var listName in listNames)
                 {
@@ -1277,7 +1287,8 @@ namespace DynamicAi.Application.Services
                         dictionaryEmbedding,
                         listFilter,
                         limit: 500, // Up to 500 entries per list
-                        stepName: $"Dictionary[{listName}]"
+                        stepName: $"Dictionary[{listName}]",
+                        ct: ct
                     );
 
                     // ⚠️ BLACKLIST: أعمدة قديمة لم تعد موجودة في الـ Database (same as RetrieveContextAsync)

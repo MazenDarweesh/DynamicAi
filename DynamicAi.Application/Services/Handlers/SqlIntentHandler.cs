@@ -98,7 +98,8 @@ public class SqlIntentHandler : IIntentHandler
                 context?.PreviousQuestion,
                 context?.PreviousSql,
                 context?.TenantId,
-                context?.CompanyId);
+                context?.CompanyId,
+                cancellationToken);
         }
 
         var condensedQuestion = condenserResult.CondensedQuestion;
@@ -114,7 +115,7 @@ public class SqlIntentHandler : IIntentHandler
         if (_queryCacheEnabled)
         {
             _logger.LogInformation("[SqlHandler] Layer 0: Checking Query Cache...");
-            var embedding = await _embeddingService.GenerateAsync(condensedQuestion);
+            var embedding = await _embeddingService.GenerateAsync(condensedQuestion, cancellationToken: cancellationToken);
             questionEmbedding = embedding.Vector.ToArray();
 
             // Track embedding usage
@@ -123,12 +124,14 @@ public class SqlIntentHandler : IIntentHandler
                 requestId: context?.QueryLogId?.ToString() ?? Guid.NewGuid().ToString(),
                 tokenCount: (int)(condensedQuestion.Length / 4.0),
                 tenantId: context?.TenantId,
-                companyId: context?.CompanyId);
+                companyId: context?.CompanyId,
+                cancellationToken: cancellationToken);
 
             var cachedResult = await _queryCacheService.TryGetCachedSqlAsync(
                 questionEmbedding,
                 context?.TenantId ?? "default",
-                context?.CompanyId ?? 0);
+                context?.CompanyId ?? 0,
+                cancellationToken);
 
             if (cachedResult != null)
             {
@@ -147,7 +150,8 @@ public class SqlIntentHandler : IIntentHandler
                     null, // schemaContext
                     cachedResult.PageId, // NEW: Pass PageId from cache
                     cachedInsights, 
-                    cachedReasoning);
+                    cachedReasoning,
+                    cancellationToken);
 
                 // P1-3: If cached SQL failed validation, fall through to full pipeline
                 if (cachedPipelineResult.ErrorMessage == "CACHE_INVALID_REGENERATE")
@@ -171,7 +175,8 @@ public class SqlIntentHandler : IIntentHandler
             condensedQuestion,
             context?.TenantId ?? "default",
             context?.CompanyId,
-            precomputedEmbedding: questionEmbedding // Reuse from cache check (P1-1)
+            precomputedEmbedding: questionEmbedding, // Reuse from cache check (P1-1)
+            ct: cancellationToken
         );
 
         #endregion
@@ -200,7 +205,8 @@ public class SqlIntentHandler : IIntentHandler
             context?.PreviousSql,
             actionType,
             context?.TenantId,
-            context?.CompanyId
+            context?.CompanyId,
+            cancellationToken
         );
 
         if (sqlResult.NeedsClarification)
@@ -235,7 +241,8 @@ public class SqlIntentHandler : IIntentHandler
                 sqlResult.Sql,
                 pageId,
                 context?.TenantId ?? "default",
-                context?.CompanyId ?? 0);
+                context?.CompanyId ?? 0,
+                cancellationToken);
         }
 
         #endregion
@@ -251,7 +258,8 @@ public class SqlIntentHandler : IIntentHandler
             retrievalResult.UnifiedPageContext,
             retrievalResult.PageId, // NEW: Pass PageId
             sqlResult.RetrievedContext, // NEW: Pass context for insights
-            sqlResult.Reasoning); // NEW: Pass reasoning for insights
+            sqlResult.Reasoning,
+            cancellationToken); // NEW: Pass reasoning for insights
 
         #endregion
     }
@@ -269,12 +277,13 @@ public class SqlIntentHandler : IIntentHandler
         string? schemaContext,
         int? pageId = null, // NEW: Pass PageId
         List<string>? retrievedContext = null,
-        string? reasoning = null)
+        string? reasoning = null,
+        CancellationToken ct = default)
     {
         // Double-check validation
         try
         {
-            await _validatorService.ValidateSqlAsync(rawSql, context?.TenantId ?? "default");
+            await _validatorService.ValidateSqlAsync(rawSql, context?.TenantId ?? "default", ct);
         }
         catch (Exception ex)
         {
@@ -287,7 +296,7 @@ public class SqlIntentHandler : IIntentHandler
 
                 try
                 {
-                    await _queryCacheService.DeleteCacheEntryAsync(cacheId);
+                    await _queryCacheService.DeleteCacheEntryAsync(cacheId, ct);
                     _logger.LogInformation("[SqlHandler] ✓ Cache entry invalidated successfully.");
                 }
                 catch (Exception cacheEx)
@@ -306,7 +315,7 @@ public class SqlIntentHandler : IIntentHandler
 
         // 3.5. Layer 3.5: Sanitization (Remove invalid columns not in DB schema)
         _logger.LogInformation("[SqlHandler] Layer 3.5: Sanitizing SQL...");
-        var sanitizationResult = await _sanitizerService.SanitizeAsync(rawSql, context?.TenantId ?? "default");
+        var sanitizationResult = await _sanitizerService.SanitizeAsync(rawSql, context?.TenantId ?? "default", ct);
         if (sanitizationResult.WasModified)
         {
             _logger.LogWarning("[SqlHandler] ⚠️ Sanitizer removed {Count} invalid column(s): {Columns}",
@@ -323,11 +332,12 @@ public class SqlIntentHandler : IIntentHandler
         var rewrittenResult = await _rewriterService.RewriteAsync(
             rawSql,
             context?.TenantId ?? "default",
-            context?.CompanyId);
+            context?.CompanyId,
+            ct);
 
         // 5. Layer 5: Execution
         _logger.LogInformation("[SqlHandler] Layer 5: Executing SQL...");
-        var executionResult = await _executionService.ExecuteSqlAsync(rewrittenResult.RewrittenSql, rewrittenResult.Parameters);
+        var executionResult = await _executionService.ExecuteSqlAsync(rewrittenResult.RewrittenSql, rewrittenResult.Parameters, ct);
 
         // Cost tracking handled internally.
 

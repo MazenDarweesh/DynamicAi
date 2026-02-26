@@ -20,6 +20,6 @@ namespace DynamicAi.Application.Interfaces
         /// <param name="tenantId">معرف الشركة الحالي لعملية الحقن</param>
         /// <param name="comID">معرف إضافي (اختياري) قد يُستخدم لعمليات حقن معينة</param>
         /// <returns>كائن RewrittenSqlResult يحتوي على الـ SQL الجديد والباراميترات</returns>
-        Task<RewrittenSqlResult> RewriteAsync(string safeSql, string tenantId, int? comID = 1);
+        Task<RewrittenSqlResult> RewriteAsync(string safeSql, string tenantId, int? comID = 1, CancellationToken ct = default);
     }
 }

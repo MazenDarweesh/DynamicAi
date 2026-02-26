@@ -45,5 +45,6 @@ public interface IQueryCondenserService
         string? previousQuestion,
         string? previousSql = null,
         string? tenantId = null,
-        int? companyId = null);
+        int? companyId = null,
+        CancellationToken ct = default);
 }

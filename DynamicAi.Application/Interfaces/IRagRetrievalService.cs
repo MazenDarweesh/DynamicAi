@@ -16,7 +16,8 @@ namespace DynamicAi.Application.Interfaces
             string userQuestion,
             string tenantId,
             int? companyId = null,
-            float[]? precomputedEmbedding = null
+            float[]? precomputedEmbedding = null,
+            CancellationToken ct = default
         );
 
         /// <summary>
@@ -29,7 +30,8 @@ namespace DynamicAi.Application.Interfaces
         Task<FullPageContextForLlmCache> GetFullPageContextForLlmCachingAsync(
             int pageId,
             string tenantId,
-            int? companyId = null
+            int? companyId = null,
+            CancellationToken ct = default
         );
 
         /// <summary>

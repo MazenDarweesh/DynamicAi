@@ -191,7 +191,8 @@ public class ChatIntentHandlerTests
             A<int>._,
             A<int>._,
             A<string>._,
-            A<int?>._))
+            A<int?>._,
+            A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
     }
 

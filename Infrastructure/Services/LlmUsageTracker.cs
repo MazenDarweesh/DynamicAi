@@ -51,7 +51,8 @@ namespace DynamicAi.Infrastructure.Services
             int outputTokens,
             int cachedTokens = 0,
             string? tenantId = null,
-            int? companyId = null)
+            int? companyId = null,
+            CancellationToken cancellationToken = default)
         {
             try
             {
@@ -85,7 +86,7 @@ namespace DynamicAi.Infrastructure.Services
                     CostUsd = cost,
                     TenantId = tenantId,
                     CompanyId = companyId
-                });
+                }, cancellationToken);
 
                 // Update in-memory session
                 lock (_lock)
@@ -115,7 +116,8 @@ namespace DynamicAi.Infrastructure.Services
             string requestId,
             int tokenCount,
             string? tenantId = null,
-            int? companyId = null)
+            int? companyId = null,
+            CancellationToken cancellationToken = default)
         {
             try
             {
@@ -140,7 +142,7 @@ namespace DynamicAi.Infrastructure.Services
                     CostUsd = cost,
                     TenantId = tenantId,
                     CompanyId = companyId
-                });
+                }, cancellationToken);
 
                 lock (_lock)
                 {
@@ -215,12 +217,12 @@ namespace DynamicAi.Infrastructure.Services
         /// <summary>
         /// يحفظ سجل الاستخدام في قاعدة البيانات عبر Scoped DbContext.
         /// </summary>
-        private async Task SaveUsageLogAsync(LlmUsageLog log)
+        private async Task SaveUsageLogAsync(LlmUsageLog log, CancellationToken ct = default)
         {
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             db.LlmUsageLogs.Add(log);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
         }
 
         /// <summary>
