@@ -11,6 +11,6 @@ namespace DynamicAi.Application.Interfaces
     {
         /// <summary>
         /// </summary>
-        Task<Dictionary<string, HashSet<string>>> GetSchemaMapAsync(System.Threading.CancellationToken ct = default);
+        Task<Dictionary<string, HashSet<string>>> GetSchemaMapAsync(System.Threading.CancellationToken ct = default, bool forceRefresh = false);
     }
 }

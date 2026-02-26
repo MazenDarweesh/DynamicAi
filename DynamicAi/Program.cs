@@ -112,6 +112,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     
     // --- Phase 2.7: SQL Sanitization & Validation ---
     services.AddTransient<IDbSchemaProvider, DbSchemaProvider>();
+    services.AddHostedService<DbSchemaCacheWarmerService>();
     services.AddTransient<ISqlSanitizerService, SqlSanitizerService>();
     services.AddTransient<ISqlValidatorService, SqlValidatorService>();
     services.AddTransient<ISqlRewriterService, SqlRewriterService>();

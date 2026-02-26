@@ -34,10 +34,10 @@ namespace DynamicAi.Application.Services.SqlEngine
             _logger = logger;
         }
 
-        public async Task<Dictionary<string, HashSet<string>>> GetSchemaMapAsync(System.Threading.CancellationToken ct = default)
+        public async Task<Dictionary<string, HashSet<string>>> GetSchemaMapAsync(System.Threading.CancellationToken ct = default, bool forceRefresh = false)
         {
             // محاولة الجلب من الكاش أولاً
-            if (_memoryCache.TryGetValue(CACHE_KEY, out Dictionary<string, HashSet<string>> cachedSchema))
+            if (!forceRefresh && _memoryCache.TryGetValue(CACHE_KEY, out Dictionary<string, HashSet<string>> cachedSchema))
             {
                 // _logger.LogDebug("[DbSchemaProvider] Returns cached schema map.");
                 return cachedSchema;
@@ -51,13 +51,13 @@ namespace DynamicAi.Application.Services.SqlEngine
             // نستبعد جداول النظام sysdiagrams ونركز على BASE TABLE و VIEW
             var sql = @"
                 SELECT 
-                    LOWER(t.TABLE_NAME) as TableName, 
-                    LOWER(c.COLUMN_NAME) as ColumnName
-                FROM INFORMATION_SCHEMA.TABLES t
-                INNER JOIN INFORMATION_SCHEMA.COLUMNS c ON t.TABLE_NAME = c.TABLE_NAME AND t.TABLE_SCHEMA = c.TABLE_SCHEMA
-                WHERE t.TABLE_TYPE IN ('BASE TABLE', 'VIEW')
-                AND t.TABLE_NAME <> 'sysdiagrams'
-                ORDER BY t.TABLE_NAME";
+                    LOWER(o.name) as TableName, 
+                    LOWER(c.name) as ColumnName
+                FROM sys.objects o
+                INNER JOIN sys.columns c ON o.object_id = c.object_id
+                WHERE o.type IN ('U', 'V') -- U = USER_TABLE, V = VIEW
+                AND o.name <> 'sysdiagrams'
+                ORDER BY o.name";
 
             var flatData = await connection.QueryAsync<(string TableName, string ColumnName)>(new CommandDefinition(sql, cancellationToken: ct));
 
