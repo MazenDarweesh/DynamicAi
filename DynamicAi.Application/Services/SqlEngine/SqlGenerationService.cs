@@ -297,6 +297,11 @@ namespace DynamicAi.Application.Services
 
             _logger.LogDebug("[SqlGeneration] Building prompt section: BUSINESS RULES...");
             promptBuilder.AppendLine("\n--- BUSINESS RULES (Must be included) ---");
+            
+            // 🌟 Inject Core Date Rules unconditionally
+            promptBuilder.AppendLine("\n[Core Business Rule: Date Handling]");
+            promptBuilder.AppendLine("CRITICAL INSTRUCTION FOR DATES: Whenever the user asks to filter by dates (e.g., 'last month', 'this year', 'today'), you MUST ALWAYS use the 'CreateAt' column for date filtering UNLESS the user explicitly mentions another date field. DO NOT hallucinate columns like 'MONTH(ContractDate)' or 'OrderDate'.");
+
             if (contextBundle.BusinessRules != null && contextBundle.BusinessRules.Any())
             {
                 int ruleIndex = 1;
@@ -310,7 +315,7 @@ namespace DynamicAi.Application.Services
             }
             else
             {
-                promptBuilder.AppendLine("(No business rules available)");
+                promptBuilder.AppendLine("(No user-defined business rules available)");
             }
 
             #endregion
