@@ -28,6 +28,20 @@ namespace DynamicAi.Application.Services.SqlEngine
         private bool _isInSelectClause = false;
         private string _currentClause = "UNKNOWN";
 
+        // قائمة بالكلمات المحجوزة والأجزاء المتعلقة بالتواريخ التي يعاملها البارسر كأعمدة بالخطأ
+        private static readonly HashSet<string> IgnoredIdentifiers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "day", "days", "dd", "d",
+            "month", "months", "mm", "m",
+            "year", "years", "yyyy", "yy",
+            "week", "weeks", "wk", "ww",
+            "hour", "hours", "hh",
+            "minute", "minutes", "mi", "n",
+            "second", "seconds", "ss", "s",
+            "quarter", "qq", "q",
+            "millisecond", "ms"
+        };
+
         public SanitizationVisitor(Dictionary<string, HashSet<string>> schemaMap)
         {
             _schemaMap = schemaMap;
@@ -130,6 +144,12 @@ namespace DynamicAi.Application.Services.SqlEngine
             var identifiers = node.MultiPartIdentifier.Identifiers;
             string columnName = identifiers.Last().Value; // دائماً الأخير هو اسم العمود
             string tableNameOrAlias = null;
+
+            // تجاهل الكلمات المحفوظة أو أجزاء التواريخ (DateParts) التي يتم التقاطها كأعمدة
+            if (identifiers.Count == 1 && IgnoredIdentifiers.Contains(columnName))
+            {
+                return;
+            }
 
             if (identifiers.Count > 1)
             {
