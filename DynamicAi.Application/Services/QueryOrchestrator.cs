@@ -28,6 +28,7 @@ namespace DynamicAi.Application.Services
         private readonly ILogger<QueryOrchestrator> _logger;
         private readonly IConversationContextService _contextService;
         private readonly IFeedbackService _feedbackService;
+        private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
         private readonly bool _queryCacheEnabled;
 
         #endregion
@@ -43,6 +44,7 @@ namespace DynamicAi.Application.Services
             IConversationContextService contextService,
             IFeedbackService feedbackService,
             ILlmUsageTracker usageTracker,
+            IEmbeddingGenerator<string, Embedding<float>> embeddingService,
             ILogger<QueryOrchestrator> logger,
             IConfiguration configuration)
         {
@@ -54,6 +56,7 @@ namespace DynamicAi.Application.Services
             _condenserService = condenserService;
             _queryLogRepo = queryLogRepo;
             _usageTracker = usageTracker;
+            _embeddingService = embeddingService;
             _logger = logger;
             _queryCacheEnabled = !bool.TryParse(configuration["Caching:QueryCache:Enabled"], out var enabled) || enabled; // Default true
         }
@@ -107,11 +110,18 @@ namespace DynamicAi.Application.Services
 
                 #region Layer 0: Intent Classification + Query Condensing (PARALLEL)
 
-                _logger.LogInformation("[Orchestrator] Layer 0: Starting Intent Classification + Query Condensing in PARALLEL...");
+                _logger.LogInformation("[Orchestrator] Layer 0: Computing shared embedding, then starting Intent + Condenser in PARALLEL...");
                 var parallelStart = DateTime.UtcNow;
 
-                // Both tasks are independent: intent uses the raw question, condenser uses question + previous context
-                var intentTask = _intentClassifier.ClassifyIntentAsync(userQuestion);
+                // Step 0.1: Compute embedding ONCE (shared across Intent Router + RAG)
+                var embeddingStart = System.Diagnostics.Stopwatch.StartNew();
+                var sharedEmbedding = await _embeddingService.GenerateAsync(userQuestion);
+                var sharedVector = sharedEmbedding.Vector.ToArray();
+                embeddingStart.Stop();
+                _logger.LogInformation("[Orchestrator] ✓ Shared embedding computed in {Duration:F0}ms (will be reused by Intent + RAG)", embeddingStart.ElapsedMilliseconds);
+
+                // Step 0.2: Both tasks are independent: intent uses precomputed embedding, condenser uses LLM
+                var intentTask = _intentClassifier.ClassifyIntentAsync(userQuestion, sharedVector);
                 var condenserTask = _condenserService.CondenseQuestionAsync(
                     userQuestion, previousQuestion, previousSql, tenantId, comID);
 

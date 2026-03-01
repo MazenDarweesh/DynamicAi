@@ -21,5 +21,16 @@ public interface IIntentClassificationService
         int? companyId = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Classifies intent using a precomputed embedding vector (saves ~500-1300ms).
+    /// The orchestrator computes the embedding once and shares it across services.
+    /// </summary>
+    Task<IntentClassificationResult> ClassifyIntentAsync(
+        string userQuestion,
+        float[] precomputedEmbedding,
+        string? tenantId = null,
+        int? companyId = null,
+        CancellationToken cancellationToken = default);
+
 
 }

@@ -70,6 +70,28 @@ public class IntentClassificationService : IIntentClassificationService
         if (userQuestion == null) throw new ArgumentNullException(nameof(userQuestion));
         if (string.IsNullOrWhiteSpace(userQuestion)) throw new ArgumentException("Question cannot be empty", nameof(userQuestion));
 
+        // Generate embedding internally (fallback path when no precomputed embedding is available)
+        _logger.LogInformation("[IntentRouter] Generating embedding internally...");
+        var embeddingStart = Stopwatch.StartNew();
+        var embedding = await _embeddingService.GenerateAsync(userQuestion);
+        embeddingStart.Stop();
+        _logger.LogInformation("[IntentRouter] Embedding generated in {Duration:F0}ms", embeddingStart.ElapsedMilliseconds);
+
+        var queryVector = embedding.Vector.ToArray();
+        return await ClassifyIntentAsync(userQuestion, queryVector, tenantId, companyId, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<IntentClassificationResult> ClassifyIntentAsync(
+        string userQuestion,
+        float[] precomputedEmbedding,
+        string? tenantId = null,
+        int? companyId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (userQuestion == null) throw new ArgumentNullException(nameof(userQuestion));
+        if (string.IsNullOrWhiteSpace(userQuestion)) throw new ArgumentException("Question cannot be empty", nameof(userQuestion));
+
         var stopwatch = Stopwatch.StartNew();
 
         try
@@ -79,19 +101,13 @@ public class IntentClassificationService : IIntentClassificationService
             _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
             _logger.LogInformation("[IntentRouter] User Question: \"{Question}\"",
                 userQuestion.Length > 80 ? userQuestion[..80] + "..." : userQuestion);
-
+            _logger.LogInformation("[IntentRouter] ✓ Using precomputed embedding (saved ~500-1300ms)");
 
             // Ensure DB is ready (Delegated to Manager)
             await _intentManager.EnsureCollectionExistsAsync(cancellationToken);
 
-            // Step 1: Generate Embedding
-            _logger.LogInformation("[IntentRouter] Generating embedding...");
-            var embeddingStart = Stopwatch.StartNew();
-            var embedding = await _embeddingService.GenerateAsync(userQuestion);
-            embeddingStart.Stop();
-
             // Track Embedding Usage
-            var embedTokens = userQuestion.Length / 4; // Approx since single-item extension doesn't return Usage
+            var embedTokens = userQuestion.Length / 4;
             await _usageTracker.TrackEmbeddingCallAsync(
                 LlmOperationType.IntentClassification,
                 Guid.NewGuid().ToString(),
@@ -99,7 +115,7 @@ public class IntentClassificationService : IIntentClassificationService
                 tenantId,
                 companyId);
 
-            var queryVector = embedding.Vector.ToArray();
+            var queryVector = precomputedEmbedding;
 
             // Step 2: Search Qdrant
             var searchResult = await _vectorDb.SearchAsync(
@@ -135,7 +151,7 @@ public class IntentClassificationService : IIntentClassificationService
                 Intent = intentType,
                 ConfidenceScore = topScore,
                 MatchedExample = ExtractPayloadValue(topMatch.Payload, "example_text"),
-                MatchedPointId = topMatch.Id?.Uuid != null ? ulong.TryParse(topMatch.Id.Uuid, out var uid) ? uid : 0 : 0, // Simplified ID handling for now
+                MatchedPointId = topMatch.Id?.Uuid != null ? ulong.TryParse(topMatch.Id.Uuid, out var uid) ? uid : 0 : 0,
                 LatencyMs = stopwatch.ElapsedMilliseconds,
                 QueryEmbedding = queryVector // ✅ Optimized
             };

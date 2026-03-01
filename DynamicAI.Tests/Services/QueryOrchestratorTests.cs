@@ -29,6 +29,7 @@ public class QueryOrchestratorTests
     private readonly IConfiguration _configuration;
     private readonly IConversationContextService _contextService;
     private readonly IFeedbackService _feedbackService;
+    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
 
     public QueryOrchestratorTests()
     {
@@ -43,9 +44,15 @@ public class QueryOrchestratorTests
         _configuration = A.Fake<IConfiguration>();
         _contextService = A.Fake<IConversationContextService>();
         _feedbackService = A.Fake<IFeedbackService>();
+        _embeddingService = A.Fake<IEmbeddingGenerator<string, Embedding<float>>>();
 
         // Default Configuration
         A.CallTo(() => _configuration["Caching:QueryCache:Enabled"]).Returns("true");
+
+        // Default Embedding Mock - must mock the CORE interface method, not the extension method (Rule 9)
+        // IEmbeddingGenerator<string, Embedding<float>>.GenerateAsync(IEnumerable<string>, ...)
+        A.CallTo(() => _embeddingService.GenerateAsync(A<IEnumerable<string>>._, A<EmbeddingGenerationOptions?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult(new GeneratedEmbeddings<Embedding<float>>(new[] { new Embedding<float>(new float[3072]) })));
 
         // Default Condenser Mock (Identity Fallback)
         A.CallTo(() => _condenserService.CondenseQuestionAsync(A<string>._, A<string?>._, A<string?>._, A<string?>._, A<int?>._, A<CancellationToken>._))
@@ -60,6 +67,7 @@ public class QueryOrchestratorTests
             _contextService,
             _feedbackService,
             _usageTracker,
+            _embeddingService,
             _logger,
             _configuration
         );
@@ -77,7 +85,7 @@ public class QueryOrchestratorTests
         IIntentHandler? handler = A.Fake<IIntentHandler>();
 
         // 1. Classify
-        A.CallTo(() => _intentClassifier.ClassifyIntentAsync(userQuestion, A<string?>._, A<int?>._, A<CancellationToken>._))
+        A.CallTo(() => _intentClassifier.ClassifyIntentAsync(userQuestion, A<float[]>._, A<string?>._, A<int?>._, A<CancellationToken>._))
             .Returns(Task.FromResult(intentResult));
 
         // 2. Get Handler
@@ -122,7 +130,7 @@ public class QueryOrchestratorTests
         IIntentHandler? handler = null;
 
         // 1. Classify
-        A.CallTo(() => _intentClassifier.ClassifyIntentAsync(userQuestion, A<string?>._, A<int?>._, A<CancellationToken>._))
+        A.CallTo(() => _intentClassifier.ClassifyIntentAsync(userQuestion, A<float[]>._, A<string?>._, A<int?>._, A<CancellationToken>._))
             .Returns(Task.FromResult(intentResult));
 
         // 2. Get Handler (Fail)
@@ -144,7 +152,7 @@ public class QueryOrchestratorTests
 
         IIntentHandler? handler = null;
 
-        A.CallTo(() => _intentClassifier.ClassifyIntentAsync(userQuestion, A<string?>._, A<int?>._, A<CancellationToken>._))
+        A.CallTo(() => _intentClassifier.ClassifyIntentAsync(userQuestion, A<float[]>._, A<string?>._, A<int?>._, A<CancellationToken>._))
             .Returns(Task.FromResult(intentResult));
 
         A.CallTo(() => _handlerFactory.TryGetHandler(intentResult.Intent, out handler))
