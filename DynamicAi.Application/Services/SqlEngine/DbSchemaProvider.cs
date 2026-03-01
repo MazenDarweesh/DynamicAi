@@ -23,6 +23,8 @@ namespace DynamicAi.Application.Services.SqlEngine
         private const string CACHE_KEY = "GlobalDbSchemaMap";
         private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromMinutes(10); // تخزين الكاش لمدة 10 دقائق
 
+        private static readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+
         public DbSchemaProvider(
             IConfiguration configuration,
             IMemoryCache memoryCache,
@@ -36,16 +38,25 @@ namespace DynamicAi.Application.Services.SqlEngine
 
         public async Task<Dictionary<string, HashSet<string>>> GetSchemaMapAsync(System.Threading.CancellationToken ct = default, bool forceRefresh = false)
         {
-            // محاولة الجلب من الكاش أولاً
+            // محاولة الجلب من الكاش أولاً (بدون قفل للسرعة)
             if (!forceRefresh && _memoryCache.TryGetValue(CACHE_KEY, out Dictionary<string, HashSet<string>> cachedSchema))
             {
-                // _logger.LogDebug("[DbSchemaProvider] Returns cached schema map.");
                 return cachedSchema;
             }
 
-            _logger.LogInformation("[DbSchemaProvider] Cache MISS. Fetching schema from DB...");
+            // انتظار القفل لمنع الـ Cache Stampede (تكدس الاستعلامات)
+            await _semaphore.WaitAsync(ct);
+            try
+            {
+                // إعادة فحص الكاش بعد الحصول على القفل (ربما قام thread آخر بتحديثه)
+                if (!forceRefresh && _memoryCache.TryGetValue(CACHE_KEY, out cachedSchema))
+                {
+                    return cachedSchema;
+                }
 
-            using var connection = new SqlConnection(_connectionString);
+                _logger.LogInformation("[DbSchemaProvider] Cache MISS. Fetching schema from DB...");
+
+                using var connection = new SqlConnection(_connectionString);
             
             // استعلام سريع لجلب كل الجداول والأعمدة
             // نستبعد جداول النظام sysdiagrams ونركز على BASE TABLE و VIEW
@@ -79,6 +90,11 @@ namespace DynamicAi.Application.Services.SqlEngine
             _memoryCache.Set(CACHE_KEY, schemaMap, CACHE_DURATION);
 
             return schemaMap;
+            }
+            finally
+            {
+                _semaphore.Release();
+            }
         }
     }
 }

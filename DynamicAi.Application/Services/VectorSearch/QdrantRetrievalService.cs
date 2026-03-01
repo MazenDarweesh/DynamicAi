@@ -337,81 +337,129 @@ namespace DynamicAi.Application.Services
                 {
                     contextBundle.BusinessRules.Add(tailCondition);
                 }
+            }
 
-                string listName = attrNode[DbColumns.ListName]?.GetValue<string>() ?? string.Empty;
-                if (!string.IsNullOrEmpty(listName))
+            // ============================================================================
+            // BATCH FETCH: Dictionary Entries (ListSetups) for Attributes
+            // ============================================================================
+            var listNamesToFetch = attributeMap.Values
+                .Select(attr => attr[DbColumns.ListName]?.GetValue<string>() ?? string.Empty)
+                .Where(ln => !string.IsNullOrEmpty(ln))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (listNamesToFetch.Any())
+            {
+                var listFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups, filterVisibleOnly: false);
+                var listNamesFilter = new Filter();
+                foreach (var listName in listNamesToFetch)
                 {
-                    // ⚠️ NOTE: visible filter moved to app-layer (Qdrant payload doesn't have visible as top-level field)
-                    var listFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups, 
-                        filterVisibleOnly: false, (QdrantConstants.ListName, listName));
-                    var listResults = await SearchQdrantAsync(embedding, listFilter, 250, DbTables.ListSetups, ct);
-                    contextBundle.DictionaryEntries.AddRange(listResults);
+                    listNamesFilter.Should.Add(new Condition { Field = new FieldCondition { Key = QdrantConstants.ListName, Match = new Match { Keyword = listName } } });
                 }
+                listFilter.Must.Add(new Condition { Filter = listNamesFilter });
 
+                // Fetch all in one go
+                var listResults = await SearchQdrantAsync(embedding, listFilter, 250 * listNamesToFetch.Count, $"{DbTables.ListSetups} (Batched Attr)", ct);
+                contextBundle.DictionaryEntries.AddRange(listResults);
+            }
+
+            // ============================================================================
+            // BATCH FETCH: Schema Scripts for Attributes
+            // ============================================================================
+            var viewNamesToFetch = attributeMap.Values
+                .Select(attr => attr[DbColumns.TableName]?.GetValue<string>() ?? string.Empty)
+                .Where(vn => !string.IsNullOrEmpty(vn))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var attrNode in attributeMap.Values)
+            {
                 string viewName = attrNode[DbColumns.TableName]?.GetValue<string>() ?? string.Empty;
                 AppendCompanyFilterRule(attrNode, viewName, "PageAttribute", contextBundle, companyRuleKeys);
+            }
 
-                if (!string.IsNullOrEmpty(viewName))
+            if (viewNamesToFetch.Any())
+            {
+                var schemaMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var viewName in viewNamesToFetch)
                 {
                     var schemaFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeSchema, null, filterVisibleOnly: false, (QdrantConstants.ObjectName, viewName));
-                    var schemaResults = await SearchQdrantAsync(embedding, schemaFilter, 1, "Schema", ct);
+                    var schemaResults = await SearchQdrantAsync(embedding, schemaFilter, 1, $"Schema ({viewName})", ct);
                     if (schemaResults.Any())
                     {
-                        attrNode["SchemaScript"] = schemaResults.First();
+                        schemaMap[viewName] = schemaResults.First();
+                    }
+                }
+
+                foreach (var attrNode in attributeMap.Values)
+                {
+                    string viewName = attrNode[DbColumns.TableName]?.GetValue<string>() ?? string.Empty;
+                    if (!string.IsNullOrEmpty(viewName) && schemaMap.TryGetValue(viewName, out var schemaScript))
+                    {
+                        attrNode["SchemaScript"] = schemaScript;
                     }
                 }
             }
 
             // ============================================================================
-            // STEP 3.5: جلب تفاصيل الصفحة (PageDetail Context)
+            // STEP 3.5: جلب تفاصيل الصفحة (PageDetail Context) [BATCHED]
             // ============================================================================
             var allAttributeIds = attributeMap.Keys.ToList();
             if (allAttributeIds.Any())
             {
-                _logger.LogInformation("[RagRetrieval] STEP 3.5: Fetching PageDetails for {Count} Attribute(s)...", allAttributeIds.Count);
+                _logger.LogInformation("[RagRetrieval] STEP 3.5: Fetching PageDetails for {Count} Attribute(s) IN BATCH...", allAttributeIds.Count);
 
                 int totalDetailsLinked = 0;
 
+                var detailFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.PageDetail, filterVisibleOnly: false);
+                var detailShouldFilter = new Filter();
                 foreach (var attributeId in allAttributeIds)
                 {
-                    var detailFilter = CreateFilter(
-                        tenantId,
-                        QdrantConstants.SourceTypeData,
-                        DbTables.PageDetail,
-                        filterVisibleOnly: false,
-                        (QdrantConstants.AttributeId, attributeId));
+                    detailShouldFilter.Should.Add(new Condition { Field = new FieldCondition { Key = QdrantConstants.AttributeId, Match = new Match { Integer = attributeId } } });
+                }
+                detailFilter.Must.Add(new Condition { Filter = detailShouldFilter });
 
-                    var detailResults = await SearchQdrantAsync(embedding, detailFilter, 50, $"{DbTables.PageDetail} (Attribute {attributeId})", ct);
+                var detailResults = await SearchQdrantAsync(embedding, detailFilter, 50 * allAttributeIds.Count, $"{DbTables.PageDetail} (Batched)", ct);
 
-                    foreach (var detailJson in detailResults)
+                var detailListNamesToFetch = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var detailJson in detailResults)
+                {
+                    var detailNode = JsonNode.Parse(detailJson)!.AsObject();
+                    if (detailNode.TryGetPropertyValue(DbColumns.PageAttributeId, out var parentAttrIdNode) &&
+                        attributeMap.TryGetValue(parentAttrIdNode!.GetValue<int>(), out var parentAttrNode))
                     {
-                        var detailNode = JsonNode.Parse(detailJson)!.AsObject();
-                        if (detailNode.TryGetPropertyValue(DbColumns.PageAttributeId, out var parentAttrIdNode) &&
-                            attributeMap.TryGetValue(parentAttrIdNode!.GetValue<int>(), out var parentAttrNode))
+                        if (parentAttrNode["PageDetails"] is not JsonArray detailsArray)
                         {
-                            if (parentAttrNode["PageDetails"] is not JsonArray detailsArray)
-                            {
-                                detailsArray = new JsonArray();
-                                parentAttrNode["PageDetails"] = detailsArray;
-                            }
-                            detailsArray.Add(detailNode);
-                            totalDetailsLinked++;
+                            detailsArray = new JsonArray();
+                            parentAttrNode["PageDetails"] = detailsArray;
+                        }
+                        detailsArray.Add(detailNode);
+                        totalDetailsLinked++;
 
-                            var detailViewName = detailNode[DbColumns.TableName]?.GetValue<string>() ?? string.Empty;
-                            AppendCompanyFilterRule(detailNode, detailViewName, "PageDetail", contextBundle, companyRuleKeys);
+                        var detailViewName = detailNode[DbColumns.TableName]?.GetValue<string>() ?? string.Empty;
+                        AppendCompanyFilterRule(detailNode, detailViewName, "PageDetail", contextBundle, companyRuleKeys);
 
-                            // (FIX) Also fetch dictionary entries for the Detail View
-                            string detailListName = detailNode[DbColumns.ListName]?.GetValue<string>() ?? string.Empty;
-                            if (!string.IsNullOrEmpty(detailListName))
-                            {
-                                // ⚠️ NOTE: visible filter moved to app-layer (Qdrant payload doesn't have visible as top-level field)
-                                var detailListFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups,
-                                    filterVisibleOnly: false, (QdrantConstants.ListName, detailListName));
-                                var detailListResults = await SearchQdrantAsync(embedding, detailListFilter, 250, $"{DbTables.ListSetups} (Detail {detailListName})");
-                                contextBundle.DictionaryEntries.AddRange(detailListResults);
-                            }
+                        string detailListName = detailNode[DbColumns.ListName]?.GetValue<string>() ?? string.Empty;
+                        if (!string.IsNullOrEmpty(detailListName))
+                        {
+                            detailListNamesToFetch.Add(detailListName);
                         }
                     }
+                }
+
+                if (detailListNamesToFetch.Any())
+                {
+                    var detailListFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups, filterVisibleOnly: false);
+                    var detailListNamesFilter = new Filter();
+                    foreach (var lName in detailListNamesToFetch)
+                    {
+                        detailListNamesFilter.Should.Add(new Condition { Field = new FieldCondition { Key = QdrantConstants.ListName, Match = new Match { Keyword = lName } } });
+                    }
+                    detailListFilter.Must.Add(new Condition { Filter = detailListNamesFilter });
+
+                    var detailListResults = await SearchQdrantAsync(embedding, detailListFilter, 250 * detailListNamesToFetch.Count, $"{DbTables.ListSetups} (Batched Details)", ct);
+                    contextBundle.DictionaryEntries.AddRange(detailListResults);
                 }
 
                 _logger.LogInformation("[RagRetrieval] ✓ Linked {DetailsCount} PageDetail(s) across {AttrCount} attribute(s).", totalDetailsLinked, allAttributeIds.Count);
