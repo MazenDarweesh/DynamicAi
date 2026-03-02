@@ -13,7 +13,7 @@ export class ApiService {
     constructor(private http: HttpClient) { }
 
     testConnection(): Observable<any> {
-        return this.http.get(`${this.apiUrl}/Test/ping`);
+        return this.http.get(`${this.apiUrl}/AIQuery/ping`);
     }
 
     ask(question: string, previousQuestion?: string, previousSql?: string, sessionId?: string): Observable<any> {
@@ -25,7 +25,7 @@ export class ApiService {
             previousSql: previousSql ?? null
         };
         if (sessionId) body['sessionId'] = sessionId;
-        return this.http.post(`${this.apiUrl}/Test/ask`, body);
+        return this.http.post(`${this.apiUrl}/AIQuery/ask`, body);
     }
 
     dislike(request: DislikeRequest): Observable<DislikeResponse> {

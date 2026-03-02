@@ -27,7 +27,7 @@ namespace DynamicAi.Application.Models
         /// </summary>
         public List<string> ProtectedEndpoints { get; set; } = new()
         {
-            "/test/ask",
+            "/aiquery/ask",
             "/api/dataseeder/seed",
             "/api/dataseeder/seed-intents",
             "/api/feedback/dislike",

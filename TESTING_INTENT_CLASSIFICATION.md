@@ -56,7 +56,7 @@ http://localhost:6333/dashboard
 
 #### باستخدام Swagger:
 1. افتح `https://localhost:5001/swagger`
-2. ابحث عن `POST /Test/ask`
+2. ابحث عن `POST /AIQuery/ask`
 3. اضغط "Try it out"
 4. أدخل:
 ```json
@@ -81,7 +81,7 @@ http://localhost:6333/dashboard
 
 #### باستخدام curl:
 ```bash
-curl -X POST "https://localhost:5001/Test/ask" \
+curl -X POST "https://localhost:5001/AIQuery/ask" \
   -H "Content-Type: application/json" \
   -d '{
     "question": "Get all customers",
@@ -191,7 +191,7 @@ Body: { "question": "test question" }
 
 **إذا فشل:**
 - افتح Browser DevTools → Network tab
-- تحقق من request `/api/Test/ask`
+- تحقق من request `/api/AIQuery/ask`
 - تحقق من Response structure
 
 ---

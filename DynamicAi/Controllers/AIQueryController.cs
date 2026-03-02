@@ -12,12 +12,12 @@ namespace DynamicAi.Api.Controllers
 {
     [ApiController]
     [Route("[controller]")]
-    public class TestController : ControllerBase
+    public class AIQueryController : ControllerBase
     {
         private readonly IQueryOrchestrator _queryOrchestrator;
-        private readonly ILogger<TestController> _logger;
+        private readonly ILogger<AIQueryController> _logger;
 
-        public TestController(IQueryOrchestrator queryOrchestrator, ILogger<TestController> logger)
+        public AIQueryController(IQueryOrchestrator queryOrchestrator, ILogger<AIQueryController> logger)
         {
             _queryOrchestrator = queryOrchestrator;
             _logger = logger;
@@ -41,7 +41,7 @@ namespace DynamicAi.Api.Controllers
                 ["CompanyId"] = request.ComID ?? (object)"null"
             });
 
-            _logger.LogInformation("API REQUEST RECEIVED - /Test/ask. Question: \"{Question}\"", request.Question);
+            _logger.LogInformation("API REQUEST RECEIVED - /AIQuery/ask. Question: \"{Question}\"", request.Question);
 
             if (string.IsNullOrWhiteSpace(request.Question))
             {
