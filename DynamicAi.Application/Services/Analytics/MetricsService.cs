@@ -24,20 +24,13 @@ public class MetricsService : IMetricsService
         string? tenantId, TimeSpan window, CancellationToken cancellationToken = default)
     {
         var cutoff = DateTime.UtcNow - window;
-        var logs = await _queryLogRepo.GetLogsAfterAsync(cutoff, tenantId, cancellationToken);
+        var (avgLatency, p95, p99, errorRate, totalQueries) =
+            await _queryLogRepo.GetPerformanceAggregateAsync(cutoff, tenantId, cancellationToken);
 
-        if (logs.Count == 0)
+        if (totalQueries == 0)
             return new PerformanceMetrics();
 
-        var latencies = logs.Select(l => l.LatencyMs).OrderBy(l => l).ToList();
-        var avgLatency = latencies.Average();
-        var p95Index = (int)(latencies.Count * 0.95);
-        var p99Index = (int)(latencies.Count * 0.99);
-        var p95 = latencies.ElementAtOrDefault(p95Index);
-        var p99 = latencies.ElementAtOrDefault(p99Index);
-        var errorRate = logs.Count(l => !l.WasSuccessful) * 100.0 / logs.Count;
-
-        _logger.LogInformation("📊 [Metrics] Performance: Avg={Avg}ms, P95={P95}ms, Errors={Err}%",
+        _logger.LogInformation("📊 [Metrics] Performance: Avg={Avg:F0}ms, P95={P95}ms, Errors={Err:F1}%",
             avgLatency, p95, errorRate);
 
         return new PerformanceMetrics
@@ -46,7 +39,7 @@ public class MetricsService : IMetricsService
             P95LatencyMs = p95,
             P99LatencyMs = p99,
             ErrorRate = errorRate,
-            TotalQueries = logs.Count
+            TotalQueries = totalQueries
         };
     }
 
@@ -58,59 +51,39 @@ public class MetricsService : IMetricsService
         string? tenantId, TimeSpan window, CancellationToken cancellationToken = default)
     {
         var cutoff = DateTime.UtcNow - window;
-        var logs = await _queryLogRepo.GetLogsAfterAsync(cutoff, tenantId, cancellationToken);
+        var distribution = await _queryLogRepo.GetIntentDistributionAggregateAsync(cutoff, tenantId, cancellationToken);
 
-        var total = logs.Count;
-        if (total == 0) return new List<IntentDistributionItem>();
+        if (distribution.Count == 0) return new List<IntentDistributionItem>();
 
-        var grouped = logs
-            .Where(l => !string.IsNullOrEmpty(l.HandlerType))
-            .GroupBy(l => l.HandlerType!)
-            .Select(g => new IntentDistributionItem
-            {
-                Intent = g.Key,
-                Count = g.Count(),
-                Percentage = (double)g.Count() / total * 100
-            })
-            .OrderByDescending(x => x.Count)
-            .ToList();
+        var total = distribution.Sum(x => x.Count);
 
-        var knownCount = grouped.Sum(x => x.Count);
-        var unknownCount = total - knownCount;
-        if (unknownCount > 0)
+        var result = distribution.Select(x => new IntentDistributionItem
         {
-            grouped.Add(new IntentDistributionItem
-            {
-                Intent = "Unknown",
-                Count = unknownCount,
-                Percentage = (double)unknownCount / total * 100
-            });
-        }
+            Intent = x.Intent,
+            Count = x.Count,
+            Percentage = (double)x.Count / total * 100
+        }).ToList();
 
-        _logger.LogInformation("📊 [Metrics] Intent Distribution: {Count} intents, {Total} total", grouped.Count, total);
-        return grouped;
+        _logger.LogInformation("📊 [Metrics] Intent Distribution: {Count} intents, {Total} total", result.Count, total);
+        return result;
     }
 
     public async Task<CostBreakdown> GetCostBreakdownAsync(
         string? tenantId, TimeSpan window, CancellationToken cancellationToken = default)
     {
         var cutoff = DateTime.UtcNow - window;
-        var logs = await _queryLogRepo.GetLogsAfterAsync(cutoff, tenantId, cancellationToken);
-        var costedLogs = logs.Where(l => l.GeminiCost.HasValue).ToList();
+        var (totalCost, avgCost, totalTokens, totalQueries) =
+            await _queryLogRepo.GetCostAggregateAsync(cutoff, tenantId, cancellationToken);
 
-        if (costedLogs.Count == 0)
+        if (totalQueries == 0)
             return new CostBreakdown();
-
-        var totalCost = costedLogs.Sum(l => l.GeminiCost ?? 0);
-        var totalTokens = costedLogs.Sum(l => (l.InputTokens ?? 0) + (l.OutputTokens ?? 0));
-        var avgCost = totalCost / costedLogs.Count;
 
         return new CostBreakdown
         {
             TotalCost = totalCost,
             AvgCostPerQuery = avgCost,
-            TotalTokens = totalTokens,
-            TotalQueries = costedLogs.Count
+            TotalTokens = (int)totalTokens,
+            TotalQueries = totalQueries
         };
     }
 
@@ -118,19 +91,17 @@ public class MetricsService : IMetricsService
         string? tenantId, TimeSpan window, CancellationToken cancellationToken = default)
     {
         var cutoff = DateTime.UtcNow - window;
-        var logs = await _queryLogRepo.GetLogsAfterAsync(cutoff, tenantId, cancellationToken);
+        var (likes, dislikes, ambiguous, total) =
+            await _queryLogRepo.GetUserExperienceAggregateAsync(cutoff, tenantId, cancellationToken);
 
-        if (logs.Count == 0)
+        if (total == 0)
             return new UserExperienceMetrics();
 
-        var likes = logs.Count(l => l.FeedbackStatus == "Like");
-        var dislikes = logs.Count(l => l.FeedbackStatus == "Dislike");
         var feedbackTotal = likes + dislikes;
         var satisfactionRate = feedbackTotal > 0 ? likes * 100.0 / feedbackTotal : 0;
-        var ambiguous = logs.Count(l => l.IsAmbiguous);
-        var clarificationRate = ambiguous * 100.0 / logs.Count;
+        var clarificationRate = ambiguous * 100.0 / total;
 
-        _logger.LogInformation("😊 [Metrics] User Experience: Likes={Likes}, Dislikes={Dislikes}, CSAT={CSAT}%",
+        _logger.LogInformation("😊 [Metrics] User Experience: Likes={Likes}, Dislikes={Dislikes}, CSAT={CSAT:F1}%",
             likes, dislikes, satisfactionRate);
 
         return new UserExperienceMetrics
