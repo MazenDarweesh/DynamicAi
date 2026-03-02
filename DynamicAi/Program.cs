@@ -114,6 +114,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddTransient<IDbSchemaProvider, DbSchemaProvider>();
     services.AddHostedService<DbSchemaCacheWarmerService>();
     services.AddHostedService<IntentIndexWarmerService>(); // Warm Qdrant intent indexes at startup
+    services.AddHostedService<QueryCacheWarmerService>(); // Warm Qdrant query cache indexes at startup
     services.AddTransient<ISqlSanitizerService, SqlSanitizerService>();
     services.AddTransient<ISqlValidatorService, SqlValidatorService>();
     services.AddTransient<ISqlRewriterService, SqlRewriterService>();

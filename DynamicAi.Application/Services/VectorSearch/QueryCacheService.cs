@@ -29,14 +29,12 @@ public class QueryCacheService : IQueryCacheService
         _qdrantClient = qdrantClient;
         _logger = logger;
         _collectionName = configuration["Caching:QueryCache:CollectionName"] ?? "query_cache";
-        _similarityThreshold = float.Parse(configuration["Caching:QueryCache:SimilarityThreshold"] ?? "0.92");
-        _ttlDays = int.Parse(configuration["Caching:QueryCache:TTLDays"] ?? "7");
+        _similarityThreshold = float.TryParse(configuration["Caching:QueryCache:SimilarityThreshold"], out var threshold) ? threshold : 0.92f;
+        _ttlDays = int.TryParse(configuration["Caching:QueryCache:TTLDays"], out var ttl) ? ttl : 7;
     }
 
-    /// <summary>
-    /// Ensures the query_cache collection exists in Qdrant with proper payload indexes.
-    /// </summary>
-    private async Task EnsureCollectionExistsAsync(CancellationToken ct)
+    /// <inheritdoc />
+    public async Task EnsureInitializedAsync(CancellationToken ct = default)
     {
         if (_collectionInitialized) return;
 
@@ -115,7 +113,7 @@ public class QueryCacheService : IQueryCacheService
     {
         try
         {
-            await EnsureCollectionExistsAsync(ct);
+            await EnsureInitializedAsync(ct);
 
             _logger.LogInformation("[QueryCache] Searching for similar cached queries...");
 
@@ -194,7 +192,7 @@ public class QueryCacheService : IQueryCacheService
     {
         try
         {
-            await EnsureCollectionExistsAsync(ct);
+            await EnsureInitializedAsync(ct);
 
             var pointId = id; // Use specific ID provided by orchestrator
             var now = DateTime.UtcNow;
@@ -239,7 +237,7 @@ public class QueryCacheService : IQueryCacheService
     {
         try
         {
-            await EnsureCollectionExistsAsync(ct);
+            await EnsureInitializedAsync(ct);
 
             _logger.LogInformation("[QueryCache] Deleting cache entry: {CacheId}", cacheId);
 
@@ -267,7 +265,7 @@ public class QueryCacheService : IQueryCacheService
     {
         try
         {
-            await EnsureCollectionExistsAsync(ct);
+            await EnsureInitializedAsync(ct);
 
             _logger.LogInformation("[QueryCache] Searching for similar entries to delete...");
 

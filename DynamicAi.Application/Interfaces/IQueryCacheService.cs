@@ -8,6 +8,11 @@ namespace DynamicAi.Application.Interfaces;
 public interface IQueryCacheService
 {
     /// <summary>
+    /// Ensures the query_cache collection and payload indexes exist in Qdrant.
+    /// Called at application startup by QueryCacheWarmerService to eliminate cold start penalty.
+    /// </summary>
+    Task EnsureInitializedAsync(CancellationToken ct = default);
+    /// <summary>
     /// Attempts to retrieve a cached SQL result based on question embedding similarity.
     /// </summary>
     /// <param name="questionEmbedding">The embedding vector of the user's question.</param>
