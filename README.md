@@ -10,8 +10,7 @@ Unlike simple text-to-SQL wrappers, Dynamic AI is an **Intelligent System** feat
 
 ## 🏗️ Architecture Overview
 
-The system implements an **8-Layer Intelligence Pipeline** designed for high throughput, zero hallucinations, and cost efficiency.
-
+Designed a multi-stage SQL generation pipeline with intent routing, semantic caching, RAG retrieval, AST-based validation, and self-healing sanitization. 
 ```text
      User (Business / Analyst)
       ↕
