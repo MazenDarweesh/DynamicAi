@@ -96,9 +96,9 @@ namespace DynamicAi.Application.Services
                 #region Context Loading (Phase 0)
 
                 _logger.LogInformation("[Orchestrator] Loading recent context for session: {SessionId}", sessionId);
-                var recentTurns = await _contextService.GetRecentContextAsync(sessionId, 1);
+                var recentTurns = await _contextService.GetRecentContextAsync(sessionId, 1, ct);
                 var lastTurn = recentTurns.FirstOrDefault();
-                int? previousPageId = lastTurn?.PageId;
+                var previousPageId = lastTurn?.PageId;
 
                 if (lastTurn != null)
                 {
@@ -115,15 +115,15 @@ namespace DynamicAi.Application.Services
 
                 // Step 0.1: Compute embedding ONCE (shared across Intent Router + RAG)
                 var embeddingStart = System.Diagnostics.Stopwatch.StartNew();
-                var sharedEmbedding = await _embeddingService.GenerateAsync(userQuestion);
+                var sharedEmbedding = await _embeddingService.GenerateAsync(userQuestion, cancellationToken: ct);
                 var sharedVector = sharedEmbedding.Vector.ToArray();
                 embeddingStart.Stop();
                 _logger.LogInformation("[Orchestrator] ✓ Shared embedding computed in {Duration:F0}ms (will be reused by Intent + RAG)", embeddingStart.ElapsedMilliseconds);
 
                 // Step 0.2: Both tasks are independent: intent uses precomputed embedding, condenser uses LLM
-                var intentTask = _intentClassifier.ClassifyIntentAsync(userQuestion, sharedVector);
+                var intentTask = _intentClassifier.ClassifyIntentAsync(userQuestion, sharedVector, cancellationToken: ct);
                 var condenserTask = _condenserService.CondenseQuestionAsync(
-                    userQuestion, previousQuestion, previousSql, tenantId, comID);
+                    userQuestion, previousQuestion, previousSql, tenantId, comID, ct);
 
                 await Task.WhenAll(intentTask, condenserTask);
 
@@ -192,7 +192,7 @@ namespace DynamicAi.Application.Services
 
                     ct.ThrowIfCancellationRequested(); // ✂️ Checkpoint before Handler delegation
 
-                    result = await handler.HandleAsync(userQuestion, intentResult, context);
+                    result = await handler.HandleAsync(userQuestion, intentResult, context, ct);
                 }
                 else
                 {

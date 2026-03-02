@@ -131,6 +131,16 @@ namespace DynamicAi.Api.Controllers
                 return StatusCode(500, $"Database Error: {dbEx.Message}");
             }
 
+            catch (OperationCanceledException)
+            {
+                var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
+
+                _logger.LogWarning("⛔ API REQUEST CANCELLED by client (Stop Button). Duration: {Duration:F0}ms", apiDuration);
+
+                // Client already disconnected — return 499 (Client Closed Request)
+                return StatusCode(499, "Request cancelled by client.");
+            }
+
             catch (Exception ex)
             {
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
