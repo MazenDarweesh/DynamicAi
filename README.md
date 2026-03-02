@@ -311,7 +311,7 @@ The brain of the operation, containing the business logic.
 A modern, responsive web interface built with **Angular (Latest)**.
 
 *   **Chat Interface:** A ChatGPT-like experience for interacting with the data.
-*   **🆕 Stop Button:** Real-time generation cancellation — replaces the Send button during loading, unsubscribes the active HTTP request, and displays a user-initiated stop message. Follows the ChatGPT UX pattern (Jakob's Law).
+*   **🆕 Stop Button:** Full end-to-end cancellation — frontend unsubscribes the HTTP Observable (aborting XHR), backend propagates `CancellationToken` through the entire pipeline (Embedding → Intent → Condenser → SQL Gen → Execution), halting all async operations. Controller catches `OperationCanceledException` and returns HTTP 499. Follows the ChatGPT UX pattern (Jakob's Law).
 *   **Data Visualization:** Displays query results in clean, formatted tables.
 *   **Dashboard:** Real-time glassmorphism dashboard tracking:
     *   **Performance:** P95/P99 Latency, Error Rates.
@@ -527,9 +527,12 @@ We have achieved **87% cold-start improvement** through 3x Background Warmup Ser
 *   **RAG Context Cache (240min TTL)**: Cached page metadata eliminates repeat Vector DB lookups entirely.
 *   **Result**: Cold start dropped from **25s → 3.3s** (87% faster), warm queries at **~1.5s**.
 
-#### 2. ⛔ Stop Button — Generation Cancellation (New in v1.7.0)
+#### 2. ⛔ Stop Button — Full Pipeline Cancellation (New in v1.7.0)
 *   **UX Pattern**: Replaces Send button during loading (ChatGPT-style, Jakob's Law).
-*   **Mechanism**: Unsubscribes the active HTTP Observable, immediately halts the pipeline.
+*   **Frontend**: Unsubscribes the active HTTP Observable → aborts the XHR request.
+*   **Backend**: `HttpContext.RequestAborted` propagated as `CancellationToken` through **every async call** in the pipeline:
+    *   Embedding (`GenerateAsync`) → Intent Classification → Condenser → SQL Generation → Validation → Execution.
+*   **Controller**: Catches `OperationCanceledException` → logs `⛔` → returns **HTTP 499** (Client Closed Request).
 *   **Feedback**: Displays `"⛔ تم إيقاف التوليد بواسطة المستخدم"` — user stays in control.
 
 #### 3. 💎 Financial Governance & Cost Excellence (v1.6.0)
@@ -808,7 +811,7 @@ DynamicAi/
 *   ✅ **Result:** Cold start: 25s → 3.3s (87% ↓), Warm: 5.2s → 1.5s (72% ↓).
 
 **UI/UX Enhancements:**
-*   ✅ **Stop Button:** Real-time generation cancellation — replaces Send button during loading, unsubscribes active HTTP Observable. ChatGPT-style UX (Jakob's Law).
+*   ✅ **Stop Button:** Full end-to-end pipeline cancellation — frontend aborts XHR, backend `CancellationToken` propagated to all async calls (Embedding, Intent, Condenser, SQL Gen, Execution). Controller returns HTTP 499 on cancellation.
 
 **SQL Intelligence:**
 *   ✅ **SQL Sanitization Layer:** `SqlSanitizerService` + `SanitizationVisitor` + `DbSchemaProvider` — auto-fixes hallucinated columns.
