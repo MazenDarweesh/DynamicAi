@@ -16,7 +16,7 @@ namespace DynamicAi.Api.Services
     {
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<DbSchemaCacheWarmerService> _logger;
-        private readonly TimeSpan _refreshInterval = TimeSpan.FromMinutes(15);
+        private readonly TimeSpan _refreshInterval = TimeSpan.FromMinutes(60);
 
         public DbSchemaCacheWarmerService(
             IServiceProvider serviceProvider,

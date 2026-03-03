@@ -21,7 +21,7 @@ namespace DynamicAi.Application.Services.SqlEngine
         private readonly IMemoryCache _memoryCache;
         private readonly ILogger<DbSchemaProvider> _logger;
         private const string CACHE_KEY = "GlobalDbSchemaMap";
-        private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromMinutes(10); // تخزين الكاش لمدة 10 دقائق
+        private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromHours(24); // يخزن بشكل دائم تقريباً، وخدمة الـ Warmer تقوم بتحديثه كل 15 دقيقة
 
         private static readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
