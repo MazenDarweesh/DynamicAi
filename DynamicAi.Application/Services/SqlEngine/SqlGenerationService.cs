@@ -300,8 +300,8 @@ namespace DynamicAi.Application.Services
             
             // 🌟 Inject Core Date Rules unconditionally
             promptBuilder.AppendLine("\n[Core Business Rule: Date Handling]");
-            promptBuilder.AppendLine("CRITICAL INSTRUCTION FOR DATES: Whenever the user asks to filter by dates (e.g., 'last month', 'this year', 'today'), you MUST ALWAYS use the 'CreateAt' column for date filtering UNLESS the user explicitly mentions another date field. DO NOT hallucinate columns like 'MONTH(ContractDate)' or 'OrderDate'.");
-
+            promptBuilder.AppendLine("CRITICAL INSTRUCTION FOR DATES: Whenever the user asks to filter by dates (e.g., 'last month', 'this year', 'today', 'last 3 months'), you MUST ALWAYS use the 'CreateAt' column for date filtering UNLESS the user explicitly mentions another date field. DO NOT hallucinate columns like 'MONTH(ContractDate)' or 'OrderDate'.");
+            promptBuilder.AppendLine("CROSS-YEAR DATE FILTERING RULE: When filtering for 'last X months' or 'last X days', DO NOT split the condition into separate MONTH() and YEAR() checks. ALWAYS use a direct comparison: `ColumnName >= DATEADD(month, -X, GETDATE())`. Filtering by `YEAR(Col) = YEAR(GETDATE())` breaks cross-year queries (e.g., pulling data from December when the current month is January).");
             if (contextBundle.BusinessRules != null && contextBundle.BusinessRules.Any())
             {
                 int ruleIndex = 1;
@@ -885,7 +885,7 @@ namespace DynamicAi.Application.Services
             sb.AppendLine("VAGUE QUERY GUARD(CRITICAL): If the user's question is general/vague (e.g. 'show payments', 'متحصلات الدفعات'), select ONLY the visible=true columns from the DICTIONARY CONTEXT using the COLUMN RESOLUTION rules above. NEVER dump all columns from SchemaScript. The Dictionary is your ONLY column source. SchemaScript columns that do NOT appear in the Dictionary MUST be ignored completely—selecting them is a FATAL ERROR that will crash the database.");
 
             // 5. Query Format
-            sb.AppendLine("FORMAT: Table aliases T1,T2. Prefix columns T1.Col. ALIAS AS [ArabicName] ALWAYS. TEXT: LIKE N'%val%'. DATES: MONTH(DateCol)=X. MATH: ISNULL(Col,0). TOP 100 default. FATAL: TOP+OFFSET together→delete TOP, use OFFSET/FETCH. NO CTEs.");
+            sb.AppendLine("FORMAT: Table aliases T1,T2. Prefix columns T1.Col. ALIAS AS [ArabicName] ALWAYS. TEXT: LIKE N'%val%'. DATES: >= DATEADD() for ranges, or MONTH(Col)=X. MATH: ISNULL(Col,0). TOP 100 default. FATAL: TOP+OFFSET together→delete TOP, use OFFSET/FETCH. NO CTEs.");
             sb.AppendLine("ORDERING: No user sort→ORDER BY DESC: ID→Date→Numeric→Text.");
 
             // 6. Ambiguity
