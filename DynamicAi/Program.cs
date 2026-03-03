@@ -111,7 +111,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddTransient<ISqlGenerationService, SqlGenerationService>();
     
     // --- Phase 2.7: SQL Sanitization & Validation ---
-    services.AddTransient<IDbSchemaProvider, DbSchemaProvider>();
+    services.AddSingleton<IDbSchemaProvider, DbSchemaProvider>(); // Singleton: shared Memory/Disk cache
     services.AddHostedService<DbSchemaCacheWarmerService>();
     services.AddHostedService<IntentIndexWarmerService>(); // Warm Qdrant intent indexes at startup
     services.AddHostedService<QueryCacheWarmerService>(); // Warm Qdrant query cache indexes at startup
