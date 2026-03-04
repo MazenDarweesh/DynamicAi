@@ -31,6 +31,11 @@
                 <span class="text">هاتلي متحصلات العملاء اخر 3 شهور</span>
             </div>
         </div>
+        <div class="ai-usage-tip">
+            <span class="tip-icon">💡</span>
+            <span>برجاء استخدام أسماء الصفحات والأعمدة والجداول كما هي لديك في البرنامج لمساعدة الـ AI في الحصول على
+                نتائج دقيقة.</span>
+        </div>
     </div>
 
     <!-- Chat History -->
@@ -155,6 +160,8 @@
                     <div *ngIf="msg.suggestionTips && msg.suggestionTips.length > 0" class="suggestion-tips">
                         <div class="tips-header">💡 نصائح لتحسين السؤال:</div>
                         <ul class="tips-list">
+                            <li class="ai-naming-tip">استخدم أسماء الصفحات والأعمدة والجداول كما هي في البرنامج لنتائج
+                                أدق.</li>
                             <li *ngFor="let tip of msg.suggestionTips">{{ tip }}</li>
                         </ul>
                     </div>
