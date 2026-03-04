@@ -6,6 +6,8 @@ using DynamicAi.Infrastructure.Persistence;
 using DynamicAi.Infrastructure.TargetDb;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
+using System.Net.Http;
+using System.Net.Sockets;
 using System.Security;
 
 namespace DynamicAi.Api.Controllers
@@ -86,9 +88,11 @@ namespace DynamicAi.Api.Controllers
 
                 return StatusCode(500, new
                 {
-                    error = qEx.Message,
+                    error = string.IsNullOrWhiteSpace(qEx.Message)
+                        ? "⚠️ حدث خطأ أثناء تنفيذ الاستعلام. يرجى إعادة صياغة السؤال."
+                        : qEx.Message,
                     sql = qEx.RewrittenSql,
-                    queryLogId = qEx.QueryLogId // Vital for feedback on errors
+                    queryLogId = qEx.QueryLogId
                 });
             }
             catch (InteractionRequiredException ex)
@@ -112,7 +116,7 @@ namespace DynamicAi.Api.Controllers
 
                 _logger.LogError(secEx, "API REQUEST FAILED - SECURITY VIOLATION. Duration: {Duration:F0}ms", apiDuration);
 
-                return BadRequest($"Security Violation: {secEx.Message}");
+                return BadRequest("🔒 تم رفض هذا الطلب لأسباب أمنية. يرجى إعادة صياغة السؤال.");
             }
             catch (InvalidDataException sqlEx)
             {
@@ -120,7 +124,7 @@ namespace DynamicAi.Api.Controllers
 
                 _logger.LogError(sqlEx, "API REQUEST FAILED - SQL SYNTAX ERROR. Duration: {Duration:F0}ms", apiDuration);
 
-                return BadRequest($"SQL Syntax Error: {sqlEx.Message}");
+                return BadRequest("⚠️ حدث خطأ في بناء الاستعلام. يرجى إعادة صياغة السؤال بشكل مختلف.");
             }
             catch (SqlException dbEx)
             {
@@ -128,7 +132,7 @@ namespace DynamicAi.Api.Controllers
 
                 _logger.LogCritical(dbEx, "API REQUEST FAILED - DATABASE ERROR. Duration: {Duration:F0}ms", apiDuration);
 
-                return StatusCode(500, $"Database Error: {dbEx.Message}");
+                return StatusCode(500, "⚠️ قاعدة البيانات غير متاحة حالياً. يرجى المحاولة بعد قليل.");
             }
 
             catch (OperationCanceledException)
@@ -137,8 +141,33 @@ namespace DynamicAi.Api.Controllers
 
                 _logger.LogWarning("⛔ API REQUEST CANCELLED by client (Stop Button). Duration: {Duration:F0}ms", apiDuration);
 
-                // Client already disconnected — return 499 (Client Closed Request)
-                return StatusCode(499, "Request cancelled by client.");
+                return StatusCode(499, "⛔ تم إلغاء الطلب.");
+            }
+
+            // ============================================================================
+            // Network / AI Service errors (Gemini API not reachable)
+            // ============================================================================
+            catch (HttpRequestException httpEx)
+            {
+                var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
+
+                _logger.LogError(httpEx, "API REQUEST FAILED - NETWORK/HTTP ERROR. Duration: {Duration:F0}ms", apiDuration);
+
+                var isNetworkDown = httpEx.InnerException is SocketException;
+                var userMessage = isNetworkDown
+                    ? "⚠️ لا يمكن الاتصال بخدمة الذكاء الاصطناعي. يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى."
+                    : "⚠️ خدمة الذكاء الاصطناعي غير متاحة حالياً. يرجى المحاولة بعد قليل.";
+
+                return StatusCode(503, userMessage);
+            }
+
+            catch (Exception ex) when (ex.InnerException is HttpRequestException || ex.InnerException is SocketException)
+            {
+                var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
+
+                _logger.LogError(ex, "API REQUEST FAILED - WRAPPED NETWORK ERROR. Type: {ErrorType}. Duration: {Duration:F0}ms", ex.GetType().Name, apiDuration);
+
+                return StatusCode(503, "⚠️ لا يمكن الاتصال بخدمة الذكاء الاصطناعي. يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى.");
             }
 
             catch (Exception ex)
@@ -147,7 +176,7 @@ namespace DynamicAi.Api.Controllers
 
                 _logger.LogError(ex, "API REQUEST FAILED - UNEXPECTED ERROR. Type: {ErrorType}. Duration: {Duration:F0}ms", ex.GetType().Name, apiDuration);
 
-                return StatusCode(500, $"An unexpected error occurred: {ex.Message}");
+                return StatusCode(500, "⚠️ حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.");
             }
         }
     }

@@ -76,13 +76,13 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     }
 
     checkConnection() {
-        this.status = 'Checking AI System...';
+        this.status = 'جاري فحص النظام...';
         this.errorMsg = '';
 
         const timeoutId = setTimeout(() => {
-            if (this.status === 'Checking AI System...') {
-                this.status = 'Connection Failed ❌';
-                this.errorMsg = 'Timeout: Backend did not respond in 15s. (AI Cold Start?)';
+            if (this.status === 'جاري فحص النظام...') {
+                this.status = 'فشل الاتصال ❌';
+                this.errorMsg = '⏱️ الخادم لم يستجب خلال 15 ثانية. قد يكون النظام في مرحلة التشغيل الأولى.';
                 this.cdr.detectChanges();
             }
         }, 15000);
@@ -91,14 +91,15 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         this.apiService.ask('Hello', undefined, undefined, sessionId).subscribe({
             next: (res) => {
                 clearTimeout(timeoutId);
-                this.status = 'Connected! ✅';
+                this.status = 'متصل ✅';
                 this.cdr.detectChanges();
             },
             error: (err) => {
                 clearTimeout(timeoutId);
-                this.status = 'Connection Failed ❌';
-                this.errorMsg = err.message;
-                if (err.status === 0) this.errorMsg = 'Network Error (SSL/CORS)';
+                this.status = 'فشل الاتصال ❌';
+                this.errorMsg = err.status === 0
+                    ? '⚠️ تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.'
+                    : '⚠️ الخادم غير متاح حالياً. يرجى المحاولة بعد قليل.';
                 this.cdr.detectChanges();
             }
         });
@@ -297,23 +298,37 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                 this.loading = false;
                 console.error('❌ [SendQuestion] Error:', err);
 
-                let errorMsg = err.message;
+                let errorMsg = '';
                 let sql = undefined;
                 let queryLogId = undefined;
 
+                // 1. Frontend timeout (60s safety net)
                 if (err.message && err.message.includes('Timeout')) {
-                    errorMsg = '⚠️ المعالج استغرق وقتاً طويلاً جداً (أكثر من 60 ثانية). يرجى محاولة صياغة السؤال بشكل أبسط.';
+                    errorMsg = '⏱️ المعالج استغرق وقتاً طويلاً جداً (أكثر من 60 ثانية). يرجى محاولة صياغة السؤال بشكل أبسط.';
                 }
-
-                if (err.error && typeof err.error === 'object') {
+                // 2. Network completely down (status 0)
+                else if (err.status === 0) {
+                    errorMsg = '⚠️ لا يمكن الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى.';
+                }
+                // 3. Backend returned a structured error object (500 with { error, sql, queryLogId })
+                else if (err.error && typeof err.error === 'object') {
                     if (err.error.sql) sql = err.error.sql;
                     if (err.error.error) errorMsg = err.error.error;
                     if (err.error.queryLogId) queryLogId = err.error.queryLogId;
+                    if (!errorMsg) errorMsg = '⚠️ حدث خطأ أثناء معالجة طلبك. يرجى المحاولة مرة أخرى.';
+                }
+                // 4. Backend returned a plain string error (503, 500, 400)
+                else if (typeof err.error === 'string' && err.error.length > 0) {
+                    errorMsg = err.error;
+                }
+                // 5. Fallback
+                else {
+                    errorMsg = '⚠️ حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.';
                 }
 
                 this.messages.push({
                     isAi: true,
-                    text: 'Error: ' + errorMsg,
+                    text: errorMsg,
                     originalQuestion: currentQ,
                     retryCount: retryCount,
                     sql: sql,
@@ -423,7 +438,10 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
             error: (err) => {
                 this.loading = false;
                 msg.isLogged = true;
-                this.messages.push({ isAi: true, text: 'تم تسجيل المشكلة للمراجعة ✅ (Error: ' + err.status + ')', isLogged: true });
+                const errText = err.status === 0
+                    ? '⚠️ تعذر الاتصال بالخادم. تم حفظ ملاحظتك محلياً وسيتم إرسالها لاحقاً.'
+                    : '✅ تم تسجيل الملاحظة. شكراً لمساعدتنا في التحسين!';
+                this.messages.push({ isAi: true, text: errText, isLogged: true });
                 this.cdr.detectChanges();
             }
         });
