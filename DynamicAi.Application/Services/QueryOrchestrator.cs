@@ -98,7 +98,7 @@ namespace DynamicAi.Application.Services
                 #region Context Loading (Phase 0)
 
                 _logger.LogInformation("[Orchestrator] Loading recent context for session: {SessionId}", sessionId);
-                var recentTurns = await _contextService.GetRecentContextAsync(sessionId, 1, ct);
+                var recentTurns = await _contextService.GetRecentContextAsync(sessionId, 5, ct);
                 var lastTurn = recentTurns.FirstOrDefault();
                 var previousPageId = lastTurn?.PageId;
 
@@ -124,8 +124,22 @@ namespace DynamicAi.Application.Services
 
                 // Step 0.2: Both tasks are independent: intent uses precomputed embedding, condenser uses LLM
                 var intentTask = _intentClassifier.ClassifyIntentAsync(userQuestion, sharedVector, cancellationToken: ct);
-                var condenserTask = _condenserService.CondenseQuestionAsync(
-                    userQuestion, previousQuestion, previousSql, tenantId, comID, ct);
+                
+                Task<CondenserResult> condenserTask;
+                if (_condenserEnabled)
+                {
+                    condenserTask = _condenserService.CondenseQuestionAsync(
+                        userQuestion, previousQuestion, previousSql, tenantId, comID, ct);
+                }
+                else
+                {
+                    _logger.LogInformation("[Orchestrator] 🚀 Condenser bypassed (disabled in config). Continuing with Action=New.");
+                    condenserTask = Task.FromResult(new CondenserResult
+                    {
+                        ActionType = QueryActionType.New,
+                        CondensedQuestion = userQuestion
+                    });
+                }
 
                 await Task.WhenAll(intentTask, condenserTask);
 
@@ -136,8 +150,12 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("[Orchestrator] ✓ Parallel Layer 0 completed in {Duration:F0}ms", parallelDuration);
                 _logger.LogInformation("[Orchestrator]   → Intent: {Intent} (Confidence: {Confidence:F2})",
                     intentResult.Intent, intentResult.ConfidenceScore);
-                _logger.LogInformation("[Orchestrator]   → Condenser: Action={Action}, Question=\"{Question}\"",
-                    condenserResult.ActionType, condenserResult.CondensedQuestion);
+                
+                if (_condenserEnabled)
+                {
+                    _logger.LogInformation("[Orchestrator]   → Condenser: Action={Action}, Question=\"{Question}\"",
+                        condenserResult.ActionType, condenserResult.CondensedQuestion);
+                }
 
                 // [USER_REQUEST]: Save ALL queries for review in this stage (Data Gathering)
                 // if (intentResult.ConfidenceScore < 0.75f) <--- Disabled for now
@@ -189,7 +207,9 @@ namespace DynamicAi.Application.Services
                         CompanyId = comID,
                         SessionId = sessionId,  // Phase 4: For PredictIntentHandler context retrieval
                         PreviousPageId = previousPageId,
-                        PrecomputedCondenserResult = condenserResult // P1-2: Pass precomputed condenser result
+                        PrecomputedCondenserResult = condenserResult, // P1-2: Pass precomputed condenser result
+                        ConversationHistory = recentTurns,
+                        IsCondenserBypassed = !_condenserEnabled
                     };
 
                     ct.ThrowIfCancellationRequested(); // ✂️ Checkpoint before Handler delegation

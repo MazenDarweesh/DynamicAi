@@ -214,41 +214,68 @@ namespace DynamicAi.Application.Services.SqlEngine
                 _targets = new HashSet<ColumnReferenceExpression>(targets);
             }
 
-            public override void Visit(GroupByClause node)
+            public override void Visit(QuerySpecification node)
             {
-                var validElements = new List<GroupingSpecification>();
-                foreach (var element in node.GroupingSpecifications)
+                if (node.GroupByClause != null)
                 {
-                    var finder = new ColumnInElementFinder(_targets);
-                    element.Accept(finder);
-                    if (!finder.FoundAny)
+                    var validElements = new List<GroupingSpecification>();
+                    foreach (var element in node.GroupByClause.GroupingSpecifications)
                     {
-                        validElements.Add(element);
+                        var finder = new ColumnInElementFinder(_targets);
+                        element.Accept(finder);
+                        if (!finder.FoundAny)
+                        {
+                            validElements.Add(element);
+                        }
                     }
-                }
 
-                node.GroupingSpecifications.Clear();
-                foreach (var el in validElements)
-                {
-                    node.GroupingSpecifications.Add(el);
+                    if (validElements.Count == 0)
+                    {
+                        node.GroupByClause = null;
+                    }
+                    else
+                    {
+                        node.GroupByClause.GroupingSpecifications.Clear();
+                        foreach (var el in validElements)
+                        {
+                            node.GroupByClause.GroupingSpecifications.Add(el);
+                        }
+                    }
                 }
             }
 
             public override void Visit(OrderByClause node)
             {
-                var validElements = new List<ExpressionWithSortOrder>();
-                foreach (var element in node.OrderByElements)
+                // We'll leave this here just in case, but it's dangerous if it empties the list without nulling the clause.
+                // However, we can't easily null the clause from here because we don't have the parent.
+            }
+
+            public override void Visit(QueryExpression node)
+            {
+                if (node.OrderByClause != null)
                 {
-                    var finder = new ColumnInElementFinder(_targets);
-                    element.Accept(finder);
-                    if (!finder.FoundAny)
+                    var validElements = new List<ExpressionWithSortOrder>();
+                    foreach (var element in node.OrderByClause.OrderByElements)
                     {
-                        validElements.Add(element);
+                        var finder = new ColumnInElementFinder(_targets);
+                        element.Accept(finder);
+                        if (!finder.FoundAny)
+                        {
+                            validElements.Add(element);
+                        }
+                    }
+
+                    if (validElements.Count == 0)
+                    {
+                        node.OrderByClause = null;
+                    }
+                    else
+                    {
+                        node.OrderByClause.OrderByElements.Clear();
+                        foreach (var el in validElements) node.OrderByClause.OrderByElements.Add(el);
                     }
                 }
-
-                node.OrderByElements.Clear();
-                foreach (var el in validElements) node.OrderByElements.Add(el);
+                base.Visit(node);
             }
         }
 
