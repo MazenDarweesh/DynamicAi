@@ -48,4 +48,14 @@ public class IntentHandlerContext
     /// When set, handlers should use this instead of calling the condenser service again.
     /// </summary>
     public CondenserResult? PrecomputedCondenserResult { get; init; }
+
+    /// <summary>
+    /// Recent conversation history (for condenser bypass / inline detection)
+    /// </summary>
+    public List<DynamicAi.Domain.Entities.ConversationTurn>? ConversationHistory { get; init; }
+
+    /// <summary>
+    /// Flag indicating whether the condenser was bypassed (triggers inline context detection)
+    /// </summary>
+    public bool IsCondenserBypassed { get; init; }
 }

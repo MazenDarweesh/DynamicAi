@@ -203,9 +203,11 @@ public class SqlIntentHandler : IIntentHandler
             condensedQuestion,
             retrievalResult,
             context?.PreviousSql,
-            actionType,
+            actionType, // Use the extracted and logged actionType
             context?.TenantId,
             context?.CompanyId,
+            context?.ConversationHistory,
+            context?.IsCondenserBypassed ?? false,
             cancellationToken
         );
 

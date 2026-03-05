@@ -1,4 +1,5 @@
 ﻿using DynamicAi.Application.Models;
+using DynamicAi.Domain.Entities;
 using System.Threading.Tasks;
 
 namespace DynamicAi.Application.Interfaces
@@ -30,6 +31,8 @@ namespace DynamicAi.Application.Interfaces
             QueryActionType actionType = QueryActionType.Regenerate,
             string? tenantId = null,
             int? companyId = null,
+            List<DynamicAi.Domain.Entities.ConversationTurn>? conversationHistory = null,
+            bool isCondenserBypassed = false,
             CancellationToken ct = default);
     }
 }

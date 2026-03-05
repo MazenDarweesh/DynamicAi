@@ -30,6 +30,7 @@ namespace DynamicAi.Application.Services
         private readonly IFeedbackService _feedbackService;
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
         private readonly bool _queryCacheEnabled;
+        private readonly bool _condenserEnabled;
 
         #endregion
 
@@ -59,6 +60,7 @@ namespace DynamicAi.Application.Services
             _embeddingService = embeddingService;
             _logger = logger;
             _queryCacheEnabled = !bool.TryParse(configuration["Caching:QueryCache:Enabled"], out var enabled) || enabled; // Default true
+            _condenserEnabled = !bool.TryParse(configuration["Features:CondenserEnabled"], out var condEnabled) || condEnabled; // Default true
         }
 
         #endregion

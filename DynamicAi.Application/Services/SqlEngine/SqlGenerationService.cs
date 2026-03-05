@@ -90,7 +90,9 @@ namespace DynamicAi.Application.Services
 
         #region Main Methods
 
-        /// <param name="actionType">نوع الإجراء المقرر من Condenser (New/WrapPrevious/Regenerate)</param>
+        /// <param name="actionType">نوع الإجراء المقرر من Condenser (New/WrapPrevious/Regenerate) أو inline detection</param>
+        /// <param name="conversationHistory">آخر N من المحادثات السابقة (سؤال + SQL + PageId) — يستخدم في inline condenser bypass</param>
+        /// <param name="isCondenserBypassed">إذا كان true، الـ prompt هيكتشف الـ action type inline بدل condenser</param>
         public async Task<SqlGenerationResult> GenerateSqlAsync(
             string userQuestion,
             RetrievalContextBundle contextBundle,
@@ -98,6 +100,8 @@ namespace DynamicAi.Application.Services
             QueryActionType actionType = QueryActionType.Regenerate,
             string? tenantId = null,
             int? companyId = null,
+            List<DynamicAi.Domain.Entities.ConversationTurn>? conversationHistory = null,
+            bool isCondenserBypassed = false,
             CancellationToken ct = default)
         {
             #region Initialization and Logging
@@ -320,12 +324,62 @@ namespace DynamicAi.Application.Services
 
             #endregion
 
-            #region STEP 2.6: Mode-Specific Directives (Wrap/Regen)
+            #region STEP 2.6: Mode-Specific Directives (Wrap/Regen/Inline)
 
             // ============================================================================
-            // ACTION TYPE DIRECTIVE (From Query Condenser Layer 0.5)
+            // CONDENSER BYPASS: INLINE CONTEXT DETECTION
+            // When condenser is bypassed, the LLM decides the action type inline
+            // based on full conversation history.
             // ============================================================================
-            if (actionType == QueryActionType.WrapPrevious && !string.IsNullOrWhiteSpace(previousSql))
+            if (isCondenserBypassed && conversationHistory != null && conversationHistory.Any(t => t.SqlExecuted != null))
+            {
+                _logger.LogInformation("[SqlGeneration] ✓ INLINE Mode: Condenser bypassed. Injecting {TurnCount} history turns into prompt.", conversationHistory.Count);
+
+                promptBuilder.AppendLine("\n--- CONVERSATION HISTORY & CONTEXT DETECTION ---");
+                promptBuilder.AppendLine("IMPORTANT: You have access to the recent conversation below. Analyze it to understand context.");
+                promptBuilder.AppendLine("Your job is to determine the RELATIONSHIP between the CURRENT QUESTION and the conversation history,");
+                promptBuilder.AppendLine("and then generate the appropriate SQL accordingly.\n");
+
+                promptBuilder.AppendLine("PREVIOUS TURNS (most recent first):");
+                var turnsWithSql = conversationHistory
+                    .Where(t => !string.IsNullOrEmpty(t.SqlExecuted))
+                    .OrderByDescending(t => t.CreatedAt)
+                    .Take(5)
+                    .ToList();
+
+                for (int i = 0; i < turnsWithSql.Count; i++)
+                {
+                    var turn = turnsWithSql[i];
+                    promptBuilder.AppendLine($"[Turn {i + 1}] Q: \"{turn.Question}\"");
+                    promptBuilder.AppendLine($"         SQL: {turn.SqlExecuted}");
+                }
+
+                promptBuilder.AppendLine($"\nCURRENT QUESTION: \"{userQuestion}\"");
+
+                promptBuilder.AppendLine("\nDECISION RULES (pick the BEST match):");
+                promptBuilder.AppendLine("1. WRAP_PREVIOUS: The current question is post-processing ONLY (sort results, limit rows, top N, count).");
+                promptBuilder.AppendLine("   → Wrap the most recent SQL in a subquery. Apply sort/limit in outer query.");
+                promptBuilder.AppendLine("   → SQL SERVER RULE: ORDER BY in subquery REQUIRES TOP or OFFSET. Keep TOP+ORDER BY TOGETHER inside subquery.");
+                promptBuilder.AppendLine("   → PATTERN: SELECT sub.* FROM (SELECT TOP N ... ORDER BY [orig_col]) AS sub ORDER BY sub.[new_col];");
+                promptBuilder.AppendLine("2. MODIFY_PARAMETER: The current question changes ONLY a specific VALUE in the previous SQL");
+                promptBuilder.AppendLine("   (e.g., month count, year, date range, number, row limit, specific name/ID).");
+                promptBuilder.AppendLine("   → Take the MOST RECENT SQL and ONLY change that specific value. DO NOT restructure the query.");
+                promptBuilder.AppendLine("   → Example: 'غير من 3 شهور لـ 6' → change DATEADD(month, -3, ...) to DATEADD(month, -6, ...)");
+                promptBuilder.AppendLine("3. ADD_CONDITION: The current question adds a filter, condition, join, or column to the SAME query.");
+                promptBuilder.AppendLine("   → Modify the most recent SQL to add WHERE clause, JOIN, or extra SELECT column.");
+                promptBuilder.AppendLine("   → Example: 'بس المدفوعة' → add WHERE IsPaid = 1 to existing SQL");
+                promptBuilder.AppendLine("4. REGENERATE: The question is related to the same topic/tables but needs substantially different SQL.");
+                promptBuilder.AppendLine("   → Generate fresh SQL using the schema context. Use history for understanding only.");
+                promptBuilder.AppendLine("5. NEW: The question is about a COMPLETELY DIFFERENT topic, entity, or table.");
+                promptBuilder.AppendLine("   → Ignore ALL conversation history. Generate SQL purely from schema context.");
+
+                promptBuilder.AppendLine("\n⚠️ CRITICAL: For MODIFY_PARAMETER, output the previous SQL with ONLY the changed value.");
+                promptBuilder.AppendLine("DO NOT rewrite, restructure, or 'improve' the query — only change the requested parameter.");
+            }
+            // ============================================================================
+            // STANDARD CONDENSER PATH (when condenser is enabled)
+            // ============================================================================
+            else if (actionType == QueryActionType.WrapPrevious && !string.IsNullOrWhiteSpace(previousSql))
             {
                 // WRAP MODE: Force subquery wrapping
                 _logger.LogInformation("[SqlGeneration] ✓ WRAP Mode: Will wrap previous SQL in subquery.");
