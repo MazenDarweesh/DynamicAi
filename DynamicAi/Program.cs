@@ -17,6 +17,7 @@ using Serilog;
 using DynamicAi.Application.Services.Handlers;
 using DynamicAi.Application.Services.LLM;
 using DynamicAi.Application.Services.SqlEngine;
+using DynamicAi.Application.Prompts;
 
 // 1. بناء الـ Builder (لقراءة الإعدادات و DI)
 // ensure console output uses UTF-8 so Arabic characters render correctly
@@ -124,9 +125,15 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddSingleton<IIntentExampleManagementService, IntentExampleManagementService>(); // Phase 2: Intent Feedback Loop
     services.AddTransient<IIntentClassificationService, IntentClassificationService>(); // Phase 1: The Brain - Intent Router
     services.AddTransient<IIntentHandlerFactory, IntentHandlerFactory>(); // Phase 3: Handler Factory
-    services.AddTransient<IIntentHandler, SqlIntentHandler>(); // Phase 3: SQL Handler
-    services.AddTransient<IIntentHandler, ChatIntentHandler>(); // Phase 3: Chat Handler (Lightweight)
-    services.AddTransient<IIntentHandler, PredictIntentHandler>(); // Phase 4: Predict Handler
+    services.AddTransient<IIntentHandler, UnifiedQueryHandler>(); // [NEW] Phase 5: Unified Handler
+    
+    // [DEPRECATED] Old Handlers (Kept for fallback if IntentClassificationEnabled=true)
+    services.AddTransient<IIntentHandler, SqlIntentHandler>(); 
+    services.AddTransient<IIntentHandler, ChatIntentHandler>();
+    services.AddTransient<IIntentHandler, PredictIntentHandler>();
+    
+    // --- Prompt Template Engine ---
+    services.AddSingleton<IPromptTemplateEngine, PromptTemplateEngine>(); // Phase 5: Externalized Prompt Management
     
     // --- LLM Budget & Usage Services ---
     services.AddTransient<IDailyBudgetLimitService, DailyBudgetLimitService>();

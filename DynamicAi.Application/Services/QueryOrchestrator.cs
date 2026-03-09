@@ -31,6 +31,7 @@ namespace DynamicAi.Application.Services
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
         private readonly bool _queryCacheEnabled;
         private readonly bool _condenserEnabled;
+        private readonly bool _intentClassificationEnabled;
 
         #endregion
 
@@ -61,6 +62,7 @@ namespace DynamicAi.Application.Services
             _logger = logger;
             _queryCacheEnabled = !bool.TryParse(configuration["Caching:QueryCache:Enabled"], out var enabled) || enabled; // Default true
             _condenserEnabled = !bool.TryParse(configuration["Features:CondenserEnabled"], out var condEnabled) || condEnabled; // Default true
+            _intentClassificationEnabled = !bool.TryParse(configuration["Features:IntentClassificationEnabled"], out var intentEnabled) || intentEnabled; // Default true
         }
 
         #endregion
@@ -123,7 +125,20 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("[Orchestrator] ✓ Shared embedding computed in {Duration:F0}ms (will be reused by Intent + RAG)", embeddingStart.ElapsedMilliseconds);
 
                 // Step 0.2: Both tasks are independent: intent uses precomputed embedding, condenser uses LLM
-                var intentTask = _intentClassifier.ClassifyIntentAsync(userQuestion, sharedVector, cancellationToken: ct);
+                Task<IntentClassificationResult> intentTask;
+                if (_intentClassificationEnabled)
+                {
+                    intentTask = _intentClassifier.ClassifyIntentAsync(userQuestion, sharedVector, cancellationToken: ct);
+                }
+                else
+                {
+                    _logger.LogInformation("[Orchestrator] 🚀 Intent Classifier bypassed (disabled in config).");
+                    intentTask = Task.FromResult(new IntentClassificationResult
+                    {
+                        Intent = IntentType.Unknown, // Will trigger unified handler which supports Unknown
+                        ConfidenceScore = 1.0f
+                    });
+                }
                 
                 Task<CondenserResult> condenserTask;
                 if (_condenserEnabled)
@@ -176,8 +191,8 @@ namespace DynamicAi.Application.Services
 
                 #region Routing to Handler
 
-                // Phase 5: Multi-Step Handling for PredictionWithDataFetch
-                if (intentResult.Intent == IntentType.PredictionWithDataFetch)
+                // Phase 5: Multi-Step Handling for PredictionWithDataFetch (Only if Intent Classification is enabled)
+                if (_intentClassificationEnabled && intentResult.Intent == IntentType.PredictionWithDataFetch)
                 {
                     _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
                     _logger.LogInformation("║           [MULTI-STEP] PredictionWithDataFetch - Starting              ║");

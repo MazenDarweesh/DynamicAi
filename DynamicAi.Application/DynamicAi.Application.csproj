@@ -28,4 +28,10 @@
     <ProjectReference Include="..\Domain\DynamicAi.Domain.csproj" />
   </ItemGroup>
 
+  <!-- Prompt Template files — copied to output for runtime loading -->
+  <ItemGroup>
+    <None Include="Prompts\Templates\**\*.md" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Prompts\Templates\**\*.prompt.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

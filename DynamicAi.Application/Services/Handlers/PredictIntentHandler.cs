@@ -13,6 +13,7 @@ namespace DynamicAi.Application.Services.Handlers;
 /// Uses conversation context (previous query results) + LLM to generate intelligent predictions.
 /// Follows the same pattern as ChatIntentHandler for consistency.
 /// </summary>
+[Obsolete("Use UnifiedQueryHandler instead. This class will be removed in future versions.")]
 public class PredictIntentHandler : IIntentHandler
 {
     #region Fields

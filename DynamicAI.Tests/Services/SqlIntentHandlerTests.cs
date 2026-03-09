@@ -107,7 +107,7 @@ public class SqlIntentHandlerTests
             .Returns(Task.FromResult(contextBundle));
 
         // 3. Generation
-        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._, A<QueryActionType>._, A<string?>._, A<int?>._, A<CancellationToken>._))
+        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>._, A<QueryActionType>._, A<string?>._, A<int?>._, A<List<ConversationTurn>?>._, A<bool>._, A<CancellationToken>._))
             .Returns(Task.FromResult(new SqlGenerationResult { Sql = rawSql, Confidence = 1.0f }));
 
         // 4. Validation (Success - void)
@@ -137,7 +137,7 @@ public class SqlIntentHandlerTests
 
         // Verify calls
         A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, context.TenantId, A<int?>.Ignored, A<float[]?>.Ignored, A<CancellationToken>._)).MustHaveHappened();
-        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored, A<CancellationToken>._)).MustHaveHappened();
+        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored, A<List<ConversationTurn>?>.Ignored, A<bool>.Ignored, A<CancellationToken>._)).MustHaveHappened();
         A.CallTo(() => _validatorService.ValidateSqlAsync(rawSql, context.TenantId, A<CancellationToken>._)).MustHaveHappened();
         A.CallTo(() => _rewriterService.RewriteAsync(rawSql, context.TenantId, A<int?>.Ignored, A<CancellationToken>._)).MustHaveHappened();
         A.CallTo(() => _executionService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters, A<CancellationToken>._)).MustHaveHappened();
@@ -198,7 +198,7 @@ public class SqlIntentHandlerTests
         // Verify Skipped Layers
         A.CallTo(() => _retrievalService.RetrieveContextAsync(A<string>.Ignored, A<string>.Ignored, A<int?>.Ignored, A<float[]?>.Ignored, A<CancellationToken>._))
             .MustNotHaveHappened();
-        A.CallTo(() => _generationService.GenerateSqlAsync(A<string>.Ignored, A<RetrievalContextBundle>.Ignored, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored, A<CancellationToken>._))
+        A.CallTo(() => _generationService.GenerateSqlAsync(A<string>.Ignored, A<RetrievalContextBundle>.Ignored, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored, A<List<ConversationTurn>?>.Ignored, A<bool>.Ignored, A<CancellationToken>._))
             .MustNotHaveHappened();
 
         // Verify Executed Layers
@@ -223,7 +223,7 @@ public class SqlIntentHandlerTests
         A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, context.TenantId, A<int?>.Ignored, A<float[]?>.Ignored, A<CancellationToken>._))
             .Returns(Task.FromResult(contextBundle));
 
-        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored, A<CancellationToken>._))
+        A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored, A<List<ConversationTurn>?>.Ignored, A<bool>.Ignored, A<CancellationToken>._))
             .Returns(Task.FromResult(new SqlGenerationResult { Sql = generatedSql, Confidence = 1.0f }));
 
         // Fail Validation

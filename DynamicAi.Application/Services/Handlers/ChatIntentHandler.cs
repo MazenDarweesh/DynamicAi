@@ -13,6 +13,7 @@ namespace DynamicAi.Application.Services.Handlers;
 /// Uses Gemini with minimal context for token-efficient responses.
 /// Supports Arabic/English auto-detection with a friendly personality.
 /// </summary>
+[Obsolete("Use UnifiedQueryHandler instead. This class will be removed in future versions.")]
 public class ChatIntentHandler : IIntentHandler
 {
     #region Fields

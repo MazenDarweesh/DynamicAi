@@ -11,6 +11,7 @@ namespace DynamicAi.Application.Services.Handlers;
 /// Handler for DataRetrieval and Analysis intents.
 /// Orchestrates the full SQL generation pipeline: Retrieval -> Generation -> Validation -> Rewriting -> Execution.
 /// </summary>
+[Obsolete("Use UnifiedQueryHandler instead. This class will be removed in future versions.")]
 public class SqlIntentHandler : IIntentHandler
 {
     #region Fields
