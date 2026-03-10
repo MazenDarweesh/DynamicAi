@@ -165,6 +165,7 @@ public class UnifiedQueryHandler : IIntentHandler
             if (sqlResult.QueryInsights == null) sqlResult.QueryInsights = new QueryInsightData { RetrievedContext = new List<string>() };
             sqlResult.QueryInsights.RetrievedContext?.Add($"🤖 Intent Detected: {parsedResponse.Intent}");
             sqlResult.QueryInsights.Reasoning = parsedResponse.Content.Explanation;
+            sqlResult.Intent = parsedResponse.Intent;
             return sqlResult;
         }
         else if (parsedResponse.IsPredictionIntent || parsedResponse.IsChatIntent)
@@ -176,7 +177,8 @@ public class UnifiedQueryHandler : IIntentHandler
                 QueryLogId = context?.QueryLogId,
                 ConfidenceScore = (float?)parsedResponse.Confidence,
                 IsCached = false,
-                QueryInsights = new QueryInsightData { Reasoning = parsedResponse.Content.Explanation }
+                QueryInsights = new QueryInsightData { Reasoning = parsedResponse.Content.Explanation },
+                Intent = parsedResponse.Intent
             };
         }
 

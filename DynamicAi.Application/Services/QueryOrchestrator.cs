@@ -258,7 +258,7 @@ namespace DynamicAi.Application.Services
                         CompanyId = comID,
                         CreatedAt = DateTime.UtcNow,
                         LatencyMs = (int)totalDuration,
-                        HandlerType = intentResult.Intent.ToString(),
+                        HandlerType = !string.IsNullOrEmpty(result.Intent) && result.Intent != "Unknown" ? result.Intent : intentResult.Intent.ToString(),
                         InputTokens = (int)_usageTracker.GetSessionSummary().TotalInputTokens,
                         OutputTokens = (int)_usageTracker.GetSessionSummary().TotalOutputTokens,
                         GeminiCost = (decimal)_usageTracker.GetSessionSummary().TotalCostUsd,
@@ -295,7 +295,7 @@ namespace DynamicAi.Application.Services
                         await _contextService.SaveTurnAsync(
                             sessionId,
                             clarification,                          // AI's clarification question becomes "previous question"
-                            intentResult?.Intent.ToString() ?? "Unknown",
+                            !string.IsNullOrEmpty(result.Intent) && result.Intent != "Unknown" ? result.Intent : (intentResult?.Intent.ToString() ?? "Unknown"),
                             result.RewrittenSql,                    // Preserve generated SQL for potential reuse
                             null,                                   // No result data yet
                             result.PageId                           // Keep PageId for context continuity
@@ -315,7 +315,7 @@ namespace DynamicAi.Application.Services
                     await _contextService.SaveTurnAsync(
                         sessionId,
                         userQuestion, 
-                        intentResult?.Intent.ToString() ?? "Unknown",
+                        !string.IsNullOrEmpty(result.Intent) && result.Intent != "Unknown" ? result.Intent : (intentResult?.Intent.ToString() ?? "Unknown"),
                         result.RewrittenSql,
                         result.Data,
                         result.PageId // Pass the PageId from RAG
@@ -324,9 +324,12 @@ namespace DynamicAi.Application.Services
 
                 #endregion
 
-                if (result != null && intentResult != null)
+                if (result != null)
                 {
-                    result.Intent = intentResult.Intent.ToString();
+                    if (string.IsNullOrEmpty(result.Intent) || result.Intent == "Unknown")
+                    {
+                        result.Intent = intentResult?.Intent.ToString() ?? "Unknown";
+                    }
                 }
                 return result!;
 
@@ -355,7 +358,7 @@ namespace DynamicAi.Application.Services
                     CompanyId = comID,
                     CreatedAt = DateTime.UtcNow,
                     LatencyMs = (int)totalDuration,
-                    HandlerType = intentResult?.Intent.ToString() ?? "Unknown",
+                    HandlerType = (result != null && !string.IsNullOrEmpty(result.Intent) && result.Intent != "Unknown") ? result.Intent : (intentResult?.Intent.ToString() ?? "Unknown"),
                     ConfidenceScore = intentResult?.ConfidenceScore
                 };
 
