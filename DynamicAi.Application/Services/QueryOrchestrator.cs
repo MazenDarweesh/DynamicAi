@@ -117,14 +117,14 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("[Orchestrator] Layer 0: Computing shared embedding, then starting Intent + Condenser in PARALLEL...");
                 var parallelStart = DateTime.UtcNow;
 
-                // Step 0.1: Compute embedding ONCE (shared across Intent Router + RAG)
+                // Step 0.1: Compute embedding ONCE (always needed for either Intent Classification, RAG Context Retrieval, or Data Gathering)
                 var embeddingStart = System.Diagnostics.Stopwatch.StartNew();
                 var sharedEmbedding = await _embeddingService.GenerateAsync(userQuestion, cancellationToken: ct);
-                var sharedVector = sharedEmbedding.Vector.ToArray();
+                float[] sharedVector = sharedEmbedding.Vector.ToArray();
                 embeddingStart.Stop();
                 _logger.LogInformation("[Orchestrator] ✓ Shared embedding computed in {Duration:F0}ms (will be reused by Intent + RAG)", embeddingStart.ElapsedMilliseconds);
 
-                // Step 0.2: Both tasks are independent: intent uses precomputed embedding, condenser uses LLM
+                // Step 0.2: Intent uses precomputed embedding
                 Task<IntentClassificationResult> intentTask;
                 if (_intentClassificationEnabled)
                 {
@@ -136,7 +136,8 @@ namespace DynamicAi.Application.Services
                     intentTask = Task.FromResult(new IntentClassificationResult
                     {
                         Intent = IntentType.Unknown, // Will trigger unified handler which supports Unknown
-                        ConfidenceScore = 1.0f
+                        ConfidenceScore = 1.0f,
+                        QueryEmbedding = sharedVector
                     });
                 }
                 
@@ -224,7 +225,8 @@ namespace DynamicAi.Application.Services
                         PreviousPageId = previousPageId,
                         PrecomputedCondenserResult = condenserResult, // P1-2: Pass precomputed condenser result
                         ConversationHistory = recentTurns,
-                        IsCondenserBypassed = !_condenserEnabled
+                        IsCondenserBypassed = !_condenserEnabled,
+                        PrecomputedEmbedding = sharedVector
                     };
 
                     ct.ThrowIfCancellationRequested(); // ✂️ Checkpoint before Handler delegation

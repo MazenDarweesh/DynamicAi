@@ -75,7 +75,7 @@ public class UnifiedQueryHandler : IIntentHandler
             userQuestion,
             tenantId,
             companyId,
-            precomputedEmbedding: null,
+            precomputedEmbedding: context?.PrecomputedEmbedding,
             ct: cancellationToken);
 
         // Phase 2: Render Master Prompt

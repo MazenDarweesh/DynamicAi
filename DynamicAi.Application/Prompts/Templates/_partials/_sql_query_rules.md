@@ -5,7 +5,7 @@ DATA FLOW(CRITICAL):
 4) DETAILS: If user asks for details, JOIN the detail view (the 'TableName' from PageDetail in HIERARCHY) ON master 'Primary' = detail 'ForeignKey', add detail 'TailCondition' if not null.
 5) NO OTHER tables/views/JOINs except dropdown lookups per COLUMN RESOLUTION.
 
-FORMAT: Table aliases T1,T2. Prefix columns T1.Col. ALIAS AS [ArabicName] ALWAYS.
+FORMAT(MANDATORY): You MUST assign an alias to EVERY table (e.g., T1, T2). You MUST prefix EVERY column with its table alias (e.g., T1.Col). Selecting a column without its alias (e.g., SELECT Col) is a FATAL ERROR and will crash the system. ALIAS AS [ArabicName] ALWAYS.
 TEXT: LIKE N'%val%'.
 DATES: >= DATEADD() for ranges, or MONTH(Col)=X.
 MATH: ISNULL(Col,0).
