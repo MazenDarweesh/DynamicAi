@@ -12,6 +12,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace DynamicAI.Tests.Services;
@@ -30,6 +31,7 @@ public class QueryOrchestratorTests
     private readonly IConversationContextService _contextService;
     private readonly IFeedbackService _feedbackService;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public QueryOrchestratorTests()
     {
@@ -45,6 +47,12 @@ public class QueryOrchestratorTests
         _contextService = A.Fake<IConversationContextService>();
         _feedbackService = A.Fake<IFeedbackService>();
         _embeddingService = A.Fake<IEmbeddingGenerator<string, Embedding<float>>>();
+        _scopeFactory = A.Fake<IServiceScopeFactory>();
+
+        var scope = A.Fake<IServiceScope>();
+        var serviceProvider = A.Fake<IServiceProvider>();
+        A.CallTo(() => scope.ServiceProvider).Returns(serviceProvider);
+        A.CallTo(() => _scopeFactory.CreateScope()).Returns(scope);
 
         // Default Configuration
         A.CallTo(() => _configuration["Caching:QueryCache:Enabled"]).Returns("true");
@@ -69,7 +77,8 @@ public class QueryOrchestratorTests
             _usageTracker,
             _embeddingService,
             _logger,
-            _configuration
+            _configuration,
+            _scopeFactory
         );
     }
 

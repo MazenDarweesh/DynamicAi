@@ -4,6 +4,7 @@ using DynamicAi.Application.Exceptions;
 using DynamicAi.Domain.Entities;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Threading.Tasks;
@@ -32,6 +33,7 @@ namespace DynamicAi.Application.Services
         private readonly bool _queryCacheEnabled;
         private readonly bool _condenserEnabled;
         private readonly bool _intentClassificationEnabled;
+        private readonly IServiceScopeFactory _scopeFactory;
 
         #endregion
 
@@ -48,7 +50,8 @@ namespace DynamicAi.Application.Services
             ILlmUsageTracker usageTracker,
             IEmbeddingGenerator<string, Embedding<float>> embeddingService,
             ILogger<QueryOrchestrator> logger,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IServiceScopeFactory scopeFactory)
         {
             _handlerFactory = handlerFactory;
             _contextService = contextService;
@@ -60,6 +63,7 @@ namespace DynamicAi.Application.Services
             _usageTracker = usageTracker;
             _embeddingService = embeddingService;
             _logger = logger;
+            _scopeFactory = scopeFactory;
             _queryCacheEnabled = !bool.TryParse(configuration["Caching:QueryCache:Enabled"], out var enabled) || enabled; // Default true
             _condenserEnabled = !bool.TryParse(configuration["Features:CondenserEnabled"], out var condEnabled) || condEnabled; // Default true
             _intentClassificationEnabled = !bool.TryParse(configuration["Features:IntentClassificationEnabled"], out var intentEnabled) || intentEnabled; // Default true
@@ -248,41 +252,54 @@ namespace DynamicAi.Application.Services
 
                 if (result.IsSuccess && !result.IsCached)
                 {
-                    // Log success
-                    var queryLog = new Domain.Entities.QueryLog
-                    {
-                        Id = queryLogId,
-                        RawQuestion = userQuestion,
-                        GeneratedSql = result.RewrittenSql, // Might be null for Chat
-                        WasSuccessful = true,
-                        SchemaContext = result.SchemaContext,
-                        TenantId = tenantId,
-                        CompanyId = comID,
-                        CreatedAt = DateTime.UtcNow,
-                        LatencyMs = (int)totalDuration,
-                        HandlerType = !string.IsNullOrEmpty(result.Intent) && result.Intent != "Unknown" ? result.Intent : intentResult.Intent.ToString(),
-                        InputTokens = (int)_usageTracker.GetSessionSummary().TotalInputTokens,
-                        OutputTokens = (int)_usageTracker.GetSessionSummary().TotalOutputTokens,
-                        GeminiCost = (decimal)_usageTracker.GetSessionSummary().TotalCostUsd,
-                        ConfidenceScore = result.ConfidenceScore
-                    };
+                    // 🚀 Fire-and-forget success logging via Task.Run to save ~500ms API LATENCY
+                    var inputTokens = (int)_usageTracker.GetSessionSummary().TotalInputTokens;
+                    var outputTokens = (int)_usageTracker.GetSessionSummary().TotalOutputTokens;
+                    var geminiCost = (decimal)_usageTracker.GetSessionSummary().TotalCostUsd;
+                    var schemaContext = result.SchemaContext;
+                    var rewrittenSql = result.RewrittenSql;
+                    var handlerType = !string.IsNullOrEmpty(result.Intent) && result.Intent != "Unknown" ? result.Intent : intentResult?.Intent.ToString() ?? "Unknown";
+                    var confidenceScore = result.ConfidenceScore;
 
-                    // Await logging to prevent DbContext disposal before SaveChanges completes
-                    try
+                    _ = Task.Run(async () =>
                     {
-                        await _queryLogRepo.AddAsync(queryLog);
-                        _logger.LogDebug("[Orchestrator] Query log saved: {LogId}", queryLogId);
+                        try
+                        {
+                            using var scope = _scopeFactory.CreateScope();
+                            var queryLogRepo = scope.ServiceProvider.GetRequiredService<IQueryLogRepository>();
+                            var feedbackService = scope.ServiceProvider.GetRequiredService<IFeedbackService>();
+                            var scopedLogger = scope.ServiceProvider.GetRequiredService<ILogger<QueryOrchestrator>>();
 
-                        // 📋 Auto-Capture for Training Dataset (M13)
-                        // This ensures every successful AI generation is captured for review
-                        _logger.LogInformation("[Orchestrator] Triggering Auto-Capture for LogId: {LogId}, ComId: {ComId}", queryLogId, comID);
-                        var captureResult = await _feedbackService.AutoCaptureExampleAsync(queryLogId, comID);
-                        _logger.LogInformation("[Orchestrator] Auto-Capture result: {Result}", captureResult);
-                    }
-                    catch (Exception logEx)
-                    {
-                        _logger.LogWarning(logEx, "[Orchestrator] Failed to save query log, pipeline continues");
-                    }
+                            var queryLog = new Domain.Entities.QueryLog
+                            {
+                                Id = queryLogId,
+                                RawQuestion = userQuestion,
+                                GeneratedSql = rewrittenSql,
+                                WasSuccessful = true,
+                                SchemaContext = schemaContext,
+                                TenantId = tenantId,
+                                CompanyId = comID,
+                                CreatedAt = DateTime.UtcNow,
+                                LatencyMs = (int)totalDuration,
+                                HandlerType = handlerType,
+                                InputTokens = inputTokens,
+                                OutputTokens = outputTokens,
+                                GeminiCost = geminiCost,
+                                ConfidenceScore = confidenceScore
+                            };
+
+                            await queryLogRepo.AddAsync(queryLog);
+                            scopedLogger.LogDebug("[Orchestrator] Query log saved in bg: {LogId}", queryLogId);
+
+                            scopedLogger.LogInformation("[Orchestrator] Triggering Auto-Capture for LogId: {LogId}, ComId: {ComId} in bg", queryLogId, comID);
+                            var captureResult = await feedbackService.AutoCaptureExampleAsync(queryLogId, comID);
+                            scopedLogger.LogInformation("[Orchestrator] Auto-Capture bg result: {Result}", captureResult);
+                        }
+                        catch (Exception logEx)
+                        {
+                            Console.WriteLine($"[Orchestrator] Failed to save query log in bg: {logEx.Message}");
+                        }
+                    });
                 }
                 else if (!result.IsSuccess)
                 {
@@ -313,15 +330,32 @@ namespace DynamicAi.Application.Services
 
                 if (result != null && result.IsSuccess)
                 {
-                    // Save the turn asynchronously
-                    await _contextService.SaveTurnAsync(
-                        sessionId,
-                        userQuestion, 
-                        !string.IsNullOrEmpty(result.Intent) && result.Intent != "Unknown" ? result.Intent : (intentResult?.Intent.ToString() ?? "Unknown"),
-                        result.RewrittenSql,
-                        result.Data,
-                        result.PageId // Pass the PageId from RAG
-                    );
+                    // 🚀 Save the turn asynchronously in background to avoid API blocking
+                    var finalIntent = !string.IsNullOrEmpty(result.Intent) && result.Intent != "Unknown" ? result.Intent : (intentResult?.Intent.ToString() ?? "Unknown");
+                    var rewrittenSql = result.RewrittenSql;
+                    var data = result.Data;
+                    var pageId = result.PageId;
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            using var scope = _scopeFactory.CreateScope();
+                            var contextService = scope.ServiceProvider.GetRequiredService<IConversationContextService>();
+                            await contextService.SaveTurnAsync(
+                                sessionId,
+                                userQuestion, 
+                                finalIntent,
+                                rewrittenSql,
+                                data,
+                                pageId
+                            );
+                        }
+                        catch (Exception logEx)
+                        {
+                            Console.WriteLine($"[Orchestrator] Failed to save context in bg: {logEx.Message}");
+                        }
+                    });
                 }
 
                 #endregion
@@ -349,31 +383,40 @@ namespace DynamicAi.Application.Services
                 var totalDuration = (DateTime.UtcNow - startTime).TotalMilliseconds;
                 _logger.LogError(ex, "[Orchestrator] Pipeline Failed after {Duration:F0}ms", totalDuration);
 
-                // Log Failure
-                var errorLog = new Domain.Entities.QueryLog
-                {
-                    Id = queryLogId,
-                    RawQuestion = userQuestion,
-                    WasSuccessful = false,
-                    ErrorMessage = ex.Message,
-                    TenantId = tenantId,
-                    CompanyId = comID,
-                    CreatedAt = DateTime.UtcNow,
-                    LatencyMs = (int)totalDuration,
-                    HandlerType = (result != null && !string.IsNullOrEmpty(result.Intent) && result.Intent != "Unknown") ? result.Intent : (intentResult?.Intent.ToString() ?? "Unknown"),
-                    ConfidenceScore = intentResult?.ConfidenceScore
-                };
+                // 🚀 Fire-and-forget error logging
+                var errorLogHandlerType = (result != null && !string.IsNullOrEmpty(result.Intent) && result.Intent != "Unknown") ? result.Intent : (intentResult?.Intent.ToString() ?? "Unknown");
+                var errorLogConfidenceScore = intentResult?.ConfidenceScore;
 
-                // Await logging to prevent DbContext disposal before SaveChanges completes
-                try
+                _ = Task.Run(async () =>
                 {
-                    await _queryLogRepo.AddAsync(errorLog);
-                    _logger.LogDebug("[Orchestrator] Error log saved: {LogId}", queryLogId);
-                }
-                catch (Exception logSaveEx)
-                {
-                    _logger.LogWarning(logSaveEx, "[Orchestrator] Failed to save error log");
-                }
+                    try
+                    {
+                        using var scope = _scopeFactory.CreateScope();
+                        var queryLogRepo = scope.ServiceProvider.GetRequiredService<IQueryLogRepository>();
+                        var scopedLogger = scope.ServiceProvider.GetRequiredService<ILogger<QueryOrchestrator>>();
+
+                        var errorLog = new Domain.Entities.QueryLog
+                        {
+                            Id = queryLogId,
+                            RawQuestion = userQuestion,
+                            WasSuccessful = false,
+                            ErrorMessage = ex.Message,
+                            TenantId = tenantId,
+                            CompanyId = comID,
+                            CreatedAt = DateTime.UtcNow,
+                            LatencyMs = (int)totalDuration,
+                            HandlerType = errorLogHandlerType,
+                            ConfidenceScore = errorLogConfidenceScore
+                        };
+
+                        await queryLogRepo.AddAsync(errorLog);
+                        scopedLogger.LogDebug("[Orchestrator] Error log saved in bg: {LogId}", queryLogId);
+                    }
+                    catch (Exception logSaveEx)
+                    {
+                        Console.WriteLine($"[Orchestrator] Failed to save error log in bg: {logSaveEx.Message}");
+                    }
+                });
 
                 throw;
             }
