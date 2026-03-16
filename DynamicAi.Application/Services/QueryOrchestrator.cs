@@ -24,6 +24,7 @@ namespace DynamicAi.Application.Services
         private readonly IIntentClassificationService _intentClassifier;
         private readonly IIntentExampleManagementService _intentManager;
         private readonly IQueryCondenserService _condenserService;
+        private readonly IQueryCacheService _queryCacheService;
         private readonly IQueryLogRepository _queryLogRepo;
         private readonly ILlmUsageTracker _usageTracker;
         private readonly ILogger<QueryOrchestrator> _logger;
@@ -44,6 +45,7 @@ namespace DynamicAi.Application.Services
             IIntentClassificationService intentClassifier,
             IIntentExampleManagementService intentExampleManagementService,
             IQueryCondenserService condenserService,
+            IQueryCacheService queryCacheService,
             IQueryLogRepository queryLogRepo,
             IConversationContextService contextService,
             IFeedbackService feedbackService,
@@ -59,6 +61,7 @@ namespace DynamicAi.Application.Services
             _intentClassifier = intentClassifier;
             _intentManager = intentExampleManagementService;
             _condenserService = condenserService;
+            _queryCacheService = queryCacheService;
             _queryLogRepo = queryLogRepo;
             _usageTracker = usageTracker;
             _embeddingService = embeddingService;
@@ -128,15 +131,27 @@ namespace DynamicAi.Application.Services
                 embeddingStart.Stop();
                 _logger.LogInformation("[Orchestrator] ✓ Shared embedding computed in {Duration:F0}ms (will be reused by Intent + RAG)", embeddingStart.ElapsedMilliseconds);
 
+                // --- NEW CACHE CHECK ---
+                CachedQueryResult? cachedResult = null;
+                if (_queryCacheEnabled)
+                {
+                    _logger.LogInformation("[Orchestrator] Layer 0.5: Checking Global Query Cache...");
+                    cachedResult = await _queryCacheService.TryGetCachedSqlAsync(
+                        sharedVector,
+                        tenantId,
+                        comID ?? 1,
+                        ct);
+                }
+
                 // Step 0.2: Intent uses precomputed embedding
                 Task<IntentClassificationResult> intentTask;
-                if (_intentClassificationEnabled)
+                if (_intentClassificationEnabled && cachedResult == null)
                 {
                     intentTask = _intentClassifier.ClassifyIntentAsync(userQuestion, sharedVector, cancellationToken: ct);
                 }
                 else
                 {
-                    _logger.LogInformation("[Orchestrator] 🚀 Intent Classifier bypassed (disabled in config).");
+                    if (cachedResult == null) _logger.LogInformation("[Orchestrator] 🚀 Intent Classifier bypassed (disabled in config).");
                     intentTask = Task.FromResult(new IntentClassificationResult
                     {
                         Intent = IntentType.Unknown, // Will trigger unified handler which supports Unknown
@@ -171,14 +186,15 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("[Orchestrator]   → Intent: {Intent} (Confidence: {Confidence:F2})",
                     intentResult.Intent, intentResult.ConfidenceScore);
                 
-                if (_condenserEnabled)
+                if (_condenserEnabled && cachedResult == null)
                 {
                     _logger.LogInformation("[Orchestrator]   → Condenser: Action={Action}, Question=\"{Question}\"",
                         condenserResult.ActionType, condenserResult.CondensedQuestion);
                 }
 
                 // [USER_REQUEST]: Save ALL queries for review in this stage (Data Gathering)
-                // if (intentResult.ConfidenceScore < 0.75f) <--- Disabled for now
+                // Stop seeding "Unknown" intents which pollute the DB
+                if (intentResult.Intent != IntentType.Unknown)
                 {
                     _ = _intentManager.StoreIntentExampleAsync(
                         question: userQuestion,
@@ -230,7 +246,9 @@ namespace DynamicAi.Application.Services
                         PrecomputedCondenserResult = condenserResult, // P1-2: Pass precomputed condenser result
                         ConversationHistory = recentTurns,
                         IsCondenserBypassed = !_condenserEnabled,
-                        PrecomputedEmbedding = sharedVector
+                        PrecomputedEmbedding = sharedVector,
+                        CachedSql = cachedResult?.Sql,       // 👉 Global Cache SQL Hit
+                        CachedPageId = cachedResult?.PageId  // 👉 Global Cache Page Hit
                     };
 
                     ct.ThrowIfCancellationRequested(); // ✂️ Checkpoint before Handler delegation
@@ -294,6 +312,29 @@ namespace DynamicAi.Application.Services
                             scopedLogger.LogInformation("[Orchestrator] Triggering Auto-Capture for LogId: {LogId}, ComId: {ComId} in bg", queryLogId, comID);
                             var captureResult = await feedbackService.AutoCaptureExampleAsync(queryLogId, comID);
                             scopedLogger.LogInformation("[Orchestrator] Auto-Capture bg result: {Result}", captureResult);
+
+                            // --- NEW CACHE STORAGE ---
+                            if (_queryCacheEnabled && !string.IsNullOrWhiteSpace(rewrittenSql) && result.PageId.HasValue)
+                            {
+                                var queryCacheService = scope.ServiceProvider.GetRequiredService<IQueryCacheService>();
+                                try
+                                {
+                                    await queryCacheService.StoreCachedSqlAsync(
+                                        queryLogId,
+                                        userQuestion,
+                                        sharedVector,
+                                        rewrittenSql,
+                                        result.PageId.Value,
+                                        tenantId,
+                                        comID ?? 0
+                                    );
+                                    scopedLogger.LogInformation("[Orchestrator] Saved to Global Query Cache in bg");
+                                }
+                                catch (Exception cacheEx)
+                                {
+                                    scopedLogger.LogWarning(cacheEx, "[Orchestrator] Failed to save to Query Cache in bg");
+                                }
+                            }
                         }
                         catch (Exception logEx)
                         {
