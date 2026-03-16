@@ -23,6 +23,7 @@ namespace DynamicAi.Application.Services.SqlEngine
         public List<ColumnReferenceExpression> ColumnsToRemove { get; } = new List<ColumnReferenceExpression>();
 
         public List<string> Warnings { get; } = new List<string>();
+        public List<string> ValidationErrors { get; } = new List<string>();
 
         // حالة الزيارة الحالية
         private bool _isInSelectClause = false;
@@ -57,11 +58,12 @@ namespace DynamicAi.Application.Services.SqlEngine
             // استخراج اسم الجدول الحقيقي
             string realTableName = node.SchemaObject.BaseIdentifier.Value;
 
-            // التحقق من وجود الجدول في الـ Schema (للعلم فقط)
+            // التحقق من وجود الجدول في الـ Schema (Strict Mode)
             if (!_schemaMap.ContainsKey(realTableName))
             {
-                Warnings.Add($"[Sanitizer] Table '{realTableName}' not found in schema. Skipping validation for its columns.");
-                // لا نحذفه حسب طلب المستخدم، لكن نسجله عشان نتجاهل أعمدته
+                var error = $"Table '{realTableName}' is not defined in the schema database.";
+                Warnings.Add($"[Sanitizer] {error}");
+                ValidationErrors.Add(error);
                 return;
             }
 
@@ -143,7 +145,7 @@ namespace DynamicAi.Application.Services.SqlEngine
             
             var identifiers = node.MultiPartIdentifier.Identifiers;
             string columnName = identifiers.Last().Value; // دائماً الأخير هو اسم العمود
-            string tableNameOrAlias = null;
+            string? tableNameOrAlias = null;
 
             // تجاهل الكلمات المحفوظة أو أجزاء التواريخ (DateParts) التي يتم التقاطها كأعمدة
             if (identifiers.Count == 1 && IgnoredIdentifiers.Contains(columnName))
@@ -160,7 +162,7 @@ namespace DynamicAi.Application.Services.SqlEngine
             // 1. إذا لم نعرف الجدول (لا يوجد Alias)، هل هو موجود في أي من الجداول المعروفة؟
             // هذه حالة صعبة (Ambiguous)، لكن في الـ Sanitization، إذا لم نعرف المصدر، نفترض أنه صحيح (Innocent until proven guilty).
             // إلا إذا كان لدينا جدول واحد فقط في الـ FROM، وقتها يمكننا التحقق.
-            string targetRealTable = null;
+            string? targetRealTable = null;
 
             if (tableNameOrAlias != null)
             {
@@ -171,8 +173,10 @@ namespace DynamicAi.Application.Services.SqlEngine
                 }
                 else
                 {
-                    // الـ Alias نفسه غير معروف! هل نعتبره خطأ؟
-                    // ربما هو جدول غير موجود، وبما أننا لا نحذف الجداول، فلن نحذف أعمدتها (لأننا لا نملك Schema لها).
+                    // الـ Alias نفسه غير معروف!
+                    var error = $"Table alias '{tableNameOrAlias}' for column '{columnName}' is not defined in the FROM/JOIN clauses.";
+                    Warnings.Add($"[Sanitizer] {error}");
+                    ValidationErrors.Add(error);
                     return; 
                 }
             }
@@ -186,7 +190,10 @@ namespace DynamicAi.Application.Services.SqlEngine
                 }
                 else
                 {
-                    // أكثر من جدول ولا يوجد Alias. لا يمكننا التحقق بدقة. نتجاوز.
+                    // أكثر من جدول ولا يوجد Alias. خطأ صريح في الاستعلام المعقد
+                    var error = $"Ambiguous column '{columnName}'. You must use an exact table alias (e.g. T1.{columnName}) when multiple tables are present.";
+                    Warnings.Add($"[Sanitizer] {error}");
+                    ValidationErrors.Add(error);
                     return;
                 }
             }
@@ -199,9 +206,10 @@ namespace DynamicAi.Application.Services.SqlEngine
                 if (columnName != "*" && !validColumns.Contains(columnName))
                 {
                     // 🚨 العمود غير موجود!
-                    // هذا هو الهدف: Mark for Deletion
                     ColumnsToRemove.Add(node);
-                    Warnings.Add($"[Sanitizer] Invalid column '{columnName}' found in '{targetRealTable}' (Clause: {_currentClause}). Scheduled for removal.");
+                    var error = $"Column '{columnName}' does not exist in table/view '{targetRealTable}'. Available columns are: {string.Join(", ", validColumns.Take(30))}" + (validColumns.Count > 30 ? "..." : "");
+                    Warnings.Add($"[Sanitizer] Invalid column '{columnName}' found in '{targetRealTable}' (Clause: {_currentClause}).");
+                    ValidationErrors.Add(error);
                 }
             }
             // إذا الجدول نفسه غير موجود في الـ Schema (لم يظهر في الـ Check الأول)، نتجاوز.

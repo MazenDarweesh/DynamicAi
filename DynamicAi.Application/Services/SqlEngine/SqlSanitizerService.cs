@@ -1,3 +1,4 @@
+using DynamicAi.Application.Exceptions;
 using DynamicAi.Application.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
@@ -56,9 +57,21 @@ namespace DynamicAi.Application.Services.SqlEngine
                     _logger.LogWarning(warning);
                 }
 
+                // 4. STRICT MODE: If there are validation errors, throw immediately
+                if (visitor.ValidationErrors.Any())
+                {
+                    var errorSummary = string.Join("\n", visitor.ValidationErrors);
+                    _logger.LogWarning("[SqlSanitizer] 🛡️ STRICT MODE: {Count} schema violation(s) detected:\n{Errors}",
+                        visitor.ValidationErrors.Count, errorSummary);
+
+                    throw new SqlSanitizationException(
+                        $"SQL schema validation failed with {visitor.ValidationErrors.Count} error(s):\n{errorSummary}",
+                        visitor.ValidationErrors);
+                }
+
                 if (visitor.ColumnsToRemove.Any())
                 {
-                    // 4. Rewrite SQL (The Surgery)
+                    // 5. Rewrite SQL (The Surgery) — fallback if no strict errors but columns to clean
                     _logger.LogInformation("[SqlSanitizer] Found {Count} invalid columns. Rewriting SQL tree...", visitor.ColumnsToRemove.Count);
                     
                     var rewrittenSql = RemoveInvalidColumns(rawSql, fragment, visitor.ColumnsToRemove);

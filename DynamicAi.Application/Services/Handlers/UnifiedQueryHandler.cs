@@ -1,10 +1,12 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using DynamicAi.Application.Exceptions;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Prompts;
 using DynamicAi.Domain.Entities;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel.ChatCompletion;
 
@@ -20,6 +22,7 @@ public class UnifiedQueryHandler : IIntentHandler
     private readonly IChatCompletionService _chatService;
     private readonly IRagRetrievalService _retrievalService;
     private readonly ISqlValidatorService _validatorService;
+    private readonly ISqlSanitizerService _sanitizerService;
     private readonly ISqlRewriterService _rewriterService;
     private readonly ISandboxedSqlExecutor _executionService;
     private readonly ILlmUsageTracker _usageTracker;
@@ -31,6 +34,7 @@ public class UnifiedQueryHandler : IIntentHandler
         IChatCompletionService chatService,
         IRagRetrievalService retrievalService,
         ISqlValidatorService validatorService,
+        ISqlSanitizerService sanitizerService,
         ISqlRewriterService rewriterService,
         ISandboxedSqlExecutor executionService,
         ILlmUsageTracker usageTracker,
@@ -40,6 +44,7 @@ public class UnifiedQueryHandler : IIntentHandler
         _chatService = chatService;
         _retrievalService = retrievalService;
         _validatorService = validatorService;
+        _sanitizerService = sanitizerService;
         _rewriterService = rewriterService;
         _executionService = executionService;
         _usageTracker = usageTracker;
@@ -180,13 +185,85 @@ public class UnifiedQueryHandler : IIntentHandler
         // Phase 5: Execute Route
         if (parsedResponse.IsSqlIntent)
         {
-            var sqlResult = await ExecuteSqlPipelineAsync(parsedResponse.Content.Sql, tenantId, companyId, retrievalResult, context, cancellationToken);
-            sqlResult.ConfidenceScore = (float?)parsedResponse.Confidence;
-            if (sqlResult.QueryInsights == null) sqlResult.QueryInsights = new QueryInsightData { RetrievedContext = new List<string>() };
-            sqlResult.QueryInsights.RetrievedContext?.Add($"🤖 Intent Detected: {parsedResponse.Intent}");
-            sqlResult.QueryInsights.Reasoning = parsedResponse.Content.Explanation;
-            sqlResult.Intent = parsedResponse.Intent;
-            return sqlResult;
+            // --- SELF-HEALING RETRY LOOP ---
+            const int maxRetries = 2;
+            string currentSql = parsedResponse.Content.Sql;
+            string? lastError = null;
+
+            for (int attempt = 0; attempt <= maxRetries; attempt++)
+            {
+                try
+                {
+                    if (attempt > 0)
+                    {
+                        _logger.LogWarning("[UnifiedHandler] 🔄 Self-Healing Attempt {Attempt}/{Max}. Asking LLM to fix: {Error}",
+                            attempt, maxRetries, lastError);
+
+                        // Send the error back to the LLM as a correction message
+                        chatHistory.AddAssistantMessage(rawResponse);
+                        chatHistory.AddUserMessage(
+                            $"The SQL query you generated failed with the following error:\n" +
+                            $"{lastError}\n\n" +
+                            $"Please FIX the SQL query. Return your response in the exact same JSON format as before. " +
+                            $"Do NOT use columns or tables that don't exist in the schema.");
+
+                        var retryStart = DateTime.UtcNow;
+                        var retryResponse = await _chatService.GetChatMessageContentAsync(chatHistory, cancellationToken: cancellationToken);
+                        var retryDuration = (DateTime.UtcNow - retryStart).TotalMilliseconds;
+                        rawResponse = retryResponse.Content ?? string.Empty;
+                        _logger.LogInformation("[UnifiedHandler] ✅ LLM Retry responded in {Duration:F0}ms", retryDuration);
+
+                        var retryParsed = ExtractAndParseJson(rawResponse);
+                        if (retryParsed == null || !retryParsed.IsSqlIntent || string.IsNullOrWhiteSpace(retryParsed.Content?.Sql))
+                        {
+                            _logger.LogWarning("[UnifiedHandler] ❌ LLM retry did not produce valid SQL. Giving up.");
+                            break;
+                        }
+                        currentSql = retryParsed.Content.Sql;
+                        parsedResponse = retryParsed; // update for metadata
+                    }
+
+                    var sqlResult = await ExecuteSqlPipelineAsync(currentSql, tenantId, companyId, retrievalResult, context, cancellationToken);
+                    sqlResult.ConfidenceScore = (float?)parsedResponse.Confidence;
+                    if (sqlResult.QueryInsights == null) sqlResult.QueryInsights = new QueryInsightData { RetrievedContext = new List<string>() };
+                    sqlResult.QueryInsights.RetrievedContext?.Add($"🤖 Intent Detected: {parsedResponse.Intent}");
+                    sqlResult.QueryInsights.Reasoning = parsedResponse.Content.Explanation;
+                    sqlResult.Intent = parsedResponse.Intent;
+
+                    if (attempt > 0)
+                    {
+                        sqlResult.QueryInsights.RetrievedContext?.Add($"🔄 Self-healed after {attempt} retry(ies)");
+                        _logger.LogInformation("[UnifiedHandler] ✅ Self-Healing SUCCESS on attempt {Attempt}", attempt);
+                    }
+
+                    return sqlResult;
+                }
+                catch (SqlSanitizationException sanitizationEx)
+                {
+                    lastError = sanitizationEx.Message;
+                    _logger.LogWarning("[UnifiedHandler] 🛡️ Sanitizer rejected SQL: {Error}", lastError);
+                    if (attempt >= maxRetries)
+                    {
+                        _logger.LogError("[UnifiedHandler] ❌ Max retries reached after SqlSanitizationException.");
+                        return new QueryExecutionResult
+                        {
+                            ErrorMessage = $"CLARIFICATION_REQUIRED: عذراً، الاستعلام الذي تم توليده يحتوي على أعمدة أو جداول غير موجودة. حاول إعادة صياغة سؤالك.",
+                            QueryLogId = context?.QueryLogId,
+                            Intent = parsedResponse.Intent
+                        };
+                    }
+                }
+                catch (SqlException dbEx)
+                {
+                    lastError = $"Database error: {dbEx.Message}";
+                    _logger.LogWarning("[UnifiedHandler] 💾 Database rejected SQL: {Error}", dbEx.Message);
+                    if (attempt >= maxRetries)
+                    {
+                        _logger.LogError("[UnifiedHandler] ❌ Max retries reached after SqlException.");
+                        throw; // Let the orchestrator handle it
+                    }
+                }
+            }
         }
         else if (parsedResponse.IsPredictionIntent || parsedResponse.IsChatIntent)
         {
@@ -249,11 +326,16 @@ public class UnifiedQueryHandler : IIntentHandler
 
         _logger.LogInformation("[UnifiedHandler] Layer 4: Validating & Expanding SQL...");
         await _validatorService.ValidateSqlAsync(rawSql, tenantId, ct);
+
+        // 🛡️ Strict Sanitization: check columns/tables against schema BEFORE DB execution
+        _logger.LogInformation("[UnifiedHandler] Layer 4.5: Sanitizing SQL against schema...");
+        await _sanitizerService.SanitizeAsync(rawSql, tenantId, ct);
+        // If SanitizeAsync throws SqlSanitizationException, the retry loop in HandleAsync catches it.
         
         var rewrittenResult = await _rewriterService.RewriteAsync(rawSql, tenantId, companyId, ct);
         var finalSql = rewrittenResult.RewrittenSql;
         
-        _logger.LogInformation("[UnifiedHandler] Layer 5: Exuecting final SQL...");
+        _logger.LogInformation("[UnifiedHandler] Layer 5: Executing final SQL...");
         var executionResult = await _executionService.ExecuteSqlAsync(finalSql, rewrittenResult.Parameters, ct);
         
         var queryInsights = new List<string>();
