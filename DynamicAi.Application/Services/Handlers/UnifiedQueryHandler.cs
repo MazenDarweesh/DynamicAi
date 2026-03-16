@@ -69,6 +69,26 @@ public class UnifiedQueryHandler : IIntentHandler
         var tenantId = context?.TenantId ?? "default";
         var companyId = context?.CompanyId;
 
+        // --- PHASE 0: CACHE BYPASS ---
+        if (!string.IsNullOrWhiteSpace(context?.CachedSql))
+        {
+            _logger.LogInformation("[UnifiedHandler] ⚡ GLOBAL CACHE HIT. Bypassing RAG and LLM completely!");
+            
+            // Dummy bundle so the executor knows which PageId this was tied to.
+            var dummyRetrieval = new RetrievalContextBundle { PageId = context.CachedPageId ?? 0 };
+            
+            var cachedSqlResult = await ExecuteSqlPipelineAsync(context.CachedSql, tenantId, companyId, dummyRetrieval, context, cancellationToken);
+            cachedSqlResult.IsCached = true;
+            // A cache hit implies it's either DataRetrieval or PredictionWithDataFetch.
+            cachedSqlResult.Intent = intentResult.Intent == IntentType.Unknown ? IntentType.DataRetrieval.ToString() : intentResult.Intent.ToString();
+            
+            if (cachedSqlResult.QueryInsights == null) cachedSqlResult.QueryInsights = new QueryInsightData();
+            if (cachedSqlResult.QueryInsights.RetrievedContext == null) cachedSqlResult.QueryInsights.RetrievedContext = new List<string>();
+            cachedSqlResult.QueryInsights.RetrievedContext.Add("⚡ Served directly from Global Query Cache");
+            
+            return cachedSqlResult;
+        }
+
         // Phase 1: RAG Context Retrieval (We always retrieve context to empower the LLM to decide)
         _logger.LogInformation("[UnifiedHandler] Layer 1: Retrieving Context...");
         var retrievalResult = await _retrievalService.RetrieveContextAsync(

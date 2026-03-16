@@ -99,8 +99,8 @@ public class QdrantDbService : IAppVectorDbService
     {
         try
         {
-            _logger.LogInformation("[QdrantDbService] Creating index for field '{Field}' in '{Collection}'", fieldName, collectionName);
             await _qdrantClient.CreatePayloadIndexAsync(collectionName, fieldName, fieldType, cancellationToken: ct);
+            _logger.LogInformation("[QdrantDbService] Created index for field '{Field}' in '{Collection}'", fieldName, collectionName);
         }
         catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument && ex.Status.Detail.Contains("exists"))
         {
