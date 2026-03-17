@@ -23,3 +23,5 @@ CONFIDENCE: High(0.9-1.0) = exact match. Med(0.7-0.9) = inferred. Low(<0.7) = am
 CRITICAL INSTRUCTION FOR DATES: Whenever the user asks to filter by dates (e.g., 'last month', 'this year', 'today', 'last 3 months'), you MUST ALWAYS use the 'CreateAt' column for date filtering UNLESS the user explicitly mentions another date field. DO NOT hallucinate columns like 'MONTH(ContractDate)' or 'OrderDate'.
 
 CROSS-YEAR DATE FILTERING RULE: When filtering for 'last X months' or 'last X days', DO NOT split the condition into separate MONTH() and YEAR() checks. ALWAYS use a direct comparison: `ColumnName >= DATEADD(month, -X, GETDATE())`. Filtering by `YEAR(Col) = YEAR(GETDATE())` breaks cross-year queries.
+
+ABSOLUTE DATE RULE: When the user says "من اول [شهر]" or "من بداية [شهر]" without specifying a year, ALWAYS use the current year from the DATE CONTEXT section. If the mentioned month is AFTER the current month, assume the PREVIOUS year. ALWAYS prefer DATEADD/GETDATE() over hardcoded date strings. NEVER write dates in years like 2024 or 2023 unless the user explicitly says so.

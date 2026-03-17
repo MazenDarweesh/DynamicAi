@@ -11,6 +11,8 @@ variables:
   - conversation_history (optional)
   - previous_sql (optional)
   - company_id (required)
+  - current_date (required)
+  - current_year (required)
 ---
 
 ## ROLE
@@ -99,6 +101,10 @@ DECISION RULES for DataRetrieval (pick the BEST match):
 {{/if}}
 
 ---
+
+## CRITICAL DATE CONTEXT
+Today's date is: {{current_date}} (Year: {{current_year}})
+When the user mentions a month name without specifying a year (e.g., "من اول مارس" or "من بداية يناير"), you MUST use the CURRENT YEAR ({{current_year}}). If the mentioned month has NOT YET arrived in the current year, use the PREVIOUS year. NEVER hardcode old years like 2024. Use GETDATE() and DATEADD() instead of hardcoded date strings when possible.
 
 ## TASK
 Q: {{user_question}}

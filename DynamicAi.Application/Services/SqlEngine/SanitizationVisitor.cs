@@ -29,6 +29,10 @@ namespace DynamicAi.Application.Services.SqlEngine
         private bool _isInSelectClause = false;
         private string _currentClause = "UNKNOWN";
 
+        // SELECT Aliases المعرّفة (مثل SUM(x) AS TotalSales)
+        // نتجاهلها عند فحص ORDER BY / GROUP BY
+        private readonly HashSet<string> _selectAliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         // قائمة بالكلمات المحجوزة والأجزاء المتعلقة بالتواريخ التي يعاملها البارسر كأعمدة بالخطأ
         private static readonly HashSet<string> IgnoredIdentifiers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -100,7 +104,12 @@ namespace DynamicAi.Application.Services.SqlEngine
             _currentClause = "SELECT";
             foreach (var element in node.SelectElements)
             {
-                // نفعل هذا Flag عشان لما نوصل لـ ColumnReferenceExpression نعرف إننا في الـ Select list
+                // جمع الـ Aliases المعرّفة في SELECT (مثل: AS TotalSales)
+                if (element is SelectScalarExpression scalarExpr && scalarExpr.ColumnName != null)
+                {
+                    _selectAliases.Add(scalarExpr.ColumnName.Value);
+                }
+
                 _isInSelectClause = true;
                 element.Accept(this);
                 _isInSelectClause = false;
@@ -147,10 +156,18 @@ namespace DynamicAi.Application.Services.SqlEngine
             string columnName = identifiers.Last().Value; // دائماً الأخير هو اسم العمود
             string? tableNameOrAlias = null;
 
-            // تجاهل الكلمات المحفوظة أو أجزاء التواريخ (DateParts) التي يتم التقاطها كأعمدة
+            // تجاهل الكلمات المحفوظة أو أجزاء التواريخ (DateParts)
             if (identifiers.Count == 1 && IgnoredIdentifiers.Contains(columnName))
             {
                 return;
+            }
+
+            // تجاهل SELECT Aliases في ORDER BY / GROUP BY
+            // مثل: SUM(finaltotal) AS TotalSales ... ORDER BY TotalSales
+            if (identifiers.Count == 1 && (_currentClause == "ORDER BY" || _currentClause == "GROUP BY")
+                && _selectAliases.Contains(columnName))
+            {
+                return; // هذا alias معرّف في SELECT، مش column حقيقي
             }
 
             if (identifiers.Count > 1)

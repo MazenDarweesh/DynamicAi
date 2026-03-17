@@ -84,6 +84,11 @@ namespace DynamicAi.Application.Services.SqlEngine
                         .ToList();
                 }
             }
+            catch (SqlSanitizationException)
+            {
+                // 🛡️ MUST propagate to UnifiedQueryHandler's retry loop!
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[SqlSanitizer] Error during sanitization. Returning original SQL.");

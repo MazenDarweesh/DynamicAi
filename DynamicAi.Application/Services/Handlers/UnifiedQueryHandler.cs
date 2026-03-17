@@ -109,7 +109,9 @@ public class UnifiedQueryHandler : IIntentHandler
         var variables = new Dictionary<string, object>
         {
             { "user_question", userQuestion },
-            { "company_id", companyId?.ToString() ?? "0" }
+            { "company_id", companyId?.ToString() ?? "0" },
+            { "current_date", DateTime.Now.ToString("yyyy-MM-dd") },
+            { "current_year", DateTime.Now.Year.ToString() }
         };
 
         if (retrievalResult.DictionaryEntries?.Any() == true)
