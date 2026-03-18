@@ -342,6 +342,44 @@ namespace DynamicAi.Application.Services
                         }
                     });
                 }
+                else if (result.IsSuccess && result.IsCached)
+                {
+                    // 🆕 Save QueryLog for Cache HIT as well (no Auto-Capture, no Global Cache storage)
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            using var scope = _scopeFactory.CreateScope();
+                            var queryLogRepo = scope.ServiceProvider.GetRequiredService<IQueryLogRepository>();
+                            var scopedLogger = scope.ServiceProvider.GetRequiredService<ILogger<QueryOrchestrator>>();
+
+                            var queryLog = new Domain.Entities.QueryLog
+                            {
+                                Id = queryLogId,
+                                RawQuestion = userQuestion,
+                                GeneratedSql = result.RewrittenSql,
+                                WasSuccessful = true,
+                                SchemaContext = "Served from Global Query Cache",
+                                TenantId = tenantId,
+                                CompanyId = comID,
+                                CreatedAt = DateTime.UtcNow,
+                                LatencyMs = (int)totalDuration,
+                                HandlerType = "CacheHIT",
+                                InputTokens = 0,
+                                OutputTokens = 0,
+                                GeminiCost = 0m,
+                                ConfidenceScore = result.ConfidenceScore
+                            };
+
+                            await queryLogRepo.AddAsync(queryLog);
+                            scopedLogger.LogInformation("[Orchestrator] Cache-HIT Query log saved in bg: {LogId}", queryLogId);
+                        }
+                        catch (Exception logEx)
+                        {
+                            Console.WriteLine($"[Orchestrator] Failed to save Cache-HIT query log in bg: {logEx.Message}");
+                        }
+                    });
+                }
                 else if (!result.IsSuccess)
                 {
                     _logger.LogWarning("[Orchestrator] Handler returned failure: {Error}", result.ErrorMessage);

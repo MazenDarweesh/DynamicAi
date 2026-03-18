@@ -25,6 +25,7 @@ public class UnifiedQueryHandler : IIntentHandler
     private readonly ISqlSanitizerService _sanitizerService;
     private readonly ISqlRewriterService _rewriterService;
     private readonly ISandboxedSqlExecutor _executionService;
+    private readonly IQueryCacheService _queryCacheService;
     private readonly ILlmUsageTracker _usageTracker;
     private readonly ILogger<UnifiedQueryHandler> _logger;
     private readonly JsonSerializerOptions _jsonOptions;
@@ -37,6 +38,7 @@ public class UnifiedQueryHandler : IIntentHandler
         ISqlSanitizerService sanitizerService,
         ISqlRewriterService rewriterService,
         ISandboxedSqlExecutor executionService,
+        IQueryCacheService queryCacheService,
         ILlmUsageTracker usageTracker,
         ILogger<UnifiedQueryHandler> logger)
     {
@@ -47,6 +49,7 @@ public class UnifiedQueryHandler : IIntentHandler
         _sanitizerService = sanitizerService;
         _rewriterService = rewriterService;
         _executionService = executionService;
+        _queryCacheService = queryCacheService;
         _usageTracker = usageTracker;
         _logger = logger;
         _jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
@@ -79,19 +82,42 @@ public class UnifiedQueryHandler : IIntentHandler
         {
             _logger.LogInformation("[UnifiedHandler] ⚡ GLOBAL CACHE HIT. Bypassing RAG and LLM completely!");
             
-            // Dummy bundle so the executor knows which PageId this was tied to.
-            var dummyRetrieval = new RetrievalContextBundle { PageId = context.CachedPageId ?? 0 };
-            
-            var cachedSqlResult = await ExecuteSqlPipelineAsync(context.CachedSql, tenantId, companyId, dummyRetrieval, context, cancellationToken);
-            cachedSqlResult.IsCached = true;
-            // A cache hit implies it's either DataRetrieval or PredictionWithDataFetch.
-            cachedSqlResult.Intent = intentResult.Intent == IntentType.Unknown ? IntentType.DataRetrieval.ToString() : intentResult.Intent.ToString();
-            
-            if (cachedSqlResult.QueryInsights == null) cachedSqlResult.QueryInsights = new QueryInsightData();
-            if (cachedSqlResult.QueryInsights.RetrievedContext == null) cachedSqlResult.QueryInsights.RetrievedContext = new List<string>();
-            cachedSqlResult.QueryInsights.RetrievedContext.Add("⚡ Served directly from Global Query Cache");
-            
-            return cachedSqlResult;
+            try
+            {
+                // Dummy bundle so the executor knows which PageId this was tied to.
+                var dummyRetrieval = new RetrievalContextBundle { PageId = context.CachedPageId ?? 0 };
+                
+                var cachedSqlResult = await ExecuteSqlPipelineAsync(context.CachedSql, tenantId, companyId, dummyRetrieval, context, cancellationToken);
+                cachedSqlResult.IsCached = true;
+                // A cache hit implies it's either DataRetrieval or PredictionWithDataFetch.
+                cachedSqlResult.Intent = intentResult.Intent == IntentType.Unknown ? IntentType.DataRetrieval.ToString() : intentResult.Intent.ToString();
+                
+                if (cachedSqlResult.QueryInsights == null) cachedSqlResult.QueryInsights = new QueryInsightData();
+                if (cachedSqlResult.QueryInsights.RetrievedContext == null) cachedSqlResult.QueryInsights.RetrievedContext = new List<string>();
+                cachedSqlResult.QueryInsights.RetrievedContext.Add("⚡ Served directly from Global Query Cache");
+                
+                return cachedSqlResult;
+            }
+            catch (Exception cacheEx)
+            {
+                // 🛡️ Cache is corrupt or SQL invalid! Delete it and let it fall through to the LLM
+                _logger.LogWarning(cacheEx, 
+                    "[UnifiedHandler] ⚠️ CACHE FALLBACK: Cached SQL failed ({Error}). " +
+                    "Invalidating cache and falling through to full LLM pipeline.", 
+                    cacheEx.Message);
+
+                _ = Task.Run(async () =>
+                {
+                    try 
+                    { 
+                        if (context?.PrecomputedEmbedding != null)
+                        {
+                            await _queryCacheService.DeleteSimilarCacheAsync(context.PrecomputedEmbedding, tenantId, companyId ?? 0); 
+                        }
+                    }
+                    catch { /* Swallow exception during fire-and-forget delete */ }
+                });
+            }
         }
 
         // Phase 1: RAG Context Retrieval (We always retrieve context to empower the LLM to decide)

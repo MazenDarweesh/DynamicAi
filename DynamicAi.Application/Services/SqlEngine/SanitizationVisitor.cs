@@ -25,8 +25,6 @@ namespace DynamicAi.Application.Services.SqlEngine
         public List<string> Warnings { get; } = new List<string>();
         public List<string> ValidationErrors { get; } = new List<string>();
 
-        // حالة الزيارة الحالية
-        private bool _isInSelectClause = false;
         private string _currentClause = "UNKNOWN";
 
         // SELECT Aliases المعرّفة (مثل SUM(x) AS TotalSales)
@@ -109,10 +107,7 @@ namespace DynamicAi.Application.Services.SqlEngine
                 {
                     _selectAliases.Add(scalarExpr.ColumnName.Value);
                 }
-
-                _isInSelectClause = true;
                 element.Accept(this);
-                _isInSelectClause = false;
             }
 
             // زيارة باقي الأجزاء (Where, GroupBy, OrderBy, etc.) للبحث عن الأعمدة غير الصالحة فيها أيضاً
