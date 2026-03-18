@@ -254,7 +254,71 @@ namespace DynamicAi.Application.Services
                     ct.ThrowIfCancellationRequested(); // ✂️ Checkpoint before Handler delegation
 
                     result = await handler.HandleAsync(userQuestion, intentResult, context, ct);
+
+                    // 🔮 [AGENTIC 2-PASS PIPELINE] If the inline LLM realized it needs to Predict AFTER fetching data
+                    if (result.IsSuccess && result.Intent == "PredictionWithDataRetrieval")
+                    {
+                        _logger.LogInformation("");
+                        _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+                        _logger.LogInformation("║        [AGENTIC PASS] Triggering Prediction on Fetched Data            ║");
+                        _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+
+                        // 1. Force save the fetched data into the conversation context immediately
+                        await _contextService.SaveTurnAsync(sessionId, userQuestion, "DataRetrieval", result.RewrittenSql, result.Data, result.PageId, ct);
+                        _logger.LogInformation("[AgenticPass] ✓ Fetched data saved to context for prediction.");
+
+                        // 2. Call PredictIntentHandler manually
+                        if (_handlerFactory.TryGetHandler(IntentType.Prediction, out var predictHandler))
+                        {
+                            var predictContext = new IntentHandlerContext
+                            {
+                                PreviousQuestion = previousQuestion,
+                                PreviousSql = result.RewrittenSql,
+                                QueryLogId = queryLogId,
+                                TenantId = tenantId,
+                                CompanyId = comID,
+                                SessionId = sessionId,
+                                PrecomputedCondenserResult = condenserResult,
+                                ConversationHistory = recentTurns
+                            };
+
+                            var mockPredictIntent = new IntentClassificationResult { Intent = IntentType.Prediction, ConfidenceScore = 1.0f };
+                            var predictStart = DateTime.UtcNow;
+                            
+                            _logger.LogInformation("[AgenticPass] 🔮 Delegating to PredictIntentHandler...");
+                            var predictionResult = await predictHandler!.HandleAsync(userQuestion, mockPredictIntent, predictContext, ct);
+                            
+                            var predictDuration = (DateTime.UtcNow - predictStart).TotalMilliseconds;
+                            _logger.LogInformation("[AgenticPass] ✓ Prediction generated in {Duration:F0}ms", predictDuration);
+
+                            // 3. Combine results! Keep data grid, append the prediction text to QueryInsights
+                            if (predictionResult.IsSuccess && predictionResult.Data != null)
+                            {
+                                var firstRow = predictionResult.Data.FirstOrDefault();
+                                if (firstRow != null)
+                                {
+                                    try 
+                                    {
+                                        dynamic dynamicRow = firstRow;
+                                        string predictionText = dynamicRow.Prediction;
+
+                                        if (!string.IsNullOrEmpty(predictionText))
+                                        {
+                                            if (result.QueryInsights == null) result.QueryInsights = new QueryInsightData { RetrievedContext = new List<string>() };
+                                            result.QueryInsights.Reasoning = predictionText;
+                                            _logger.LogInformation("[AgenticPass] ✓ Prediction merged into Reason field successfully.");
+                                        }
+                                    } 
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogWarning("[AgenticPass] Failed to extract prediction text: {Msg}", ex.Message);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
+
                 else
                 {
                     // No handler registered for this intent type

@@ -199,13 +199,31 @@ public class UnifiedQueryHandler : IIntentHandler
         var parsedResponse = ExtractAndParseJson(rawResponse);
         if (parsedResponse == null)
         {
-            _logger.LogError("[UnifiedHandler] Failed to parse unified JSON response. Raw was: {Raw}", rawResponse);
-            return new QueryExecutionResult
+            _logger.LogWarning("[UnifiedHandler] 🔄 JSON Parse failed. Asking LLM to fix unescaped quotes or syntax...");
+            chatHistory.AddAssistantMessage(rawResponse);
+            chatHistory.AddUserMessage(
+                "Your previous response contained invalid JSON (likely due to unescaped quotation marks inside string values like 'explanation' or 'sql', or other syntax errors). " + 
+                "Please FIX the JSON and return EXACTLY the same content but properly escaped. " + 
+                "Do NOT include any markdown formatting, only raw valid JSON.");
+            
+            var retryStart = DateTime.UtcNow;
+            var retryResponse = await _chatService.GetChatMessageContentAsync(chatHistory, cancellationToken: cancellationToken);
+            _logger.LogInformation("[UnifiedHandler] ✅ JSON Fix LLM Retry responded in {Duration:F0}ms", (DateTime.UtcNow - retryStart).TotalMilliseconds);
+            
+            rawResponse = retryResponse.Content ?? string.Empty;
+            parsedResponse = ExtractAndParseJson(rawResponse);
+            
+            if (parsedResponse == null)
             {
-                Data = new[] { new { Message = "عذراً، لم أتمكن من صياغة الإجابة بالشكل الصحيح.", Type = "Error" } },
-                QueryLogId = context?.QueryLogId,
-                ErrorMessage = "Failed to parse JSON from LLM"
-            };
+                _logger.LogError("[UnifiedHandler] ❌ Failed to parse unified JSON response even after retry. Raw was: {Raw}", rawResponse);
+                return new QueryExecutionResult
+                {
+                    Data = new[] { new { Message = "عذراً، لم أتمكن من صياغة الإجابة بالشكل الصحيح.", Type = "Error" } },
+                    QueryLogId = context?.QueryLogId,
+                    ErrorMessage = "Failed to parse JSON from LLM"
+                };
+            }
+            _logger.LogInformation("[UnifiedHandler] ✅ JSON successfully parsed after self-healing.");
         }
 
         _logger.LogInformation("[UnifiedHandler] LLM Intent: {Intent}, Confidence: {Conf}", parsedResponse.Intent, parsedResponse.Confidence);

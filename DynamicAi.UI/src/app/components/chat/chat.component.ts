@@ -206,8 +206,8 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
 
                 let newMessage: ChatMessage;
                 const intent = res.intent ?? res.Intent;
-                // Detect Rich Text Intents (Non-SQL)
-                const isRichTextIntent = ['Prediction', 'PredictionWithDataFetch', 'Chat'].includes(intent);
+                const isRichTextIntent = ['Prediction', 'Chat'].includes(intent);
+                const isPredictionWithDataIntent = ['PredictionWithDataRetrieval', 'PredictionWithDataFetch'].includes(intent);
 
                 // Attempt to parse string data if it looks like JSON, UNLESS it's a rich text intent that returns a string
                 if (typeof data === 'string' && !isRichTextIntent) {
@@ -248,6 +248,20 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                         originalQuestion: currentQ,
                         retryCount: retryCount,
                         isRichText: true // Enable HTML rendering
+                    };
+                }
+                else if (isPredictionWithDataIntent) {
+                    // Extract prediction text from QueryInsights.Reasoning (where orchestrator puts it in the 2-pass pipeline)
+                    const insights = res.queryInsights || res.QueryInsights;
+                    const predictionText = insights?.Reasoning || insights?.reasoning || msgText || '';
+                    
+                    newMessage = { 
+                        isAi: true, 
+                        text: predictionText, 
+                        tableData: Array.isArray(data) && data.length > 0 ? data : undefined,
+                        isRichText: true, 
+                        originalQuestion: currentQ, 
+                        retryCount: retryCount 
                     };
                 }
                 else if (msgText && !msgType) {

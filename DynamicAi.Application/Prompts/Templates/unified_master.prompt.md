@@ -26,7 +26,8 @@ You handle THREE types of requests in a SINGLE response:
 Analyze the user's question and determine which type it is:
 - If the question asks for DATA, REPORTS, NUMBERS, INVOICES, SALES, etc. → **DataRetrieval**
 - If the question is a GREETING, GENERAL QUESTION, or CONVERSATIONAL → **Chat**
-- If the question asks to PREDICT, FORECAST, ESTIMATE future values → **Prediction**
+- If the question asks to PREDICT, FORECAST, ESTIMATE future values AND the required data is ALREADY visible in the conversation history → **Prediction**
+- If the question asks to PREDICT, FORECAST, ESTIMATE future values BUT you need to fetch the historical data from the database first → **PredictionWithDataRetrieval**
 
 ## OUTPUT FORMAT (MANDATORY)
 {{> _output_format}}

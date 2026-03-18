@@ -48,7 +48,8 @@ public class UnifiedLlmResponse
     [JsonIgnore]
     public bool IsSqlIntent =>
         Intent.Equals("DataRetrieval", StringComparison.OrdinalIgnoreCase) ||
-        Intent.Equals("Analysis", StringComparison.OrdinalIgnoreCase);
+        Intent.Equals("Analysis", StringComparison.OrdinalIgnoreCase) ||
+        IsPredictionWithDataRetrievalIntent;
 
     /// <summary>
     /// True if the intent is a conversational response.
@@ -58,11 +59,18 @@ public class UnifiedLlmResponse
         Intent.Equals("Chat", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// True if the intent is a prediction/forecast.
+    /// True if the intent is a prediction/forecast that ALREADY has data context.
     /// </summary>
     [JsonIgnore]
     public bool IsPredictionIntent =>
         Intent.Equals("Prediction", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// True if the intent is a prediction but requires fetching data FIRST via SQL.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsPredictionWithDataRetrievalIntent =>
+        Intent.Equals("PredictionWithDataRetrieval", StringComparison.OrdinalIgnoreCase);
 
     #endregion
 }
