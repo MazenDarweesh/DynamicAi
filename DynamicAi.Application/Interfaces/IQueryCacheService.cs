@@ -34,6 +34,7 @@ public interface IQueryCacheService
     /// <param name="pageId">The page ID used for context.</param>
     /// <param name="tenantId">The tenant identifier.</param>
     /// <param name="companyId">The company identifier.</param>
+    /// <param name="intent">The intent classified by the LLM (default to DataRetrieval).</param>
     Task<Guid> StoreCachedSqlAsync(
         Guid id,
         string question,
@@ -42,6 +43,7 @@ public interface IQueryCacheService
         int pageId,
         string tenantId,
         int companyId,
+        string intent = "DataRetrieval",
         CancellationToken ct = default);
 
     /// <summary>

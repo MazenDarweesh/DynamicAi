@@ -73,4 +73,9 @@ public class IntentHandlerContext
     /// The PageID associated with the cached SQL query.
     /// </summary>
     public int? CachedPageId { get; init; }
+
+    /// <summary>
+    /// The original LLM Intent (e.g. DataRetrieval, PredictionWithDataRetrieval) retrieved from the query cache.
+    /// </summary>
+    public string? CachedIntent { get; init; }
 }

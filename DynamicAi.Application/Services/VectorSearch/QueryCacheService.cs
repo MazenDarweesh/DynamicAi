@@ -80,7 +80,8 @@ public class QueryCacheService : IQueryCacheService
         {
             { "tenant_id", PayloadSchemaType.Keyword },
             { "company_id", PayloadSchemaType.Integer },
-            { "page_id", PayloadSchemaType.Integer }
+            { "page_id", PayloadSchemaType.Integer },
+            { "intent", PayloadSchemaType.Keyword }
         };
 
         foreach (var (fieldName, fieldType) in requiredIndexes)
@@ -157,7 +158,8 @@ public class QueryCacheService : IQueryCacheService
                     Score = topResult.Score,
                     PageId = payload.ContainsKey("page_id") ? (int)payload["page_id"].IntegerValue : 0,
                     OriginalQuestion = payload["original_question"].StringValue,
-                    CreatedAt = DateTime.Parse(payload["created_at"].StringValue)
+                    CreatedAt = DateTime.Parse(payload["created_at"].StringValue),
+                    Intent = payload.ContainsKey("intent") ? payload["intent"].StringValue : "DataRetrieval"
                 };
 
                 _logger.LogInformation("[QueryCache] ✓ Cache HIT! Score: {Score:F4}, Original: \"{OriginalQuestion}\"",
@@ -188,6 +190,7 @@ public class QueryCacheService : IQueryCacheService
         int pageId,
         string tenantId,
         int companyId,
+        string intent = "DataRetrieval",
         CancellationToken ct = default)
     {
         try
@@ -211,7 +214,8 @@ public class QueryCacheService : IQueryCacheService
                     ["created_at"] = now.ToString("o"),
                     ["expires_at"] = now.AddDays(_ttlDays).ToString("o"),
                     ["hit_count"] = 0,
-                    }
+                    ["intent"] = intent
+                }
             };
 
             await _qdrantClient.UpsertAsync(_collectionName, new[] { point }, cancellationToken: ct);

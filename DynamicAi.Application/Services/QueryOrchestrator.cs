@@ -248,7 +248,8 @@ namespace DynamicAi.Application.Services
                         IsCondenserBypassed = !_condenserEnabled,
                         PrecomputedEmbedding = sharedVector,
                         CachedSql = cachedResult?.Sql,       // 👉 Global Cache SQL Hit
-                        CachedPageId = cachedResult?.PageId  // 👉 Global Cache Page Hit
+                        CachedPageId = cachedResult?.PageId, // 👉 Global Cache Page Hit
+                        CachedIntent = cachedResult?.Intent  // 🎯 Pass original intent
                     };
 
                     ct.ThrowIfCancellationRequested(); // ✂️ Checkpoint before Handler delegation
@@ -267,8 +268,12 @@ namespace DynamicAi.Application.Services
                         await _contextService.SaveTurnAsync(sessionId, userQuestion, "DataRetrieval", result.RewrittenSql, result.Data, result.PageId, ct);
                         _logger.LogInformation("[AgenticPass] ✓ Fetched data saved to context for prediction.");
 
-                        // 2. Call PredictIntentHandler manually
-                        if (_handlerFactory.TryGetHandler(IntentType.Prediction, out var predictHandler))
+                        // 2. Call PredictIntentHandler explicitly bypassing the factory (since UnifiedQueryHandler also registers for Prediction)
+                        using var scope = _scopeFactory.CreateScope();
+                        var predictHandler = scope.ServiceProvider.GetServices<IIntentHandler>()
+                                             .FirstOrDefault(h => h.GetType().Name == "PredictIntentHandler");
+
+                        if (predictHandler != null)
                         {
                             var predictContext = new IntentHandlerContext
                             {
@@ -285,8 +290,8 @@ namespace DynamicAi.Application.Services
                             var mockPredictIntent = new IntentClassificationResult { Intent = IntentType.Prediction, ConfidenceScore = 1.0f };
                             var predictStart = DateTime.UtcNow;
                             
-                            _logger.LogInformation("[AgenticPass] 🔮 Delegating to PredictIntentHandler...");
-                            var predictionResult = await predictHandler!.HandleAsync(userQuestion, mockPredictIntent, predictContext, ct);
+                            _logger.LogInformation("[AgenticPass] 🔮 Delegating to explicitly resolved PredictIntentHandler...");
+                            var predictionResult = await predictHandler.HandleAsync(userQuestion, mockPredictIntent, predictContext, ct);
                             
                             var predictDuration = (DateTime.UtcNow - predictStart).TotalMilliseconds;
                             _logger.LogInformation("[AgenticPass] ✓ Prediction generated in {Duration:F0}ms", predictDuration);
@@ -390,9 +395,10 @@ namespace DynamicAi.Application.Services
                                         rewrittenSql,
                                         result.PageId.Value,
                                         tenantId,
-                                        comID ?? 0
+                                        comID ?? 0,
+                                        handlerType
                                     );
-                                    scopedLogger.LogInformation("[Orchestrator] Saved to Global Query Cache in bg");
+                                    scopedLogger.LogInformation("[Orchestrator] Saved to Global Query Cache in bg with Intent: {Intent}", handlerType);
                                 }
                                 catch (Exception cacheEx)
                                 {

@@ -245,6 +245,7 @@ public class SqlIntentHandler : IIntentHandler
                 pageId,
                 context?.TenantId ?? "default",
                 context?.CompanyId ?? 0,
+                intentResult.Intent.ToString(),
                 cancellationToken);
         }
 

@@ -89,8 +89,10 @@ public class UnifiedQueryHandler : IIntentHandler
                 
                 var cachedSqlResult = await ExecuteSqlPipelineAsync(context.CachedSql, tenantId, companyId, dummyRetrieval, context, cancellationToken);
                 cachedSqlResult.IsCached = true;
-                // A cache hit implies it's either DataRetrieval or PredictionWithDataFetch.
-                cachedSqlResult.Intent = intentResult.Intent == IntentType.Unknown ? IntentType.DataRetrieval.ToString() : intentResult.Intent.ToString();
+                
+                // A cache hit implies it's either DataRetrieval or PredictionWithDataRetrieval. Use recorded CachedIntent if available.
+                var defaultIntent = intentResult.Intent == IntentType.Unknown ? IntentType.DataRetrieval.ToString() : intentResult.Intent.ToString();
+                cachedSqlResult.Intent = !string.IsNullOrEmpty(context.CachedIntent) ? context.CachedIntent : defaultIntent;
                 
                 if (cachedSqlResult.QueryInsights == null) cachedSqlResult.QueryInsights = new QueryInsightData();
                 if (cachedSqlResult.QueryInsights.RetrievedContext == null) cachedSqlResult.QueryInsights.RetrievedContext = new List<string>();

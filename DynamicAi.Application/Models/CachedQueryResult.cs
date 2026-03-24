@@ -34,4 +34,9 @@ public class CachedQueryResult
     /// When this result was cached.
     /// </summary>
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// The original LLM Intent (e.g. DataRetrieval, PredictionWithDataRetrieval) so that cache hits don't lose the Agentic 2-Pass pipeline.
+    /// </summary>
+    public string Intent { get; set; } = "DataRetrieval";
 }
