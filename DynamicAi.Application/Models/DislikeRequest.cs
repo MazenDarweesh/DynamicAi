@@ -21,6 +21,11 @@ public class DislikeRequest
     public string? Question { get; set; }
 
     /// <summary>
+    /// The session identifier.
+    /// </summary>
+    public string? SessionId { get; set; }
+
+    /// <summary>
     /// The Qdrant cache entry ID (if from cache). [Legacy - for backward compatibility]
     /// </summary>
     public string? CacheId { get; set; }

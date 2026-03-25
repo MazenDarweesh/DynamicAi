@@ -17,4 +17,6 @@ public interface IConversationContextService
         string sessionId,
         int limit = 3,
         CancellationToken cancellationToken = default);
+
+    Task RemoveLastRelevantTurnAsync(string sessionId, CancellationToken cancellationToken = default);
 }

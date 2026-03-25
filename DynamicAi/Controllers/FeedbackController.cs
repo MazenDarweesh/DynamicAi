@@ -19,6 +19,7 @@ public class FeedbackController : ControllerBase
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embedder;
     private readonly IIntentExampleManagementService _intentManager;
     private readonly IQueryLogRepository _queryLogRepo;
+    private readonly IConversationContextService _contextService;
     private readonly ILogger<FeedbackController> _logger;
 
     public FeedbackController(
@@ -28,6 +29,7 @@ public class FeedbackController : ControllerBase
         IEmbeddingGenerator<string, Embedding<float>> embedder,
         IIntentExampleManagementService intentManager,
         IQueryLogRepository queryLogRepo,
+        IConversationContextService contextService,
         ILogger<FeedbackController> logger)
     {
         _feedbackService = feedbackService;
@@ -36,6 +38,7 @@ public class FeedbackController : ControllerBase
         _embedder = embedder;
         _intentManager = intentManager;
         _queryLogRepo = queryLogRepo;
+        _contextService = contextService;
         _logger = logger;
     }
 
@@ -128,6 +131,14 @@ public class FeedbackController : ControllerBase
                 {
                     _logger.LogInformation("[Feedback] ℹ️ No similar cache entries found.");
                 }
+            }
+
+            // ═══════════════════════════════════════════════════════════════════
+            // Step 1.5: حذف الـ Session Context الخاطئ (لضمان عدم تكرار الـ SQL السيء)
+            // ═══════════════════════════════════════════════════════════════════
+            if (!string.IsNullOrEmpty(request.SessionId))
+            {
+                await _contextService.RemoveLastRelevantTurnAsync(request.SessionId);
             }
 
             // ═══════════════════════════════════════════════════════════════════

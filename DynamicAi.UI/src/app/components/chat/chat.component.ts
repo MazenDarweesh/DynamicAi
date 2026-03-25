@@ -381,9 +381,11 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         this.lastSql = this.confirmedSql;
 
         const userComment = prompt("هل يمكنك إخبارنا ما الخطأ في الإجابة؟ (اختياري)", "") || undefined;
+        const sessionId = this.chatSignal.getOrCreateSessionId();
 
         const request = {
             question: msg.originalQuestion,
+            sessionId: sessionId,
             cacheId: msg.cacheId,
             sql: msg.sql,
             retryCount: retryCount,

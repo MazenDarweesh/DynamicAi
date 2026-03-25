@@ -203,4 +203,25 @@ public class ConversationContextService : IConversationContextService
         _logger.LogInformation("[Context] ⚠️ No context cache exists for session: {SessionId}", sessionId);
         return Task.FromResult(new List<ConversationTurn>());
     }
+
+    public Task RemoveLastRelevantTurnAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!_enabled) return Task.CompletedTask;
+
+        var cacheKey = $"context-{sessionId}";
+        if (_cache.TryGetValue<List<ConversationTurn>>(cacheKey, out var history) && history != null && history.Count > 0)
+        {
+            var lastRelevant = history.Where(x => x.IsRelevantForContext).OrderByDescending(x => x.CreatedAt).FirstOrDefault();
+            if (lastRelevant != null)
+            {
+                history.Remove(lastRelevant);
+                _cache.Set(cacheKey, history, new MemoryCacheEntryOptions
+                {
+                    SlidingExpiration = TimeSpan.FromMinutes(_ttlMinutes)
+                });
+                _logger.LogInformation("[Context] 🗑️ Removed last relevant turn from session: {SessionId} (Question: {Question})", sessionId, lastRelevant.Question);
+            }
+        }
+        return Task.CompletedTask;
+    }
 }
