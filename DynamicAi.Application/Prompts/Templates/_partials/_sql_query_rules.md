@@ -10,6 +10,7 @@ TEXT: LIKE N'%val%'.
 DATES: >= DATEADD() for ranges, or MONTH(Col)=X.
 MATH: ISNULL(Col,0).
 TOP 100 default.
+SMART AGGREGATION(CRITICAL): If the user asks for 'Predictions' (توقع), 'Trends', or 'Analysis' over long periods (months/years), you MUST use SQL Aggregation (GROUP BY, SUM, COUNT, etc.) to summarize the data instead of selecting thousands of raw rows. Group by the relevant dimensions (e.g., Month, Product, Customer) that are necessary to answer the user's specific prediction question. Do NOT omit dimensions requested by the user. When grouping by Month, ALWAYS include the Year as well (e.g., FORMAT(DateColumn, 'yyyy-MM') AS [الشهر]) to avoid mixing months from different years.
 FATAL: TOP+OFFSET together → delete TOP, use OFFSET/FETCH.
 NO CTEs.
 
