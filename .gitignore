@@ -376,7 +376,7 @@ DynamicAi/temp_prompts/*
 # Docker environment files (contains secrets!)
 .env
 !.env.example
-
+qdrant_snapshots/*
 
 # CV Assets
 FULL_RESUME_TEMPLATE.md

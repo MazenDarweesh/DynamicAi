@@ -1,4 +1,5 @@
 using DynamicAi.Application.Interfaces;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -15,17 +16,26 @@ namespace DynamicAi.Api.Services
     {
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<QueryCacheWarmerService> _logger;
+        private readonly IConfiguration _configuration;
 
         public QueryCacheWarmerService(
             IServiceProvider serviceProvider,
-            ILogger<QueryCacheWarmerService> logger)
+            ILogger<QueryCacheWarmerService> logger,
+            IConfiguration configuration)
         {
             _serviceProvider = serviceProvider;
             _logger = logger;
+            _configuration = configuration;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            if (!_configuration.GetValue<bool>("Caching:QueryCache:Enabled", false))
+            {
+                _logger.LogInformation("[QueryCacheWarmer] 🛑 Query Cache is disabled in config. Service bypassed.");
+                return;
+            }
+
             _logger.LogInformation("[QueryCacheWarmer] 🚀 Service is starting...");
             var sw = Stopwatch.StartNew();
 

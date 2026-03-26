@@ -1,4 +1,5 @@
 using DynamicAi.Application.Interfaces;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -18,17 +19,26 @@ namespace DynamicAi.Api.Services
     {
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<IntentIndexWarmerService> _logger;
+        private readonly IConfiguration _configuration;
 
         public IntentIndexWarmerService(
             IServiceProvider serviceProvider,
-            ILogger<IntentIndexWarmerService> logger)
+            ILogger<IntentIndexWarmerService> logger,
+            IConfiguration configuration)
         {
             _serviceProvider = serviceProvider;
             _logger = logger;
+            _configuration = configuration;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            if (!_configuration.GetValue<bool>("Features:IntentClassificationEnabled", false))
+            {
+                _logger.LogInformation("[IntentIndexWarmer] 🛑 Intent Classification is disabled in config. Service bypassed.");
+                return;
+            }
+
             _logger.LogInformation("[IntentIndexWarmer] 🚀 Service is starting...");
             var sw = Stopwatch.StartNew();
 
