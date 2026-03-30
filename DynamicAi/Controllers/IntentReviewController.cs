@@ -3,6 +3,7 @@ using DynamicAi.Application.Models;
 using DynamicAi.Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
 using System.ComponentModel.DataAnnotations;
 
 namespace DynamicAi.Api.Controllers;
@@ -17,17 +18,21 @@ public class IntentReviewController : ControllerBase
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly ILlmUsageTracker _usageTracker;
     private readonly ILogger<IntentReviewController> _logger;
+    private readonly bool _isEnabled;
 
     public IntentReviewController(
         IIntentExampleManagementService intentManager,
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
-        ILlmUsageTracker usageTracker, // Injected
+        ILlmUsageTracker usageTracker,
+        IConfiguration configuration,
         ILogger<IntentReviewController> logger)
     {
         _intentManager = intentManager;
         _embeddingGenerator = embeddingGenerator;
         _usageTracker = usageTracker;
         _logger = logger;
+        bool.TryParse(configuration["Features:IntentClassificationEnabled"], out var enabled);
+        _isEnabled = enabled;
     }
 
     /// <summary>
@@ -37,6 +42,8 @@ public class IntentReviewController : ControllerBase
     [ProducesResponseType(typeof(IEnumerable<IntentReviewItemDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPendingExamples(CancellationToken cancellationToken)
     {
+        if (!_isEnabled) return Ok(Enumerable.Empty<IntentReviewItemDto>());
+
         var examples = await _intentManager.GetPendingExamplesAsync(cancellationToken);
 
         var dtos = examples.Select(e => new IntentReviewItemDto
@@ -61,6 +68,8 @@ public class IntentReviewController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ApproveExample([FromRoute] Guid id, CancellationToken cancellationToken)
     {
+        if (!_isEnabled) return BadRequest(new { message = "Intent Classification is disabled." });
+
         var success = await _intentManager.ApproveExampleAsync(id, cancellationToken);
 
         if (!success)
@@ -79,6 +88,8 @@ public class IntentReviewController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> RejectExample([FromRoute] Guid id, CancellationToken cancellationToken)
     {
+        if (!_isEnabled) return BadRequest(new { message = "Intent Classification is disabled." });
+
         var success = await _intentManager.RejectExampleAsync(id, cancellationToken);
 
         if (!success)
@@ -96,6 +107,8 @@ public class IntentReviewController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetStats(CancellationToken cancellationToken)
     {
+        if (!_isEnabled) return Ok(new { PendingCount = 0 });
+
         // For now, just getting pending count. Ideally optimize this query in service.
         var examples = await _intentManager.GetPendingExamplesAsync(cancellationToken);
 
@@ -113,6 +126,8 @@ public class IntentReviewController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ClearIntentByQuestion([FromBody] ClearIntentRequest request)
     {
+        if (!_isEnabled) return BadRequest(new { message = "Intent Classification is disabled." });
+
         _logger.LogInformation("🧹 [IntentClear] Clearing intent example for: {Question}", request.Question);
 
         try
@@ -159,6 +174,8 @@ public class IntentReviewController : ControllerBase
         [FromBody] UpdateIntentRequest request,
         CancellationToken cancellationToken)
     {
+        if (!_isEnabled) return BadRequest(new { message = "Intent Classification is disabled." });
+
         if (!Enum.TryParse<IntentType>(request.IntentType, ignoreCase: true, out var newIntent))
         {
             return BadRequest(new { message = $"Invalid intent type: '{request.IntentType}'. Valid values: {string.Join(", ", Enum.GetNames<IntentType>())}" });

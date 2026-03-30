@@ -1,6 +1,7 @@
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 
 using Microsoft.Extensions.Logging;
 using System;
@@ -15,15 +16,19 @@ namespace DynamicAi.Api.Controllers
         private readonly IDataSeederService _dataSeederService;
         private readonly IIntentExampleManagementService _intentManager;
         private readonly ILogger<DataSeederController> _logger;
+        private readonly bool _intentClassificationEnabled;
 
         public DataSeederController(
             IDataSeederService dataSeederService,
             IIntentExampleManagementService intentManager,
+            IConfiguration configuration,
             ILogger<DataSeederController> logger)
         {
             _dataSeederService = dataSeederService;
             _intentManager = intentManager;
             _logger = logger;
+            bool.TryParse(configuration["Features:IntentClassificationEnabled"], out var enabled);
+            _intentClassificationEnabled = enabled;
         }
 
         [HttpPost("seed")]
@@ -50,6 +55,9 @@ namespace DynamicAi.Api.Controllers
         [HttpPost("seed-intents")]
         public async Task<IActionResult> SeedMissingIntents()
         {
+            if (!_intentClassificationEnabled)
+                return BadRequest(new { Message = "Intent Classification is disabled. Enable it in configuration first." });
+
             _logger.LogInformation("Received incremental intent seed request");
 
             try

@@ -2,6 +2,7 @@ using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
 
 namespace DynamicAi.Controllers;
 
@@ -21,6 +22,7 @@ public class FeedbackController : ControllerBase
     private readonly IQueryLogRepository _queryLogRepo;
     private readonly IConversationContextService _contextService;
     private readonly ILogger<FeedbackController> _logger;
+    private readonly bool _intentClassificationEnabled;
 
     public FeedbackController(
         IFeedbackService feedbackService,
@@ -30,6 +32,7 @@ public class FeedbackController : ControllerBase
         IIntentExampleManagementService intentManager,
         IQueryLogRepository queryLogRepo,
         IConversationContextService contextService,
+        IConfiguration configuration,
         ILogger<FeedbackController> logger)
     {
         _feedbackService = feedbackService;
@@ -40,6 +43,8 @@ public class FeedbackController : ControllerBase
         _queryLogRepo = queryLogRepo;
         _contextService = contextService;
         _logger = logger;
+        bool.TryParse(configuration["Features:IntentClassificationEnabled"], out var intentEnabled);
+        _intentClassificationEnabled = intentEnabled;
     }
 
     #region Like Endpoint
@@ -163,9 +168,9 @@ public class FeedbackController : ControllerBase
             }
 
             // ═══════════════════════════════════════════════════════════════════
-            // Step 2.5: حفظ في Intent Classification Review (للمراجعة إذا كان التصنيف خطأ)
+            // Step 2.5: حفظ في Intent Classification Review (فقط إذا كانت الميزة مفعلة)
             // ═══════════════════════════════════════════════════════════════════
-            if (request.QueryLogId.HasValue)
+            if (_intentClassificationEnabled && request.QueryLogId.HasValue)
             {
                 try
                 {
