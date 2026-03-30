@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { RouterModule, Router, NavigationEnd, ActivatedRoute } from '@angular/router';
 import { filter, map, mergeMap } from 'rxjs/operators';
 import { ChatSignalService } from './services/chat-signal.service';
+import { ConfigService } from './services/config.service';
 
 @Component({
   selector: 'app-root',
@@ -17,8 +18,11 @@ export class App {
   private chatSignal = inject(ChatSignalService);
   private router = inject(Router);
   private activatedRoute = inject(ActivatedRoute);
+  readonly config = inject(ConfigService);
 
   constructor() {
+    // Load config
+    this.config.loadFeatures().subscribe();
     // Subscribe to sidebar toggle signals from child components
     this.chatSignal.sidebarToggle$.subscribe(() => {
       this.toggleSidebar();

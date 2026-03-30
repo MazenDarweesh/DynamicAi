@@ -26,7 +26,7 @@
         <div class="history-item" routerLink="/query-insights" routerLinkActive="active">
           🔍 Query Insights
         </div>
-        <div class="history-item" routerLink="/intent-review" routerLinkActive="active">
+        <div class="history-item" routerLink="/intent-review" routerLinkActive="active" *ngIf="(config.features$ | async)?.intentClassificationEnabled">
           🧠 Intent Review
         </div>
         <div class="history-item" routerLink="/training-data" routerLinkActive="active">
