@@ -1,4 +1,4 @@
-﻿using DynamicAi.Infrastructure.Persistence;
+using DynamicAi.Infrastructure.Persistence;
 using DynamicAi.Infrastructure.Repositories;
 using DynamicAi.Infrastructure.Services;
 using DynamicAi.Application.Interfaces;
@@ -164,17 +164,30 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
 
 
     // --- تسجيل عميل Qdrant ---
-    var qdrantHost = configuration["Qdrant:Host"]!;
+    var qdrantHost = configuration["Qdrant:Host"] ?? "localhost";
     var qdrantApiKey = configuration["Qdrant:ApiKey"];
+    int.TryParse(configuration["Qdrant:Port"], out var qdrantPort);
+    if (qdrantPort == 0) qdrantPort = 6334;
+
+    // Auto-detect: localhost → HTTP (Docker), cloud → HTTPS + API Key
+    var isLocalQdrant = qdrantHost.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                     || qdrantHost.Contains("127.0.0.1")
+                     || qdrantHost.Contains("qdrant_local");
+    var useHttps = !isLocalQdrant;
+    var effectiveApiKey = isLocalQdrant ? null : qdrantApiKey;
+
+    Log.Information("[Qdrant] Connecting to {Host}:{Port} (HTTPS={Https}, Local={IsLocal})",
+        qdrantHost, qdrantPort, useHttps, isLocalQdrant);
 
     services.AddSingleton(sp =>
     {
-        var uri = new Uri(qdrantHost);
+        // For local: host is just "localhost", no Uri parsing needed
+        var hostName = isLocalQdrant ? qdrantHost : new Uri(qdrantHost).Host;
         return new QdrantClient(
-            host: uri.Host,
-            port: 6334,
-            https: true,
-            apiKey: qdrantApiKey
+            host: hostName,
+            port: qdrantPort,
+            https: useHttps,
+            apiKey: effectiveApiKey
         );
     });
 
