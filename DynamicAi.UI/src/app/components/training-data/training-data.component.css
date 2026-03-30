@@ -270,6 +270,50 @@
     margin: 0 0 1rem 0;
 }
 
+/* Clear Cache Form */
+.card {
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+}
+
+.clear-form {
+    margin: 0 2rem 1.5rem 2rem;
+}
+
+.clear-form h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #ccc;
+    margin: 0 0 0.5rem 0;
+}
+
+.form-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.clear-message {
+    margin-top: 0.75rem;
+    font-size: 0.9rem;
+    color: #94a3b8;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    background: rgba(148, 163, 184, 0.1);
+}
+
+.clear-message.success {
+    background: rgba(46, 213, 115, 0.15);
+    color: #86efac;
+    border: 1px solid rgba(46, 213, 115, 0.3);
+}
+
+.clear-message.error {
+    background: rgba(239, 68, 68, 0.15);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
 .loading {
     text-align: center;
     padding: 2rem;

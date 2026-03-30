@@ -2,7 +2,8 @@ import { Component, OnInit, inject, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TrainingService } from '../../services/training.service';
-import { TrainingStats, ManualTrainingRequest } from '../../models';
+import { IntentReviewService } from '../../services/intent-review.service';
+import { TrainingStats, ManualTrainingRequest, ClearCacheRequest } from '../../models';
 
 @Component({
     selector: 'app-training-data',
@@ -13,6 +14,7 @@ import { TrainingStats, ManualTrainingRequest } from '../../models';
 })
 export class TrainingDataComponent implements OnInit {
     private readonly trainingService = inject(TrainingService);
+    private readonly intentReviewService = inject(IntentReviewService);
     private readonly cdr = inject(ChangeDetectorRef);
 
     stats: TrainingStats | null = null;
@@ -37,6 +39,11 @@ export class TrainingDataComponent implements OnInit {
     };
     submitting = false;
     formMessage: string | null = null;
+
+    // Cache clearing
+    clearCacheQuestion = '';
+    clearCacheLoading = false;
+    clearCacheMessage: string | null = null;
 
     ngOnInit() {
         this.loadStats();
@@ -136,6 +143,35 @@ export class TrainingDataComponent implements OnInit {
         const month = String(now.getMonth() + 1).padStart(2, '0');
         const day = String(now.getDate()).padStart(2, '0');
         return `${year}${month}${day}`;
+    }
+
+    clearCacheByQuestion() {
+        const q = (this.clearCacheQuestion || '').trim();
+        if (!q) return;
+        this.clearCacheLoading = true;
+        this.clearCacheMessage = null;
+        const req: ClearCacheRequest = {
+            question: q,
+            tenantId: 'default',
+            companyId: 1
+        };
+        this.intentReviewService.clearCacheByQuestion(req).subscribe({
+            next: (res) => {
+                this.clearCacheMessage = res.message || '✅ Done';
+                this.clearCacheQuestion = '';
+                this.clearCacheLoading = false;
+                this.cdr.detectChanges();
+                setTimeout(() => {
+                    this.clearCacheMessage = null;
+                    this.cdr.detectChanges();
+                }, 5000);
+            },
+            error: (err) => {
+                this.clearCacheMessage = err?.error?.error || err?.message || 'Clear failed';
+                this.clearCacheLoading = false;
+                this.cdr.detectChanges();
+            }
+        });
     }
 
     getProgressColor(): string {
