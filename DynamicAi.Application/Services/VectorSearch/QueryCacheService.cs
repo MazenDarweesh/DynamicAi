@@ -61,6 +61,20 @@ public class QueryCacheService : IQueryCacheService
             // This is idempotent - Qdrant will skip indexes that already exist
             await EnsurePayloadIndexesAsync(ct);
 
+            // [HNSW Optimization] Force index building even for small collections (e.g. from Snapshot)
+            try
+            {
+                await _qdrantClient.UpdateCollectionAsync(
+                    _collectionName,
+                    optimizersConfig: new OptimizersConfigDiff { IndexingThreshold = 100 },
+                    cancellationToken: ct);
+                _logger.LogInformation("[QueryCache] ✓ Collection optimized: Threshold set to 100");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[QueryCache] ⚠️ Could not optimize collection threshold. Continuing...");
+            }
+
             _collectionInitialized = true;
         }
         catch (Exception ex)

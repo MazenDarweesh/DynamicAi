@@ -66,6 +66,8 @@ services:
   qdrant_local:
     image: qdrant/qdrant:latest
     container_name: dynamicai-qdrant-local
+    environment:
+      - QDRANT__STORAGE__OPTIMIZER__INDEXING_THRESHOLD=100
     ports:
       - "6333:6333"
       - "6334:6334"

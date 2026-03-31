@@ -38,6 +38,11 @@ public interface IAppVectorDbService
     /// </summary>
     Task CreateCollectionAsync(string collectionName, ulong vectorSize, CancellationToken ct = default);
 
+    /// <summary>
+    /// Updates the optimizer configuration for a collection (e.g., to lower the indexing threshold).
+    /// </summary>
+    Task UpdateOptimizerConfigAsync(string collectionName, int indexingThreshold, CancellationToken ct = default);
+
     #region Phase 2: Safety Net (Admin Review)
 
     /// <summary>

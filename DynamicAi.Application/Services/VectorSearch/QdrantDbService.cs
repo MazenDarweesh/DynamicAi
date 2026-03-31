@@ -65,6 +65,19 @@ public class QdrantDbService : IAppVectorDbService
         );
     }
 
+    public async Task UpdateOptimizerConfigAsync(string collectionName, int indexingThreshold, CancellationToken ct = default)
+    {
+        _logger.LogInformation("[QdrantDbService] Updating Optimizer Config for {CollectionName}: IndexingThreshold={IndexingThreshold}", collectionName, indexingThreshold);
+        await _qdrantClient.UpdateCollectionAsync(
+            collectionName,
+            optimizersConfig: new OptimizersConfigDiff
+            {
+                IndexingThreshold = (ulong)indexingThreshold
+            },
+            cancellationToken: ct
+        );
+    }
+
     private MapField<string, Value> PayloadToMapField(Dictionary<string, object> payload)
     {
         var map = new MapField<string, Value>();
