@@ -5,7 +5,7 @@ services:
   # DynamicAI Application (Backend + Frontend)
   # --------------------------------------------------------------------------
   dynamicai-app:
-    image: mazendarweesh/dynamicai:showSqlButton
+    image: mazendarweesh/dynamicai:v1.9.0-QdrantOnPrem
     build:
       context: .
       dockerfile: Dockerfile
