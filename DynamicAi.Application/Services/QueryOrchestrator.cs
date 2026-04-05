@@ -141,6 +141,7 @@ namespace DynamicAi.Application.Services
                         sharedVector,
                         tenantId,
                         comID ?? 1,
+                        explicitPageId,  // 👉 [NEW] Pass Explicit PageId!
                         ct);
                 }
 

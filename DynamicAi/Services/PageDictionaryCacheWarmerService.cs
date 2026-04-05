@@ -55,7 +55,7 @@ namespace DynamicAi.Api.Services
             _logger                  = logger;
             _connectionString        = configuration.GetConnectionString("DefaultConnection")
                 ?? throw new InvalidOperationException("[PageDictionaryWarmer] 'DefaultConnection' is not configured.");
-            _defaultTenantId         = configuration["Application:DefaultTenantId"] ?? "ALL";
+            _defaultTenantId         = configuration["Application:DefaultTenantId"] ?? "default";
             _ragCacheTTLMinutes      = int.TryParse(configuration["Caching:RagContextCache:TTLMinutes"], out var ttl) ? ttl : 240;
         }
 

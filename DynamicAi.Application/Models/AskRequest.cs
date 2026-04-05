@@ -11,7 +11,7 @@ namespace DynamicAi.Application.Models
     {
         public string Question { get; set; }
         public string? SessionId { get; set; } // (جديد) لمعرفة سياق المحادثة
-        public string TenantId { get; set; } = "ALL"; // (افتراضي لـ MVP)
+        public string TenantId { get; set; } = "default"; // (افتراضي لـ MVP)
         public int? ComID { get; set; } // معرف الشركة الحالية
 
         // ============================================================================

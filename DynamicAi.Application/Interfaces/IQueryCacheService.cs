@@ -18,11 +18,13 @@ public interface IQueryCacheService
     /// <param name="questionEmbedding">The embedding vector of the user's question.</param>
     /// <param name="tenantId">The tenant identifier.</param>
     /// <param name="companyId">The company identifier.</param>
+    /// <param name="pageId">Optional page identifier for strict cache scoping.</param>
     /// <returns>The cached result if found with similarity >= threshold, otherwise null.</returns>
     Task<CachedQueryResult?> TryGetCachedSqlAsync(
         float[] questionEmbedding,
         string tenantId,
         int companyId,
+        int? pageId = null,
         CancellationToken ct = default);
 
     /// <summary>

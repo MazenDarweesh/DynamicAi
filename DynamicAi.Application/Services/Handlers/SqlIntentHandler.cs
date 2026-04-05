@@ -132,6 +132,7 @@ public class SqlIntentHandler : IIntentHandler
                 questionEmbedding,
                 context?.TenantId ?? "default",
                 context?.CompanyId ?? 0,
+                context?.ExplicitPageId,
                 cancellationToken);
 
             if (cachedResult != null)

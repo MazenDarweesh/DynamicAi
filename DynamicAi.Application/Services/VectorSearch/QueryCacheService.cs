@@ -124,6 +124,7 @@ public class QueryCacheService : IQueryCacheService
         float[] questionEmbedding,
         string tenantId,
         int companyId,
+        int? pageId = null,
         CancellationToken ct = default)
     {
         try
@@ -150,6 +151,19 @@ public class QueryCacheService : IQueryCacheService
                     Match = new Match { Integer = companyId }
                 }
             });
+
+            // If an explicit pageId is provided, enforce strict scoping
+            if (pageId.HasValue && pageId.Value > 0)
+            {
+                filter.Must.Add(new Condition
+                {
+                    Field = new FieldCondition
+                    {
+                        Key = "page_id",
+                        Match = new Match { Integer = pageId.Value }
+                    }
+                });
+            }
 
             var searchResult = await _qdrantClient.SearchAsync(
                 _collectionName,
