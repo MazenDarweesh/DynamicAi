@@ -193,6 +193,20 @@
 
     <!-- Input Area -->
     <div class="input-area">
+        <!-- Direct Context Dropdown (Pre-warmed Pipeline) -->
+        <div class="page-selector-wrapper" *ngIf="groupedPages.length > 0">
+            <label for="explicitPageSelect" class="selector-label">توجيه الذكاء الاصطناعي:</label>
+            <select id="explicitPageSelect" class="page-selector" [(ngModel)]="selectedPage">
+                <option [ngValue]="null">🌍 السياق الشامل المفتوح (كل النظام)</option>
+                <optgroup *ngFor="let group of groupedPages" [label]="group.groupName">
+                    <option *ngFor="let page of group.pages" [ngValue]="page">
+                        📄 {{ page.pageName }}
+                    </option>
+                </optgroup>
+            </select>
+            <span class="selector-hint" title="حدد صفحة محددة وسيعمل النظام أسرع بكثير (Cache) وسيتجنب الهلوسة في أعمدة الصفحات الأخرى.">🎯 (اختياري)</span>
+        </div>
+
         <div class="input-wrapper">
             <textarea [(ngModel)]="question" (keydown.enter)="onEnter($event)" placeholder="Message DynamicAi..."
                 rows="1"></textarea>

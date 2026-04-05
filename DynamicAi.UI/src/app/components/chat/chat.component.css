@@ -294,6 +294,61 @@ pre {
     align-items: center;
 }
 
+/* Page Selector (Direct Context Bypass) */
+.page-selector-wrapper {
+    width: 100%;
+    max-width: 800px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(30, 41, 59, 0.6);
+    padding: 8px 15px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.selector-label {
+    font-size: 0.85rem;
+    color: #94a3b8;
+    white-space: nowrap;
+}
+
+.page-selector {
+    flex: 1;
+    background: rgba(15, 23, 42, 0.8);
+    color: #f8fafc;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s;
+    cursor: pointer;
+}
+
+.page-selector:focus {
+    border-color: #6366f1;
+}
+
+.page-selector optgroup {
+    background: #0f172a;
+    color: #94a3b8;
+    font-weight: 600;
+}
+
+.page-selector option {
+    background: #1e293b;
+    color: #f8fafc;
+    padding: 4px;
+}
+
+.selector-hint {
+    cursor: help;
+    font-size: 0.8rem;
+    color: #6366f1;
+}
+
 .input-wrapper {
     width: 100%;
     max-width: 800px;

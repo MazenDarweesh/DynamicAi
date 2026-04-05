@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using DynamicAi.Application.Models;
 
@@ -27,6 +27,7 @@ namespace DynamicAi.Application.Interfaces
             int? comID = null,
             string? previousQuestion = null,
             string? previousSql = null,
+            int? explicitPageId = null,        // [NEW] اختياري: PageId من الـ Frontend Dropdown
             CancellationToken ct = default);
     }
 }

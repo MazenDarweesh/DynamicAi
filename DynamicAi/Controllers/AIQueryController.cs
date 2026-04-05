@@ -1,4 +1,4 @@
-﻿using DynamicAi.Domain.Entities;
+using DynamicAi.Domain.Entities;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Exceptions;
@@ -68,6 +68,7 @@ namespace DynamicAi.Api.Controllers
                     request.ComID,
                     request.PreviousQuestion,  // Layer 0.5: للـ Query Condensing
                     request.PreviousSql,       // Layer 2: للـ Subquery Wrapping
+                    request.SelectedPageContext?.PageId, // [NEW] Layer 1: Directed Page Bypass
                     HttpContext.RequestAborted);
 
                 var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;

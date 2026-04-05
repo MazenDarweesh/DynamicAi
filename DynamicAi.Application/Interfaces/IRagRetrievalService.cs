@@ -1,4 +1,4 @@
-﻿using DynamicAi.Application.Models; // (جديد)
+using DynamicAi.Application.Models; // (جديد)
 using System.Collections.Generic; // (جديد)
 using System.Threading.Tasks;
 
@@ -17,6 +17,7 @@ namespace DynamicAi.Application.Interfaces
             string tenantId,
             int? companyId = null,
             float[]? precomputedEmbedding = null,
+            int? explicitPageId = null,         // [NEW] اختياري: PageId من الـ Frontend Dropdown
             CancellationToken ct = default
         );
 

@@ -16,13 +16,21 @@ export class ApiService {
         return this.http.get(`${this.apiUrl}/AIQuery/ping`);
     }
 
-    ask(question: string, previousQuestion?: string, previousSql?: string, sessionId?: string): Observable<any> {
+    /** 
+     * يجلب قائمة كل الصفحات المفعّلة لاستخدامها في הـ Dropdown.
+     */
+    getPagesDictionary(): Observable<import('../models/page-dictionary.model').PageDictionaryItem[]> {
+        return this.http.get<import('../models/page-dictionary.model').PageDictionaryItem[]>(`${this.apiUrl}/page-dictionary/pages`);
+    }
+
+    ask(question: string, previousQuestion?: string, previousSql?: string, sessionId?: string, selectedPageContext?: { pageId: number; pageName: string } | null): Observable<any> {
         const body: Record<string, unknown> = {
             question,
             tenantId: 'default',
             comID: 1,
             previousQuestion: previousQuestion ?? null,
-            previousSql: previousSql ?? null
+            previousSql: previousSql ?? null,
+            selectedPageContext: selectedPageContext ?? null
         };
         if (sessionId) body['sessionId'] = sessionId;
         return this.http.post(`${this.apiUrl}/AIQuery/ask`, body);

@@ -83,6 +83,7 @@ namespace DynamicAi.Application.Services
             int? comID = null,
             string? previousQuestion = null,
             string? previousSql = null,
+            int? explicitPageId = null,     // [NEW]
             CancellationToken ct = default)
         {
             #region Setup & Logging
@@ -247,6 +248,7 @@ namespace DynamicAi.Application.Services
                         ConversationHistory = recentTurns,
                         IsCondenserBypassed = !_condenserEnabled,
                         PrecomputedEmbedding = sharedVector,
+                        ExplicitPageId = explicitPageId,     // 👉 [NEW] Pass Explicit PageId!
                         CachedSql = cachedResult?.Sql,       // 👉 Global Cache SQL Hit
                         CachedPageId = cachedResult?.PageId, // 👉 Global Cache Page Hit
                         CachedIntent = cachedResult?.Intent  // 🎯 Pass original intent

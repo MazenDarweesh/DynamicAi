@@ -1,4 +1,4 @@
-﻿using DynamicAi.Application.DbConstants;
+using DynamicAi.Application.DbConstants;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using Microsoft.Extensions.AI;
@@ -61,6 +61,7 @@ namespace DynamicAi.Application.Services
             string tenantId,
             int? companyId = null,
             float[]? precomputedEmbedding = null,
+            int? explicitPageId = null,         // [NEW] اختياري: PageId من الـ Frontend Dropdown
             CancellationToken ct = default)
         {
             // ============================================================================
@@ -82,15 +83,16 @@ namespace DynamicAi.Application.Services
             // ============================================================================
             _logger.LogInformation("[RagRetrieval] STEP 0: Analyzing question for explicit identifiers...");
 
-            int? explicitPageId = ExtractPageId(userQuestion);
+            // Priority: 1. Explicit from UI (Dropdown) → 2. Extracted from question text via Regex (e.g. #page:244)
+            int? resolvedPageId = explicitPageId ?? ExtractPageId(userQuestion);
             int? explicitAttributeId = ExtractAttributeId(userQuestion);
             int? explicitDetailId = ExtractDetailId(userQuestion); // (جديد)
             string? explicitListName = ExtractListName(userQuestion);
             string? explicitTableName = ExtractTableName(userQuestion);
 
-            if (explicitPageId.HasValue)
+            if (resolvedPageId.HasValue)
             {
-                _logger.LogInformation("[RagRetrieval] ℹ Explicit PageID detected: {ExplicitPageId}", explicitPageId.Value);
+                _logger.LogInformation("[RagRetrieval] ℹ Explicit PageID detected: {ExplicitPageId}", resolvedPageId.Value);
             }
             if (explicitAttributeId.HasValue)
             {
@@ -147,10 +149,10 @@ namespace DynamicAi.Application.Services
 
             Filter pageFilter;
             int pageSearchLimit;
-            if (explicitPageId.HasValue)
+            if (resolvedPageId.HasValue)
             {
-                pageFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.Pages, filterVisibleOnly: false, (QdrantConstants.PageId, explicitPageId.Value));
-                _logger.LogInformation("[RagRetrieval] Using EXACT filter for PageID: {ExplicitPageId}", explicitPageId.Value);
+                pageFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.Pages, filterVisibleOnly: false, (QdrantConstants.PageId, resolvedPageId.Value));
+                _logger.LogInformation("[RagRetrieval] Using EXACT filter for PageID: {ExplicitPageId}", resolvedPageId.Value);
                 pageSearchLimit = 1;
             }
             else

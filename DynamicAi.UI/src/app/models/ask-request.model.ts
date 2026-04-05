@@ -13,4 +13,6 @@ export interface AskRequest {
     previousQuestion?: string;
     /** كود SQL السابق (Optional) - for Subquery wrapping */
     previousSql?: string;
+    /** الصفحة التي اختارها المستخدم (Optional) - لتجاوز البحث الدلالي في RAG */
+    selectedPageContext?: { pageId: number; pageName: string } | null;
 }

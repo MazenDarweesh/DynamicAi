@@ -5,6 +5,7 @@ import { ApiService } from '../../services/api.service';
 import { ChatSignalService } from '../../services/chat-signal.service';
 import { environment } from '../../../environments/environment';
 import { ChatMessage } from '../../models';
+import { PageDictionaryItem } from '../../models/page-dictionary.model';
 import { Observable, Subscription, race } from 'rxjs';
 import * as xlsx from 'xlsx';
 
@@ -41,6 +42,11 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     confirmedQuestion: string | undefined = undefined;
     confirmedSql: string | undefined = undefined;
 
+    // Page Scope (Context Bypass)
+    availablePages: PageDictionaryItem[] = [];
+    groupedPages: { groupName: string, pages: PageDictionaryItem[] }[] = [];
+    selectedPage: PageDictionaryItem | null = null;
+
     ngOnInit() {
         // Subscribe to external reset signals (e.g. from Sidebar)
         this.chatSignal.reset$.subscribe(() => {
@@ -56,6 +62,34 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
             this.confirmedQuestion = savedState.confirmedQuestion;
             this.confirmedSql = savedState.confirmedSql;
         }
+
+        // Fetch Page Dictionary for explicit scope bypassing 
+        this.apiService.getPagesDictionary().subscribe({
+            next: (pages) => {
+                this.availablePages = pages;
+                this.groupPages();
+            },
+            error: (err) => {
+                console.warn('[PageDictionary] Failed to load pages. RAG will remain in Semantic mode.', err);
+            }
+        });
+    }
+
+    private groupPages() {
+        if (!this.availablePages || this.availablePages.length === 0) return;
+        
+        const groups = new Map<string, PageDictionaryItem[]>();
+        this.availablePages.forEach(p => {
+            if (!groups.has(p.groupName)) {
+                groups.set(p.groupName, []);
+            }
+            groups.get(p.groupName)!.push(p);
+        });
+
+        this.groupedPages = Array.from(groups.entries()).map(([key, value]) => ({
+            groupName: key,
+            pages: value.sort((a, b) => a.pageName.localeCompare(b.pageName))
+        })).sort((a, b) => a.groupName.localeCompare(b.groupName));
     }
 
     ngOnDestroy() {
@@ -177,8 +211,10 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
             return () => clearTimeout(timer);
         });
 
+        const selectedPageContext = this.selectedPage ? { pageId: this.selectedPage.pageId, pageName: this.selectedPage.pageName } : null;
+
         this.activeSubscription = race(
-            this.apiService.ask(currentQ, this.lastQuestion, this.lastSql, sessionId),
+            this.apiService.ask(currentQ, this.lastQuestion, this.lastSql, sessionId, selectedPageContext),
             timeout$
         ).subscribe({
             next: (res: any) => {

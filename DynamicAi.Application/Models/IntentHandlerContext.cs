@@ -65,6 +65,12 @@ public class IntentHandlerContext
     public float[]? PrecomputedEmbedding { get; init; }
 
     /// <summary>
+    /// The explicit PageId passed directly by the user from the UI Dropdown.
+    /// When set, bypasses the semantic search in RAG.
+    /// </summary>
+    public int? ExplicitPageId { get; init; }
+
+    /// <summary>
     /// Pre-generated SQL retrieved from the Query Cache (if available).
     /// </summary>
     public string? CachedSql { get; init; }

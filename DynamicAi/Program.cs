@@ -113,7 +113,9 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     
     // --- Phase 2.7: SQL Sanitization & Validation ---
     services.AddSingleton<IDbSchemaProvider, DbSchemaProvider>(); // Singleton: shared Memory/Disk cache
+    services.AddSingleton<IPageDictionaryProvider, PageDictionaryProvider>(); // [NEW] Singleton: Page Dictionary cache
     services.AddHostedService<DbSchemaCacheWarmerService>();
+    services.AddHostedService<PageDictionaryCacheWarmerService>(); // [NEW] Pre-warms RAG Context Cache at startup
     services.AddHostedService<IntentIndexWarmerService>(); // Warm Qdrant intent indexes at startup
     services.AddHostedService<QueryCacheWarmerService>(); // Warm Qdrant query cache indexes at startup
     services.AddTransient<ISqlSanitizerService, SqlSanitizerService>();
