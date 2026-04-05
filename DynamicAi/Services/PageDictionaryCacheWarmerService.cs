@@ -159,9 +159,9 @@ namespace DynamicAi.Api.Services
                     var cachedContext = new CachedPageContext
                     {
                         PageId             = page.PageId,
-                        UnifiedPageContext = fullContext.MinimalSchemaContext ?? string.Empty,
-                        DictionaryEntries  = fullContext.AllDictionaryEntries ?? new List<string>(),
-                        BusinessRules      = fullContext.BusinessRules ?? new List<string>(),
+                        UnifiedPageContext = fullContext.SchemaContextJson ?? string.Empty,
+                        DictionaryEntries  = fullContext.DictionaryByListName?.SelectMany(kv => kv.Value).ToList() ?? new List<string>(),
+                        BusinessRules      = new List<string>(), // RAG Cache builder doesn't fetch business rules currently
                         CachedAt           = DateTime.UtcNow
                     };
 

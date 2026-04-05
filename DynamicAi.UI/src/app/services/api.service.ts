@@ -20,7 +20,7 @@ export class ApiService {
      * يجلب قائمة كل الصفحات المفعّلة لاستخدامها في הـ Dropdown.
      */
     getPagesDictionary(): Observable<import('../models/page-dictionary.model').PageDictionaryItem[]> {
-        return this.http.get<import('../models/page-dictionary.model').PageDictionaryItem[]>(`${this.apiUrl}/page-dictionary/pages`);
+        return this.http.get<import('../models/page-dictionary.model').PageDictionaryItem[]>(`${this.apiUrl}/api/page-dictionary/pages`);
     }
 
     ask(question: string, previousQuestion?: string, previousSql?: string, sessionId?: string, selectedPageContext?: { pageId: number; pageName: string } | null): Observable<any> {

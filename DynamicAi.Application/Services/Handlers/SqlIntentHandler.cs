@@ -177,6 +177,7 @@ public class SqlIntentHandler : IIntentHandler
             context?.TenantId ?? "default",
             context?.CompanyId,
             precomputedEmbedding: questionEmbedding, // Reuse from cache check (P1-1)
+            explicitPageId: context?.ExplicitPageId, // [FIX]
             ct: cancellationToken
         );
 

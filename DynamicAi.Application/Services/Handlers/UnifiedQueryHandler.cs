@@ -129,6 +129,7 @@ public class UnifiedQueryHandler : IIntentHandler
             tenantId,
             companyId,
             precomputedEmbedding: context?.PrecomputedEmbedding,
+            explicitPageId: context?.ExplicitPageId, // [FIX] Pass explicit page selection to force bypass Semantic Search
             ct: cancellationToken);
 
         // Phase 2: Render Master Prompt
