@@ -84,4 +84,9 @@ public class IntentHandlerContext
     /// The original LLM Intent (e.g. DataRetrieval, PredictionWithDataRetrieval) retrieved from the query cache.
     /// </summary>
     public string? CachedIntent { get; init; }
+
+    /// <summary>
+    /// The unique identifier of the cache record in the vector database.
+    /// </summary>
+    public string? CachedCacheId { get; init; }
 }

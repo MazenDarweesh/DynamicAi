@@ -80,7 +80,7 @@ public class UnifiedQueryHandler : IIntentHandler
         // --- PHASE 0: CACHE BYPASS ---
         if (!string.IsNullOrWhiteSpace(context?.CachedSql))
         {
-            _logger.LogInformation("[UnifiedHandler] ⚡ GLOBAL CACHE HIT. Bypassing RAG and LLM completely!");
+            _logger.LogInformation("[UnifiedHandler] ⚡ GLOBAL CACHE HIT (ID: {CacheId}). Bypassing RAG and LLM completely!", context.CachedCacheId);
             
             try
             {
@@ -89,6 +89,9 @@ public class UnifiedQueryHandler : IIntentHandler
                 
                 var cachedSqlResult = await ExecuteSqlPipelineAsync(context.CachedSql, tenantId, companyId, dummyRetrieval, context, cancellationToken);
                 cachedSqlResult.IsCached = true;
+                cachedSqlResult.CacheId = context.CachedCacheId; // 🆔 Carry original Qdrant Entry ID to result
+                
+                _logger.LogInformation("[UnifiedHandler] ✓ Cached result enriched with CacheId: {CacheId}", cachedSqlResult.CacheId);
                 
                 // A cache hit implies it's either DataRetrieval or PredictionWithDataRetrieval. Use recorded CachedIntent if available.
                 var defaultIntent = intentResult.Intent == IntentType.Unknown ? IntentType.DataRetrieval.ToString() : intentResult.Intent.ToString();

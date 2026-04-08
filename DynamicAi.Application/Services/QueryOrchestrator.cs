@@ -143,6 +143,11 @@ namespace DynamicAi.Application.Services
                         comID ?? 1,
                         explicitPageId,  // 👉 [NEW] Pass Explicit PageId!
                         ct);
+
+                    if (cachedResult != null)
+                    {
+                        _logger.LogInformation("[Orchestrator] ⚡ Global Query Cache HIT! CacheId: {CacheId}", cachedResult.CacheId);
+                    }
                 }
 
                 // Step 0.2: Intent uses precomputed embedding
@@ -252,7 +257,8 @@ namespace DynamicAi.Application.Services
                         ExplicitPageId = explicitPageId,     // 👉 [NEW] Pass Explicit PageId!
                         CachedSql = cachedResult?.Sql,       // 👉 Global Cache SQL Hit
                         CachedPageId = cachedResult?.PageId, // 👉 Global Cache Page Hit
-                        CachedIntent = cachedResult?.Intent  // 🎯 Pass original intent
+                        CachedIntent = cachedResult?.Intent, // 🎯 Pass original intent
+                        CachedCacheId = cachedResult?.CacheId // 🆔 Pass original Qdrant Entry ID for precise invalidation
                     };
 
                     ct.ThrowIfCancellationRequested(); // ✂️ Checkpoint before Handler delegation
