@@ -167,8 +167,15 @@ public class UnifiedQueryHandler : IIntentHandler
         if (context?.ConversationHistory != null && context.ConversationHistory.Any())
         {
             var historyBuilder = new System.Text.StringBuilder();
+            
+            // HISTORY SLICING: Prevent Cross-Page Contamination (Hallucinations)
+            // Only feed the LLM prior SQL generated for the EXACT same page structure.
+            // If the user navigates from "Sales" to "Purchases", we hide the Sales SQL.
+            int currentPageId = (retrievalResult.PageId.HasValue && retrievalResult.PageId.Value > 0) ? retrievalResult.PageId.Value : 0;
+            
             var turnsWithSql = context.ConversationHistory
                 .Where(t => !string.IsNullOrEmpty(t.SqlExecuted))
+                .Where(t => (t.PageId ?? 0) == currentPageId)
                 .OrderByDescending(t => t.CreatedAt)
                 .Take(5)
                 .ToList();

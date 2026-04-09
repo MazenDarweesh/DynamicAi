@@ -402,7 +402,7 @@ namespace DynamicAi.Application.Services
                                         userQuestion,
                                         sharedVector,
                                         rewrittenSql,
-                                        result.PageId.Value,
+                                        result.PageId ?? 0, // Safe fallback for strictly isolated general context
                                         tenantId,
                                         comID ?? 0,
                                         handlerType

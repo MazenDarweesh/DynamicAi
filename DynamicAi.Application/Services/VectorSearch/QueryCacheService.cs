@@ -152,18 +152,17 @@ public class QueryCacheService : IQueryCacheService
                 }
             });
 
-            // If an explicit pageId is provided, enforce strict scoping
-            if (pageId.HasValue && pageId.Value > 0)
+            // STRIKE ISOLATION: Always filter by page_id. 
+            // If pageId is null, we explicitly search for page_id = 0 (General Context) 
+            // to prevent global queries from contaminating or leaking into page-specific queries.
+            filter.Must.Add(new Condition
             {
-                filter.Must.Add(new Condition
+                Field = new FieldCondition
                 {
-                    Field = new FieldCondition
-                    {
-                        Key = "page_id",
-                        Match = new Match { Integer = pageId.Value }
-                    }
-                });
-            }
+                    Key = "page_id",
+                    Match = new Match { Integer = pageId ?? 0 }
+                }
+            });
 
             var searchResult = await _qdrantClient.SearchAsync(
                 _collectionName,
