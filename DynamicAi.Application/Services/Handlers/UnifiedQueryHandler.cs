@@ -173,12 +173,19 @@ public class UnifiedQueryHandler : IIntentHandler
             // If the user navigates from "Sales" to "Purchases", we hide the Sales SQL.
             int currentPageId = (retrievalResult.PageId.HasValue && retrievalResult.PageId.Value > 0) ? retrievalResult.PageId.Value : 0;
             
-            var turnsWithSql = context.ConversationHistory
-                .Where(t => !string.IsNullOrEmpty(t.SqlExecuted))
+            var allSqlTurns = context.ConversationHistory.Where(t => !string.IsNullOrEmpty(t.SqlExecuted)).ToList();
+            
+            var turnsWithSql = allSqlTurns
                 .Where(t => (t.PageId ?? 0) == currentPageId)
                 .OrderByDescending(t => t.CreatedAt)
                 .Take(5)
                 .ToList();
+                
+            if (allSqlTurns.Count > turnsWithSql.Count)
+            {
+                _logger.LogWarning("🔪 [UnifiedHandler] HISTORY SLICED: Removed {HiddenTurns} unrelated prior SQL queries from LLM context to prevent cross-page contamination (Current Context PageID: {CurrentPageId}).", 
+                    allSqlTurns.Count - turnsWithSql.Count, currentPageId);
+            }
                 
             for (int i = 0; i < turnsWithSql.Count; i++)
             {

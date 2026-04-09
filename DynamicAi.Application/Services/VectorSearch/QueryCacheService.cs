@@ -155,12 +155,14 @@ public class QueryCacheService : IQueryCacheService
             // STRIKE ISOLATION: Always filter by page_id. 
             // If pageId is null, we explicitly search for page_id = 0 (General Context) 
             // to prevent global queries from contaminating or leaking into page-specific queries.
+            int isolatedPageId = pageId ?? 0;
+            _logger.LogInformation("🛡️ [QueryCache] Strict Scoping Applied: Enforcing PageID = {IsolatedPageId} (0 implies General Context)", isolatedPageId);
             filter.Must.Add(new Condition
             {
                 Field = new FieldCondition
                 {
                     Key = "page_id",
-                    Match = new Match { Integer = pageId ?? 0 }
+                    Match = new Match { Integer = isolatedPageId }
                 }
             });
 
