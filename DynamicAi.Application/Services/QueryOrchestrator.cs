@@ -150,50 +150,69 @@ namespace DynamicAi.Application.Services
                     }
                 }
 
-                // Step 0.2: Intent uses precomputed embedding
-                Task<IntentClassificationResult> intentTask;
-                if (_intentClassificationEnabled && cachedResult == null)
+                // [Phantom Fix] Step 0.2: Smart dispatch — checks flags BEFORE creating tasks.
+                // Branches:
+                //   A. Both enabled  → TRUE PARALLEL via Task.WhenAll
+                //   B. Intent only   → await intent directly (no WhenAll overhead)
+                //   C. Condenser only → await condenser directly
+                //   D. Both disabled → pure synchronous new() — zero thread pool touch
+                bool intentActive    = _intentClassificationEnabled && cachedResult == null;
+                bool condenserActive = _condenserEnabled;
+
+                IntentClassificationResult intentResult_p;
+                CondenserResult            condenserResult_p;
+
+                if (intentActive && condenserActive)
                 {
-                    intentTask = _intentClassifier.ClassifyIntentAsync(userQuestion, sharedVector, cancellationToken: ct);
+                    // ✅ TRUE PARALLEL: Both services are live — Task.WhenAll is correct here
+                    _logger.LogInformation("[Orchestrator] ⚡ Both Intent + Condenser enabled → TRUE PARALLEL");
+                    var intentTask_p    = _intentClassifier.ClassifyIntentAsync(userQuestion, sharedVector, cancellationToken: ct);
+                    var condenserTask_p = _condenserService.CondenseQuestionAsync(userQuestion, previousQuestion, previousSql, tenantId, comID, ct);
+                    await Task.WhenAll(intentTask_p, condenserTask_p);
+                    intentResult_p    = intentTask_p.Result;
+                    condenserResult_p = condenserTask_p.Result;
                 }
-                else
+                else if (intentActive)
                 {
-                    if (cachedResult == null) _logger.LogInformation("[Orchestrator] 🚀 Intent Classifier bypassed (disabled in config).");
-                    intentTask = Task.FromResult(new IntentClassificationResult
+                    // 🔵 INTENT ONLY: Condenser is disabled — await intent directly, assign condenser default
+                    _logger.LogInformation("[Orchestrator] 🚀 Condenser bypassed (disabled in config). Awaiting Intent only.");
+                    intentResult_p    = await _intentClassifier.ClassifyIntentAsync(userQuestion, sharedVector, cancellationToken: ct);
+                    condenserResult_p = new CondenserResult { ActionType = QueryActionType.New, CondensedQuestion = userQuestion };
+                }
+                else if (condenserActive)
+                {
+                    // 🟡 CONDENSER ONLY: Intent disabled or cache-hit — await condenser directly
+                    _logger.LogInformation("[Orchestrator] 🚀 Intent bypassed (disabled in config or cache hit). Awaiting Condenser only.");
+                    condenserResult_p = await _condenserService.CondenseQuestionAsync(userQuestion, previousQuestion, previousSql, tenantId, comID, ct);
+                    intentResult_p    = new IntentClassificationResult
                     {
-                        Intent = IntentType.Unknown, // Will trigger unified handler which supports Unknown
+                        Intent         = IntentType.Unknown,
                         ConfidenceScore = 1.0f,
                         QueryEmbedding = sharedVector
-                    });
-                }
-                
-                Task<CondenserResult> condenserTask;
-                if (_condenserEnabled)
-                {
-                    condenserTask = _condenserService.CondenseQuestionAsync(
-                        userQuestion, previousQuestion, previousSql, tenantId, comID, ct);
+                    };
                 }
                 else
                 {
-                    _logger.LogInformation("[Orchestrator] 🚀 Condenser bypassed (disabled in config). Continuing with Action=New.");
-                    condenserTask = Task.FromResult(new CondenserResult
+                    // ⚡ ZERO ALLOCATION: Both disabled/bypassed — no thread pool touch at all
+                    _logger.LogInformation("[Orchestrator] ⚡ Both Intent + Condenser bypassed (disabled or cache hit). Zero async allocation.");
+                    intentResult_p    = new IntentClassificationResult
                     {
-                        ActionType = QueryActionType.New,
-                        CondensedQuestion = userQuestion
-                    });
+                        Intent         = IntentType.Unknown,
+                        ConfidenceScore = 1.0f,
+                        QueryEmbedding = sharedVector
+                    };
+                    condenserResult_p = new CondenserResult { ActionType = QueryActionType.New, CondensedQuestion = userQuestion };
                 }
 
-                await Task.WhenAll(intentTask, condenserTask);
-
-                intentResult = await intentTask;
-                var condenserResult = await condenserTask;
+                intentResult        = intentResult_p;
+                var condenserResult = condenserResult_p;
 
                 var parallelDuration = (DateTime.UtcNow - parallelStart).TotalMilliseconds;
-                _logger.LogInformation("[Orchestrator] ✓ Parallel Layer 0 completed in {Duration:F0}ms", parallelDuration);
+                _logger.LogInformation("[Orchestrator] ✓ Layer 0 (Intent + Condenser) resolved in {Duration:F0}ms", parallelDuration);
                 _logger.LogInformation("[Orchestrator]   → Intent: {Intent} (Confidence: {Confidence:F2})",
                     intentResult.Intent, intentResult.ConfidenceScore);
-                
-                if (_condenserEnabled && cachedResult == null)
+
+                if (condenserActive && cachedResult == null)
                 {
                     _logger.LogInformation("[Orchestrator]   → Condenser: Action={Action}, Question=\"{Question}\"",
                         condenserResult.ActionType, condenserResult.CondensedQuestion);
