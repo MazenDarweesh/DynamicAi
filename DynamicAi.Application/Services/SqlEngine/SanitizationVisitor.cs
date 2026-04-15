@@ -23,7 +23,14 @@ namespace DynamicAi.Application.Services.SqlEngine
         public List<ColumnReferenceExpression> ColumnsToRemove { get; } = new List<ColumnReferenceExpression>();
 
         public List<string> Warnings { get; } = new List<string>();
-        public List<string> ValidationErrors { get; } = new List<string>();
+
+        // [Error Grouping] Computed property — errors are consolidated at read time, not at add time.
+        // This prevents token explosion in the Self-Healing loop (was: 1 error per column = N × full column list).
+        public List<string> ValidationErrors => GenerateConsolidatedErrors();
+
+        // Internal accumulator: TableName → (InvalidColumns, ValidColumns)
+        private readonly Dictionary<string, (HashSet<string> InvalidCols, HashSet<string> ValidCols)>
+            _invalidColumnsByTable = new Dictionary<string, (HashSet<string>, HashSet<string>)>(StringComparer.OrdinalIgnoreCase);
 
         private string _currentClause = "UNKNOWN";
 
@@ -219,12 +226,51 @@ namespace DynamicAi.Application.Services.SqlEngine
                 {
                     // 🚨 العمود غير موجود!
                     ColumnsToRemove.Add(node);
-                    var error = $"Column '{columnName}' does not exist in table/view '{targetRealTable}'. Available columns are: {string.Join(", ", validColumns.Take(30))}" + (validColumns.Count > 30 ? "..." : "");
+
+                    // [Error Grouping] Log a per-call warning (Diagnostic: visible in Logs per clause)
                     Warnings.Add($"[Sanitizer] Invalid column '{columnName}' found in '{targetRealTable}' (Clause: {_currentClause}).");
-                    ValidationErrors.Add(error);
+
+                    // [Error Grouping] Accumulate into dictionary instead of adding a full error string immediately.
+                    // The consolidated error is generated only when ValidationErrors is read.
+                    if (!_invalidColumnsByTable.TryGetValue(targetRealTable, out var entry))
+                    {
+                        entry = (new HashSet<string>(StringComparer.OrdinalIgnoreCase), validColumns);
+                        _invalidColumnsByTable[targetRealTable] = entry;
+                    }
+                    entry.InvalidCols.Add(columnName);
                 }
             }
             // إذا الجدول نفسه غير موجود في الـ Schema (لم يظهر في الـ Check الأول)، نتجاوز.
+        }
+
+        // ============================================================================
+        // [Error Grouping] Consolidator — runs at read time of ValidationErrors
+        // Produces ONE error string per table instead of one per column.
+        // Example output:
+        //   Table 'Supplier' has 2 invalid column(s): [Name, Address].
+        //   Available columns are: [accountid, bankaccount, ...]
+        // ============================================================================
+        private List<string> GenerateConsolidatedErrors()
+        {
+            var errors = new List<string>();
+
+            foreach (var kvp in _invalidColumnsByTable)
+            {
+                var tableName   = kvp.Key;
+                var invalidCols = kvp.Value.InvalidCols;
+                var validCols   = kvp.Value.ValidCols;
+
+                var invalidList  = string.Join(", ", invalidCols.OrderBy(c => c, StringComparer.OrdinalIgnoreCase));
+                var availableStr = string.Join(", ", validCols.Take(30))
+                                  + (validCols.Count > 30 ? "..." : "");
+
+                errors.Add(
+                    $"Table '{tableName}' has {invalidCols.Count} invalid column(s): [{invalidList}]. " +
+                    $"Available columns are: [{availableStr}]"
+                );
+            }
+
+            return errors;
         }
     }
 }

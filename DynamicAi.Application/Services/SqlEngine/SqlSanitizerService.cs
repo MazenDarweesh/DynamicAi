@@ -61,7 +61,7 @@ namespace DynamicAi.Application.Services.SqlEngine
                 if (visitor.ValidationErrors.Any())
                 {
                     var errorSummary = string.Join("\n", visitor.ValidationErrors);
-                    _logger.LogWarning("[SqlSanitizer] 🛡️ STRICT MODE: {Count} schema violation(s) detected:\n{Errors}",
+                    _logger.LogWarning("[SqlSanitizer] 🛡️ STRICT MODE: {TableCount} table(s) with schema violation(s):\n{Errors}",
                         visitor.ValidationErrors.Count, errorSummary);
 
                     throw new SqlSanitizationException(
