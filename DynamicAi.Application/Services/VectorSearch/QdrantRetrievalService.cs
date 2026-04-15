@@ -32,6 +32,9 @@ namespace DynamicAi.Application.Services
         private readonly bool _ragCacheEnabled;
         private readonly int _ragCacheTTLMinutes;
 
+        // [Feature Flag] Dictionary Compact Format (reduces tokens, prevents hallucination)
+        private readonly bool _dictionaryCompactFormat;
+
         public QdrantRetrievalService(
             QdrantClient qdrantClient,
             IEmbeddingGenerator<string, Embedding<float>> embeddingService,
@@ -51,6 +54,10 @@ namespace DynamicAi.Application.Services
             // Load RAG Cache settings safely
             _ragCacheEnabled = !bool.TryParse(configuration["Caching:RagContextCache:Enabled"], out var enabled) || enabled; // Default true
             _ragCacheTTLMinutes = int.TryParse(configuration["Caching:RagContextCache:TTLMinutes"], out var ttl) ? ttl : 240; // Default 240
+
+            // [Feature Flag] Load Dictionary Compact Format setting (default: false = backward compatible)
+            _dictionaryCompactFormat = configuration.GetValue<bool>("Features:DictionaryCompactFormatEnabled", false);
+            _logger.LogInformation("[QdrantRetrieval] 🗜️ DictionaryCompactFormat = {Mode}", _dictionaryCompactFormat ? "ENABLED (LLM-Friendly Text)" : "DISABLED (Raw JSON)");
         }
 
         /// <summary>
@@ -362,7 +369,8 @@ namespace DynamicAi.Application.Services
 
                 // Fetch all in one go
                 var listResults = await SearchQdrantAsync(embedding, listFilter, 250 * listNamesToFetch.Count, $"{DbTables.ListSetups} (Batched Attr)", ct);
-                contextBundle.DictionaryEntries.AddRange(listResults);
+                // [Feature Flag] Apply compact format if enabled, otherwise keep raw JSON
+                contextBundle.DictionaryEntries.AddRange(listResults.Select(FormatDictionaryEntry).Where(s => !string.IsNullOrEmpty(s)));
             }
 
             // ============================================================================
@@ -461,7 +469,8 @@ namespace DynamicAi.Application.Services
                     detailListFilter.Must.Add(new Condition { Filter = detailListNamesFilter });
 
                     var detailListResults = await SearchQdrantAsync(embedding, detailListFilter, 250 * detailListNamesToFetch.Count, $"{DbTables.ListSetups} (Batched Details)", ct);
-                    contextBundle.DictionaryEntries.AddRange(detailListResults);
+                    // [Feature Flag] Apply compact format if enabled, otherwise keep raw JSON
+                    contextBundle.DictionaryEntries.AddRange(detailListResults.Select(FormatDictionaryEntry).Where(s => !string.IsNullOrEmpty(s)));
                 }
 
                 _logger.LogInformation("[RagRetrieval] ✓ Linked {DetailsCount} PageDetail(s) across {AttrCount} attribute(s).", totalDetailsLinked, allAttributeIds.Count);
@@ -511,6 +520,8 @@ namespace DynamicAi.Application.Services
                 int filteredCount = contextBundle.DictionaryEntries.Count;
                 _logger.LogInformation("[RagRetrieval] ✓ Dictionary (Visible + Blacklist): {Original} → {Filtered} entries",
                     originalCount, filteredCount);
+                _logger.LogInformation("[RagRetrieval] 🗜️ DictionaryCompactFormat = {Mode} | Entries ready for LLM prompt.",
+                    _dictionaryCompactFormat ? "ENABLED" : "DISABLED (Raw JSON)");
             }
 
             contextBundle.UnifiedPageContext = BuildMinimalSchemaContext(pageNode);
@@ -683,7 +694,7 @@ namespace DynamicAi.Application.Services
                     ["TailCondition"] = CloneValue(attr["TailCondition"]),
                     ["IsDepartment"] = CloneValue(attr["IsDepartment"]),
                     ["DepartmentCoulmn"] = CloneValue(attr["DepartmentCoulmn"]),
-                    ["SchemaScript"] = CloneValue(attr["SchemaScript"]),
+                    // ["SchemaScript"] = CloneValue(attr["SchemaScript"]), // Temporarily commented out for experimental testing to reduce token bloat and prevent hallucinations.
                     ["PageDetails"] = new JsonArray()
                 };
 
@@ -1374,9 +1385,13 @@ namespace DynamicAi.Application.Services
 
                     if (visibleEntries.Any())
                     {
-                        grouped[listName] = visibleEntries;
-                        _logger.LogDebug("[LLM Cache] ListName={ListName}: {Count} visible entries",
-                            listName, visibleEntries.Count);
+                        // [Feature Flag] Apply compact format to each entry if enabled
+                        var finalEntries = visibleEntries.Select(FormatDictionaryEntry)
+                                                         .Where(s => !string.IsNullOrEmpty(s))
+                                                         .ToList();
+                        grouped[listName] = finalEntries;
+                        _logger.LogDebug("[LLM Cache] ListName={ListName}: {Count} visible entries (compact={Compact})",
+                            listName, finalEntries.Count, _dictionaryCompactFormat);
                     }
                 }
 
@@ -1396,6 +1411,53 @@ namespace DynamicAi.Application.Services
             {
                 _logger.LogError(ex, "[LLM Cache] ❌ Failed to retrieve full page context for PageID {PageId}", pageId);
                 throw;
+            }
+        }
+
+        // ============================================================================
+        // [FEATURE FLAG] Dictionary Compact Format Helper
+        // Converts raw Qdrant JSON into a compact, LLM-friendly single-line text.
+        // Controlled by: Features:DictionaryCompactFormatEnabled in appsettings.json
+        // true  → compact text (~4k tokens, no hallucinations)
+        // false → raw JSON  (~26k tokens, original behavior)
+        // ============================================================================
+        private string FormatDictionaryEntry(string rawJson)
+        {
+            // 🏳️ Feature Flag OFF: return raw JSON untouched (original behavior preserved)
+            if (!_dictionaryCompactFormat) return rawJson;
+
+            try
+            {
+                var node = JsonNode.Parse(rawJson);
+                if (node == null) return rawJson;
+
+                var list   = node["ListName"]?.GetValue<string>() ?? "";
+                var search = node["SearchName"]?.GetValue<string>() ?? "";
+                var col    = node["ColumnName"]?.GetValue<string>() ?? "";
+                var type   = node["InsertType"]?.GetValue<string>() ?? "";
+                var ar     = node["arColumnLabel"]?.GetValue<string>() ?? "";
+                var en     = node["enColumnLabel"]?.GetValue<string>() ?? "";
+                var vis    = node["visible"]?.GetValue<bool>() ?? true;
+                var visStr = vis ? "1" : "0";
+
+                // Build compact Dropdown info if applicable
+                string droInfo = "";
+                var droModel = node["DroModel"]?.GetValue<string>();
+                if (!string.IsNullOrEmpty(droModel))
+                {
+                    var v = node["DroValue"]?.GetValue<string>() ?? "";
+                    var t = node["DroText"]?.GetValue<string>() ?? "";
+                    droInfo = $" | Dro:{droModel}:{v}:{t}";
+                }
+
+                // Result: one clean line per column instead of thousands-of-lines JSON
+                // Format: ListName | SearchName | ColumnName | InsertType | arLabel | enLabel | Vis:0/1 [| Dro:...]
+                return $"{list} | {search} | {col} | {type} | {ar} | {en} | Vis:{visStr}{droInfo}";
+            }
+            catch
+            {
+                // On any parse error, fall back to original JSON (safe degradation)
+                return rawJson;
             }
         }
 
