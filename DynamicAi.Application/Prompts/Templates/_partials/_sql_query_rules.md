@@ -1,8 +1,8 @@
 DATA FLOW(CRITICAL):
-1) FROM: Use the master view name (the 'TableName' value from PageAttribute in HIERARCHY CONTEXT) as your FROM clause.
+1) FROM: Use ONLY the 'TableName' value from PageAttribute in HIERARCHY CONTEXT as your FROM clause (e.g. TableName=ContractViewWithPaid → FROM ContractViewWithPaid AS T1). NEVER use 'ListName' in a FROM clause — 'ListName' is ONLY a key to look up column aliases in the DICTIONARY CONTEXT.
 2) COLUMNS: Use ONLY the 'ColumnName' values from the DICTIONARY CONTEXT entries below.
 3) WHERE: Apply the 'TailCondition' filter from HIERARCHY CONTEXT + AND ComID=@CurrentCompanyId.
-4) DETAILS: If user asks for details, JOIN the detail view (the 'TableName' from PageDetail in HIERARCHY) ON master 'Primary' = detail 'ForeignKey', add detail 'TailCondition' if not null.
+4) DETAILS(CRITICAL — READ CAREFULLY): If the user asks for details, JOIN using the 'TableName' from PageDetail in HIERARCHY (e.g. TableName=salessystemcontract → JOIN salessystemcontract AS T2). ON master.'Primary' = detail.'ForeignKey'. FATAL: Do NOT use 'ListName' (e.g. SalesDetailView) as a JOIN table — 'ListName' only identifies which DICTIONARY CONTEXT entries belong to this detail (column aliases). The actual SQL table is ALWAYS 'TableName'.
 5) NO OTHER tables/views/JOINs except dropdown lookups per COLUMN RESOLUTION.
 
 FORMAT(MANDATORY): You MUST assign an alias to EVERY table (e.g., T1, T2). You MUST prefix EVERY column with its table alias (e.g., T1.Col). Selecting a column without its alias (e.g., SELECT Col) is a FATAL ERROR and will crash the system. ALIAS AS [ArabicName] ALWAYS.
