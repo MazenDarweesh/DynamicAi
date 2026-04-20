@@ -155,6 +155,7 @@ public class ConversationContextService : IConversationContextService
     public Task<List<ConversationTurn>> GetRecentContextAsync(
         string sessionId,
         int limit = 3,
+        int? pageId = null,
         CancellationToken cancellationToken = default)
     {
         if (!_enabled) return Task.FromResult(new List<ConversationTurn>());
@@ -165,7 +166,7 @@ public class ConversationContextService : IConversationContextService
             if (history == null) return Task.FromResult(new List<ConversationTurn>()); // Defensive Null Check
             // Filter and take random/last N? Logic says "Recent Context" -> Last N
             var relevant = history!
-                .Where(x => x.IsRelevantForContext)
+                .Where(x => x.IsRelevantForContext && (!pageId.HasValue || x.PageId == pageId.Value))
                 .OrderByDescending(x => x.CreatedAt)
                 .Take(limit)
                 .OrderBy(x => x.CreatedAt)
@@ -204,14 +205,17 @@ public class ConversationContextService : IConversationContextService
         return Task.FromResult(new List<ConversationTurn>());
     }
 
-    public Task RemoveLastRelevantTurnAsync(string sessionId, CancellationToken cancellationToken = default)
+    public Task RemoveLastRelevantTurnAsync(string sessionId, int? pageId = null, CancellationToken cancellationToken = default)
     {
         if (!_enabled) return Task.CompletedTask;
 
         var cacheKey = $"context-{sessionId}";
         if (_cache.TryGetValue<List<ConversationTurn>>(cacheKey, out var history) && history != null && history.Count > 0)
         {
-            var lastRelevant = history.Where(x => x.IsRelevantForContext).OrderByDescending(x => x.CreatedAt).FirstOrDefault();
+            var lastRelevant = history
+                .Where(x => x.IsRelevantForContext && (!pageId.HasValue || x.PageId == pageId.Value))
+                .OrderByDescending(x => x.CreatedAt)
+                .FirstOrDefault();
             if (lastRelevant != null)
             {
                 history.Remove(lastRelevant);

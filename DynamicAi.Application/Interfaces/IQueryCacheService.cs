@@ -61,6 +61,7 @@ public interface IQueryCacheService
     /// <param name="embedding">The question embedding to match.</param>
     /// <param name="tenantId">The tenant identifier.</param>
     /// <param name="companyId">The company identifier.</param>
+    /// <param name="pageId">Optional page identifier for strict deletion scoping. If null, targets PageId=0 (General).</param>
     /// <returns>True if any entries were deleted.</returns>
-    Task<bool> DeleteSimilarCacheAsync(float[] embedding, string tenantId, int companyId, CancellationToken ct = default);
+    Task<bool> DeleteSimilarCacheAsync(float[] embedding, string tenantId, int companyId, int? pageId = null, CancellationToken ct = default);
 }

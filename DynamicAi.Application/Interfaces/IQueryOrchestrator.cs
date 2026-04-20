@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using DynamicAi.Application.Models;
+using DynamicAi.Application.Models.DirectIntegration;
 
 namespace DynamicAi.Application.Interfaces
 {
@@ -28,6 +29,13 @@ namespace DynamicAi.Application.Interfaces
             string? previousQuestion = null,
             string? previousSql = null,
             int? explicitPageId = null,        // [NEW] اختياري: PageId من الـ Frontend Dropdown
+            CancellationToken ct = default);
+
+        /// <summary>
+        /// يعالج طلب دمج مباشر من صفحة معينة، متخطياً Qdrant وسحب السياق من قاعدة بيانات المتجهات.
+        /// </summary>
+        Task<QueryExecutionResult> HandleDirectedPageQueryAsync(
+            DirectedPageAskRequest request,
             CancellationToken ct = default);
     }
 }

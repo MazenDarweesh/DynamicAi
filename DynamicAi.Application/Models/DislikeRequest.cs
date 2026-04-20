@@ -54,4 +54,10 @@ public class DislikeRequest
     /// The actual message displayed to the user (e.g. error text). [Legacy]
     /// </summary>
     public string? DisplayedMessage { get; set; }
+
+    /// <summary>
+    /// 🛡️ [ISOLATION] Page identifier – ensures Cache and History deletion
+    /// is scoped to the correct page only. Prevents cross-page data destruction.
+    /// </summary>
+    public int? PageId { get; set; }
 }

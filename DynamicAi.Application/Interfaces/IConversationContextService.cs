@@ -16,7 +16,8 @@ public interface IConversationContextService
     Task<List<ConversationTurn>> GetRecentContextAsync(
         string sessionId,
         int limit = 3,
+        int? pageId = null,
         CancellationToken cancellationToken = default);
 
-    Task RemoveLastRelevantTurnAsync(string sessionId, CancellationToken cancellationToken = default);
+    Task RemoveLastRelevantTurnAsync(string sessionId, int? pageId = null, CancellationToken cancellationToken = default);
 }

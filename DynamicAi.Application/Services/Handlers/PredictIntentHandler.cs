@@ -79,7 +79,7 @@ public class PredictIntentHandler : IIntentHandler
         _logger.LogInformation("═══════════════ CONTEXT RETRIEVAL ═══════════════");
 
         var sessionId = context?.SessionId ?? "default-session";
-        var recentTurns = await _contextService.GetRecentContextAsync(sessionId, limit: 3, cancellationToken);
+        var recentTurns = await _contextService.GetRecentContextAsync(sessionId, limit: 3, pageId: null, cancellationToken: cancellationToken);
 
         if (recentTurns.Count == 0)
         {

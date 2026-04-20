@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Threading.Tasks;
 using System.Threading;
+using DynamicAi.Application.Models.DirectIntegration;
 
 namespace DynamicAi.Application.Services
 {
@@ -108,7 +109,7 @@ namespace DynamicAi.Application.Services
                 #region Context Loading (Phase 0)
 
                 _logger.LogInformation("[Orchestrator] Loading recent context for session: {SessionId}", sessionId);
-                var recentTurns = await _contextService.GetRecentContextAsync(sessionId, 5, ct);
+                var recentTurns = await _contextService.GetRecentContextAsync(sessionId, limit: 3, pageId: null, ct);
                 var lastTurn = recentTurns.FirstOrDefault();
                 var previousPageId = lastTurn?.PageId;
 
@@ -600,6 +601,164 @@ namespace DynamicAi.Application.Services
 
             #endregion
         }
+
+        public async Task<QueryExecutionResult> HandleDirectedPageQueryAsync(DirectedPageAskRequest request, CancellationToken ct = default)
+        {
+            #region Setup & Logging
+            _logger.LogInformation("\n");
+            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+            _logger.LogInformation("║           DIRECTED PAGE INTEGRATION - PIPELINE START                   ║");
+            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+            _logger.LogInformation("[Orchestrator] Directed Question: \"{Question}\"", request.Question);
+            _logger.LogInformation("[Orchestrator] Page: {PageName} (ID: {PageId})", request.ExplicitContext.PageName, request.PageId);
+
+            var startTime = DateTime.UtcNow;
+            Guid queryLogId = Guid.NewGuid();
+            #endregion
+
+            // 1. Conversation History Isolation (Explicitly passing PageId)
+            _logger.LogInformation("[Orchestrator] Loading isolated context for PageId: {PageId}", request.PageId);
+            var recentTurns = await _contextService.GetRecentContextAsync(request.SessionId ?? "direct-integration", 3, request.PageId, ct);
+
+            // 2. Compute Embedding for Cache check
+            var sharedEmbedding = await _embeddingService.GenerateAsync(request.Question, cancellationToken: ct);
+            float[] sharedVector = sharedEmbedding.Vector.ToArray();
+
+            // 3. Strict Cache Check (Isolated by PageId)
+            CachedQueryResult? cachedResult = null;
+            if (_queryCacheEnabled)
+            {
+                cachedResult = await _queryCacheService.TryGetCachedSqlAsync(
+                    sharedVector,
+                    request.TenantId,
+                    request.ComID ?? 1,
+                    request.PageId,
+                    ct);
+
+                if (cachedResult != null)
+                {
+                    _logger.LogInformation("[Orchestrator] ⚡ Directed Cache HIT! CacheId: {CacheId}", cachedResult.CacheId);
+                    
+                    var hitResult = new QueryExecutionResult
+                    {
+                        ErrorMessage = null, // Success is calculated from this
+                        IsCached = true,
+                        RewrittenSql = cachedResult.Sql,
+                        Intent = cachedResult.Intent,
+                        PageId = cachedResult.PageId,
+                        ConfidenceScore = 1.0f
+                    };
+                    
+                    // Fire-and-forget log
+                    _ = Task.Run(async () => {
+                        try {
+                            using var scope = _scopeFactory.CreateScope();
+                            var repo = scope.ServiceProvider.GetRequiredService<IQueryLogRepository>();
+                            await repo.AddAsync(new Domain.Entities.QueryLog {
+                                Id = queryLogId,
+                                RawQuestion = request.Question,
+                                GeneratedSql = cachedResult.Sql,
+                                WasSuccessful = true,
+                                TenantId = request.TenantId,
+                                CompanyId = request.ComID,
+                                CreatedAt = DateTime.UtcNow,
+                                LatencyMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                                HandlerType = "DirectedCacheHit"
+                            });
+                        } catch { }
+                    });
+
+                    return hitResult;
+                }
+            }
+
+            // 4. Bypass classifies/RAG & Execute via Unified Handler
+            if (!_handlerFactory.TryGetHandler(IntentType.DataRetrieval, out var handler))
+            {
+                throw new InvalidOperationException("Default DataRetrieval handler not found.");
+            }
+
+            var context = new IntentHandlerContext
+            {
+                PreviousQuestion = request.PreviousQuestion,
+                PreviousSql = request.PreviousSql,
+                QueryLogId = queryLogId,
+                TenantId = request.TenantId,
+                CompanyId = request.ComID,
+                SessionId = request.SessionId,
+                ConversationHistory = recentTurns,
+                IsCondenserBypassed = true, // Force history usage without redacting
+                PrecomputedEmbedding = sharedVector,
+                ExplicitPageId = request.PageId,
+                InjectedContext = request.ExplicitContext
+            };
+
+            var intentStub = new IntentClassificationResult
+            {
+                Intent = IntentType.DataRetrieval,
+                ConfidenceScore = 1.0f,
+                QueryEmbedding = sharedVector
+            };
+
+            var result = await handler!.HandleAsync(request.Question, intentStub, context, ct);
+
+            #region Post-Execution (Async Log & Cache)
+            var totalDuration = (DateTime.UtcNow - startTime).TotalMilliseconds;
+            if (result.IsSuccess)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        using var scope = _scopeFactory.CreateScope();
+                        var queryLogRepo = scope.ServiceProvider.GetRequiredService<IQueryLogRepository>();
+                        var contextService = scope.ServiceProvider.GetRequiredService<IConversationContextService>();
+                        var queryCacheService = scope.ServiceProvider.GetRequiredService<IQueryCacheService>();
+
+                        // Log to DB
+                        await queryLogRepo.AddAsync(new Domain.Entities.QueryLog
+                        {
+                            Id = queryLogId,
+                            RawQuestion = request.Question,
+                            GeneratedSql = result.RewrittenSql,
+                            WasSuccessful = true,
+                            TenantId = request.TenantId,
+                            CompanyId = request.ComID,
+                            CreatedAt = DateTime.UtcNow,
+                            LatencyMs = (int)totalDuration,
+                            HandlerType = "DirectedIntegration"
+                        });
+
+                        // Store in Cache
+                        await queryCacheService.StoreCachedSqlAsync(
+                            queryLogId,
+                            request.Question,
+                            sharedVector,
+                            result.RewrittenSql ?? "",
+                            request.PageId,
+                            request.TenantId,
+                            request.ComID ?? 0,
+                            "DirectedIntegration"
+                        );
+
+                        // Save Context
+                        await contextService.SaveTurnAsync(
+                            request.SessionId ?? "direct-integration",
+                            request.Question,
+                            "DirectedIntegration",
+                            result.RewrittenSql,
+                            result.Data,
+                            request.PageId
+                        );
+                    }
+                    catch (Exception ex) { Console.WriteLine($"[DirectedOrchestrator] BG Error: {ex.Message}"); }
+                });
+            }
+            #endregion
+
+            return result;
+        }
+
 
         #endregion
 

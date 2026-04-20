@@ -126,7 +126,8 @@ public class FeedbackController : ControllerBase
                 cacheDeleted = await _queryCacheService.DeleteSimilarCacheAsync(
                     embedding.Vector.ToArray(),
                     request.TenantId,
-                    request.CompanyId);
+                    request.CompanyId,
+                    request.PageId);
 
                 if (cacheDeleted)
                 {
@@ -143,7 +144,7 @@ public class FeedbackController : ControllerBase
             // ═══════════════════════════════════════════════════════════════════
             if (!string.IsNullOrEmpty(request.SessionId))
             {
-                await _contextService.RemoveLastRelevantTurnAsync(request.SessionId);
+                await _contextService.RemoveLastRelevantTurnAsync(request.SessionId, request.PageId);
             }
 
             // ═══════════════════════════════════════════════════════════════════

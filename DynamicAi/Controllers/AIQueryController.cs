@@ -1,6 +1,7 @@
 using DynamicAi.Domain.Entities;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
+using DynamicAi.Application.Models.DirectIntegration;
 using DynamicAi.Application.Exceptions;
 using DynamicAi.Infrastructure.Persistence;
 using DynamicAi.Infrastructure.TargetDb;
@@ -178,6 +179,36 @@ namespace DynamicAi.Api.Controllers
                 _logger.LogError(ex, "API REQUEST FAILED - UNEXPECTED ERROR. Type: {ErrorType}. Duration: {Duration:F0}ms", ex.GetType().Name, apiDuration);
 
                 return StatusCode(500, "⚠️ حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.");
+            }
+        }
+
+        /// <summary>
+        /// Directed Page Integration Endpoint (Direct RAG Bypass)
+        /// </summary>
+        [HttpPost("integration/directed-page-ask")]
+        public async Task<IActionResult> DirectedPageAsk([FromBody] DirectedPageAskRequest request)
+        {
+            _logger.LogInformation("EXTERNAL INTEGRATION REQUEST - /integration/directed-page-ask. Question: {Q}", request.Question);
+
+            if (request.ExplicitContext == null || string.IsNullOrWhiteSpace(request.ExplicitContext.MasterSetup.TableName))
+            {
+                return BadRequest("ExplicitContext and MasterSetup TableName are MANDATORY for direct integration.");
+            }
+
+            var apiStartTime = DateTime.UtcNow;
+
+            try
+            {
+                var result = await _queryOrchestrator.HandleDirectedPageQueryAsync(request, HttpContext.RequestAborted);
+                var apiDuration = (DateTime.UtcNow - apiStartTime).TotalMilliseconds;
+                
+                _logger.LogInformation("DIRECTED PAGE REQUEST SUCCESS. Duration: {Duration:F0}ms", apiDuration);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "DIRECTED PAGE INTEGRATION FAILED.");
+                return StatusCode(500, ex.Message);
             }
         }
     }

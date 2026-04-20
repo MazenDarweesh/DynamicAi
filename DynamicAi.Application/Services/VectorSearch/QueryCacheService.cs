@@ -294,7 +294,7 @@ public class QueryCacheService : IQueryCacheService
     }
 
     /// <inheritdoc/>
-    public async Task<bool> DeleteSimilarCacheAsync(float[] embedding, string tenantId, int companyId, CancellationToken ct = default)
+    public async Task<bool> DeleteSimilarCacheAsync(float[] embedding, string tenantId, int companyId, int? pageId = null, CancellationToken ct = default)
     {
         try
         {
@@ -318,6 +318,19 @@ public class QueryCacheService : IQueryCacheService
                 {
                     Key = "company_id",
                     Match = new Match { Integer = companyId }
+                }
+            });
+
+            // 🛡️ [ISOLATION] Apply the same Strict Scoping used for reads.
+            // If pageId is null, target PageId = 0 (General Context) to prevent cross-page deletion.
+            int isolatedPageId = pageId ?? 0;
+            _logger.LogInformation("🛡️ [QueryCache] Delete Scoping Applied: Enforcing PageID = {IsolatedPageId}", isolatedPageId);
+            filter.Must.Add(new Condition
+            {
+                Field = new FieldCondition
+                {
+                    Key = "page_id",
+                    Match = new Match { Integer = isolatedPageId }
                 }
             });
 
@@ -345,9 +358,8 @@ public class QueryCacheService : IQueryCacheService
                 await _qdrantClient.DeleteAsync(_collectionName, pointId, cancellationToken: ct);
             }
 
-            _logger.LogInformation("[QueryCache] ✓ Deleted {Count} similar cache entries", pointIds.Length);
+            _logger.LogInformation("[QueryCache] ✓ Deleted {Count} similar cache entries for PageID={PageId}", pointIds.Length, isolatedPageId);
 
-            _logger.LogInformation("[QueryCache] Deleted {Count} similar cache entries", pointIds.Length);
             return true;
         }
         catch (Exception ex)

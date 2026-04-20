@@ -89,4 +89,10 @@ public class IntentHandlerContext
     /// The unique identifier of the cache record in the vector database.
     /// </summary>
     public string? CachedCacheId { get; init; }
+
+    /// <summary>
+    /// 🚀 [DIRECT INTEGRATION] The pre-resolved page context (Schema, Master, Details) 
+    /// injected directly from the ERP. When set, handlers must bypass RAG and use this context.
+    /// </summary>
+    public DynamicAi.Application.Models.DirectIntegration.ShippedPageContext? InjectedContext { get; init; }
 }
