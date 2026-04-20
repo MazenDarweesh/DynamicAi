@@ -8,7 +8,7 @@ export interface ChatMessage {
     isAi: boolean;
     text?: string;
     data?: any;
-    tableData?: any[];
+    tableData?: any[];//                        tableData: Array.isArray(data) && data.length > 0 ? data : undefined,
     // Feedback fields
     originalQuestion?: string;
     cacheId?: string;
@@ -25,6 +25,11 @@ export interface ChatMessage {
     intent?: string;
     /** Query Insight Panel data */
     queryInsights?: QueryInsight;
-    showInsights?: boolean; // Toggle state for insights panel
     isRichText?: boolean; // If true, renders text as HTML/Markdown
 }
+
+// export interface QueryInsight {
+//     retrievedContext?: string[];
+//     reasoning?: string;
+//     isReadOnly: boolean;
+// }

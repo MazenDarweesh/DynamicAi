@@ -4,8 +4,9 @@ B) Read ColumnName, SearchName, InsertType, DroModel, DroValue, DroText, Vis.
 C) If InsertType!='dropdown' → SELECT T1.ColumnName AS [arColumnLabel].
 D) If dropdown AND SearchName!=ColumnName → SELECT T1.ColumnName AS [arColumnLabel].
 E) If dropdown AND SearchName==ColumnName:
-   if DroText exists in current view → SELECT T1.DroText AS [arColumnLabel]
-   else JOIN DroModel ON T1.SearchName=DroModel.DroValue SELECT DroModel.DroText AS [arColumnLabel].
+   - Perform a LEFT JOIN with the view specified in `DroModel`.
+   - The JOIN condition MUST be: `T1.SearchName = DroModel.DroValue`.
+   - The selected column MUST be: `DroModel.DroText AS [arColumnLabel]`.
 F) ALWAYS alias AS [arColumnLabel].
 
 DEFAULT COLUMNS: 'هات/اعرض/جيب' without specifics → ALL visible=true columns per COLUMN RESOLUTION. NEVER SELECT *.
