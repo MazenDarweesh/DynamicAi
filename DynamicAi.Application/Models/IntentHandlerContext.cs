@@ -1,4 +1,7 @@
+using DynamicAi.Application.Models.DirectIntegration;
+
 namespace DynamicAi.Application.Models;
+
 
 /// <summary>
 /// Context information passed to intent handlers.
@@ -94,5 +97,5 @@ public class IntentHandlerContext
     /// 🚀 [DIRECT INTEGRATION] The pre-resolved page context (Schema, Master, Details) 
     /// injected directly from the ERP. When set, handlers must bypass RAG and use this context.
     /// </summary>
-    public DynamicAi.Application.Models.DirectIntegration.ShippedPageContext? InjectedContext { get; init; }
+    public ShippedPageContext? InjectedContext { get; init; }
 }

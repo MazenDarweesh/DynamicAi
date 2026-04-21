@@ -5,6 +5,7 @@ using DynamicAi.Application.Exceptions;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Prompts;
+using DynamicAi.Application.Models.DirectIntegration;
 using DynamicAi.Domain.Entities;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
@@ -125,15 +126,47 @@ public class UnifiedQueryHandler : IIntentHandler
             }
         }
 
-        // Phase 1: RAG Context Retrieval (We always retrieve context to empower the LLM to decide)
-        _logger.LogInformation("[UnifiedHandler] Layer 1: Retrieving Context...");
-        var retrievalResult = await _retrievalService.RetrieveContextAsync(
-            userQuestion,
-            tenantId,
-            companyId,
-            precomputedEmbedding: context?.PrecomputedEmbedding,
-            explicitPageId: context?.ExplicitPageId, // [FIX] Pass explicit page selection to force bypass Semantic Search
-            ct: cancellationToken);
+        // Phase 1: Context Resolution (RAG vs Direct Injection)
+        RetrievalContextBundle retrievalResult;
+        string dictContent = string.Empty;
+        string schemaContent = string.Empty;
+        string rulesContent = string.Empty;
+        int currentPageId = 0;
+
+        if (context?.InjectedContext != null)
+        {
+            _logger.LogInformation("[UnifiedHandler] 🚀 DIRECTED CONTEXT DETECTED! Bypassing RAG Service completely.");
+            
+            // Map the direct ERP context natively (Dictionary entries will be empty as they are embedded in schema)
+            MapInjectedContextToPromptVariables(
+                context.InjectedContext, 
+                out schemaContent, 
+                out rulesContent);
+                
+            currentPageId = context.InjectedContext.PageId;
+            retrievalResult = new RetrievalContextBundle { PageId = currentPageId };
+        }
+        else
+        {
+            _logger.LogInformation("[UnifiedHandler] Layer 1: Retrieving Context from Qdrant...");
+            retrievalResult = await _retrievalService.RetrieveContextAsync(
+                userQuestion,
+                tenantId,
+                companyId,
+                precomputedEmbedding: context?.PrecomputedEmbedding,
+                explicitPageId: context?.ExplicitPageId,
+                ct: cancellationToken);
+
+            if (retrievalResult.DictionaryEntries?.Any() == true)
+                dictContent = string.Join("\n", retrievalResult.DictionaryEntries.Select((e, i) => $"[{i+1}] {e}"));
+            
+            schemaContent = retrievalResult.UnifiedPageContext ?? string.Empty;
+            
+            if (retrievalResult.BusinessRules?.Any() == true)
+                rulesContent = string.Join("\n", retrievalResult.BusinessRules.Select((r, i) => $"[Rule {i+1}]\n{r}"));
+                
+            currentPageId = retrievalResult.PageId ?? 0;
+        }
 
         // Phase 2: Render Master Prompt
         _logger.LogInformation("[UnifiedHandler] Layer 2: Rendering Master Prompt...");
@@ -146,21 +179,18 @@ public class UnifiedQueryHandler : IIntentHandler
             { "current_year", DateTime.Now.Year.ToString() }
         };
 
-        if (retrievalResult.DictionaryEntries?.Any() == true)
+        if (!string.IsNullOrEmpty(dictContent))
         {
-            // Compact dictionary format
-            var dictContent = string.Join("\n", retrievalResult.DictionaryEntries.Select((e, i) => $"[{i+1}] {e}"));
-            variables["dictionary_entries"] = dictContent;
+            variables["legacy_dictionary_context"] = dictContent;
         }
 
-        if (!string.IsNullOrEmpty(retrievalResult.UnifiedPageContext))
+        if (!string.IsNullOrEmpty(schemaContent))
         {
-            variables["schema_context"] = retrievalResult.UnifiedPageContext;
+            variables["page_attributes_details_listsetups"] = schemaContent;
         }
 
-        if (retrievalResult.BusinessRules?.Any() == true)
+        if (!string.IsNullOrEmpty(rulesContent))
         {
-            var rulesContent = string.Join("\n", retrievalResult.BusinessRules.Select((r, i) => $"[Rule {i+1}]\n{r}"));
             variables["business_rules"] = rulesContent;
         }
 
@@ -171,7 +201,7 @@ public class UnifiedQueryHandler : IIntentHandler
             // HISTORY SLICING: Prevent Cross-Page Contamination (Hallucinations)
             // Only feed the LLM prior SQL generated for the EXACT same page structure.
             // If the user navigates from "Sales" to "Purchases", we hide the Sales SQL.
-            int currentPageId = (retrievalResult.PageId.HasValue && retrievalResult.PageId.Value > 0) ? retrievalResult.PageId.Value : 0;
+            // currentPageId is already resolved in Phase 1
             
             var allSqlTurns = context.ConversationHistory.Where(t => !string.IsNullOrEmpty(t.SqlExecuted)).ToList();
             
@@ -415,7 +445,59 @@ public class UnifiedQueryHandler : IIntentHandler
             IsCached = false,
             RewrittenSql = finalSql,
             QueryInsights = new QueryInsightData { RetrievedContext = queryInsights },
-            PageId = retrievalResult.PageId
+            PageId = retrievalResult.PageId // Will now correctly report the InjectedContext.PageId
         };
+    }
+
+    private void MapInjectedContextToPromptVariables(
+        ShippedPageContext injected, 
+        out string schemaContext, 
+        out string businessRules)
+    {
+        // 1. Build Structural JSON Context explicitly matching properties
+        // We embed Columns directly here, so dictionary_entries variable isn't needed.
+        var schemaObj = new
+        {
+            PageAttribute = new
+            {
+                TableName = injected.MasterSetup.TableName,
+                Primary = injected.MasterSetup.PrimaryKey,
+                TailCondition = injected.MasterSetup.TailCondition,
+                Columns = injected.MasterSetup.Columns.Select(c => new 
+                {
+                    c.SearchName, 
+                    c.ColumnName, 
+                    c.InsertType, 
+                    c.DroModel,
+                    c.DroValue,
+                    c.DroText,
+                    c.arColumnLabel, 
+                    c.enColumnLabel
+                }).ToList()
+            },
+            PageDetail = injected.DetailSetups.Select(d => new
+            {
+                TableName = d.TableName,
+                ForeignKey = d.ForeignKey,
+                Columns = d.Columns.Select(c => new 
+                {
+                    c.SearchName, 
+                    c.ColumnName, 
+                    c.InsertType, 
+                    c.DroModel,
+                    c.DroValue,
+                    c.DroText,
+                    c.arColumnLabel, 
+                    c.enColumnLabel
+                }).ToList()
+            }).ToList()
+        };
+        
+        schemaContext = JsonSerializer.Serialize(schemaObj, new JsonSerializerOptions { WriteIndented = true });
+
+        // 3. Optional Business Rules
+        businessRules = (injected.BusinessRules != null && injected.BusinessRules.Any())
+            ? string.Join("\n", injected.BusinessRules.Select((r, i) => $"[Rule {i+1}]\n{r}"))
+            : string.Empty;
     }
 }

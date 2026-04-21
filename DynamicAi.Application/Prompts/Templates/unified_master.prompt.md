@@ -5,8 +5,8 @@ model: gemini-2.0-flash-lite
 description: "Unified Master Prompt — handles SQL generation, Chat, and Prediction from a single LLM call. Routes by analyzing user intent inline."
 variables:
   - user_question (required)
-  - schema_context (optional)
-  - dictionary_entries (optional)
+  - page_attributes_details_listsetups (optional)
+  - legacy_dictionary_context (optional)
   - business_rules (optional)
   - conversation_history (optional)
   - previous_sql (optional)
@@ -45,17 +45,17 @@ Analyze the user's question and determine which type it is:
 ### SQL QUERY RULES
 {{> _sql_query_rules}}
 
-{{#if schema_context}}
-### HIERARCHY & SCHEMA CONTEXT
-This JSON shows the page structure. IMPORTANT: SchemaScript is for understanding table relationships ONLY. NEVER pick column names from SchemaScript. Use ONLY ColumnName values from the DICTIONARY CONTEXT below.
-{{schema_context}}
+{{#if page_attributes_details_listsetups}}
+### PAGE ATTRIBUTES, DETAILS & LISTSETUPS
+This JSON shows the page structure and table relationships. IMPORTANT: If this JSON contains embedded 'Columns' arrays natively, you MUST use the column names provided inside them. If it only shows structure without columns, you MUST use the LEGACY DICTIONARY CONTEXT below.
+{{page_attributes_details_listsetups}}
 {{/if}}
 
-{{#if dictionary_entries}}
-### DICTIONARY CONTEXT (User Labels to DB Columns)
+{{#if legacy_dictionary_context}}
+### LEGACY DICTIONARY CONTEXT (User Labels to DB Columns)
 Format: [Index] ListName | SearchName | ColumnName | InsertType | arColumnLabel | enColumnLabel | Vis | DroModel:DroValue:DroText (if dropdown)
 ---
-{{dictionary_entries}}
+{{legacy_dictionary_context}}
 {{/if}}
 
 {{#if business_rules}}

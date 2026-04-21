@@ -695,7 +695,7 @@ namespace DynamicAi.Application.Services
 
             var intentStub = new IntentClassificationResult
             {
-                Intent = IntentType.DataRetrieval,
+                Intent =  IntentType.Unknown, // 🌟 التغيير هنا لضمان عدم الانحياز
                 ConfidenceScore = 1.0f,
                 QueryEmbedding = sharedVector
             };
