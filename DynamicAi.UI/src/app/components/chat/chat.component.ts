@@ -77,7 +77,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
 
     private groupPages() {
         if (!this.availablePages || this.availablePages.length === 0) return;
-        
+
         const groups = new Map<string, PageDictionaryItem[]>();
         this.availablePages.forEach(p => {
             if (!groups.has(p.groupName)) {
@@ -290,14 +290,14 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                     // Extract prediction text from QueryInsights.Reasoning (where orchestrator puts it in the 2-pass pipeline)
                     const insights = res.queryInsights || res.QueryInsights;
                     const predictionText = insights?.Reasoning || insights?.reasoning || msgText || '';
-                    
-                    newMessage = { 
-                        isAi: true, 
-                        text: predictionText, 
+
+                    newMessage = {
+                        isAi: true,
+                        text: predictionText,
                         tableData: Array.isArray(data) && data.length > 0 ? data : undefined,
-                        isRichText: true, 
-                        originalQuestion: currentQ, 
-                        retryCount: retryCount 
+                        isRichText: true,
+                        originalQuestion: currentQ,
+                        retryCount: retryCount
                     };
                 }
                 else if (msgText && !msgType) {
@@ -331,7 +331,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                 // Capture Query Insights (NEW)
                 if (res.queryInsights || res.QueryInsights) {
                     newMessage.queryInsights = res.queryInsights || res.QueryInsights;
-                    newMessage.showInsights = false; // Initially collapsed
+                    (newMessage as any).showInsights = false; // Initially collapsed
                 }
 
                 this.messages.push(newMessage);

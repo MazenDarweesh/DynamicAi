@@ -40,6 +40,14 @@ namespace DynamicAi.Api.Services
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            using var scope = _serviceProvider.CreateScope();
+            var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+            if (!config.GetValue<bool>("Features:DbSchemaWarmerEnabled", true))
+            {
+                _logger.LogInformation("[DbSchemaCacheWarmer] 🛑 Service is disabled in config. Service bypassed.");
+                return;
+            }
+
             _logger.LogInformation("[DbSchemaCacheWarmer] Service is starting...");
 
             var fetchSuccess = false;
