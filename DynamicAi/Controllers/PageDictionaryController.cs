@@ -39,10 +39,13 @@ namespace DynamicAi.Api.Controllers
             if (!pages.Any())
             {
                 _logger.LogWarning("[PageDictionaryController] Page list is empty — CacheWarmer may still be running.");
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+                
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails
                 {
-                    message = "Page list is not ready yet. Please retry in a few seconds.",
-                    retryAfterSeconds = 10
+                    Status = StatusCodes.Status503ServiceUnavailable,
+                    Title = "Service Unavailable",
+                    Detail = "Page list is not ready yet. Cache is being warmed up.",
+                    Instance = HttpContext.Request.Path
                 });
             }
 

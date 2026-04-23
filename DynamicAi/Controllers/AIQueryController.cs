@@ -49,7 +49,13 @@ namespace DynamicAi.Api.Controllers
             if (string.IsNullOrWhiteSpace(request.Question))
             {
                 _logger.LogWarning("Validation failed: Question cannot be empty.");
-                return BadRequest("Question cannot be empty.");
+                return BadRequest(new ProblemDetails
+                {
+                    Status = StatusCodes.Status400BadRequest,
+                    Title = "Validation Error",
+                    Detail = "Question cannot be empty.",
+                    Instance = HttpContext.Request.Path
+                });
             }
 
             _logger.LogDebug("Starting orchestrator pipeline...");
