@@ -131,9 +131,12 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
             error: (err) => {
                 clearTimeout(timeoutId);
                 this.status = 'فشل الاتصال ❌';
-                this.errorMsg = err.status === 0
-                    ? '⚠️ تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.'
-                    : '⚠️ الخادم غير متاح حالياً. يرجى المحاولة بعد قليل.';
+                // ProblemDetails format: err.error.detail contains the human-readable message
+                const problem = err.error;
+                this.errorMsg = problem?.detail
+                    || (err.status === 0
+                        ? '⚠️ تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.'
+                        : '⚠️ الخادم غير متاح حالياً. يرجى المحاولة بعد قليل.');
                 this.cdr.detectChanges();
             }
         });
@@ -303,9 +306,10 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                 else if (msgText && !msgType) {
                     // Standard message
                     newMessage = { isAi: true, text: msgText, originalQuestion: currentQ, retryCount: retryCount };
-                } else if (msgType === 'Question') {
-                    // Clarification Question
-                    newMessage = { isAi: true, text: msgText, originalQuestion: currentQ, retryCount: retryCount };
+                } else if (msgType === 'Question' || res.extensions?.type === 'Question' || res.extensions?.isAmbiguous) {
+                    // Clarification Question – supports both old { Type, Message } and new ProblemDetails { extensions.type, detail } formats
+                    const clarificationText = msgText || res.detail || res.extensions?.detail;
+                    newMessage = { isAi: true, text: clarificationText, originalQuestion: currentQ, retryCount: retryCount };
                 } else if (Array.isArray(data)) {
                     if (data.length > 0) {
                         newMessage = { isAi: true, tableData: data, originalQuestion: currentQ, retryCount: retryCount };
@@ -325,7 +329,8 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                 newMessage.sql = sql;
                 newMessage.cacheId = cacheId;
                 newMessage.isLogged = false;
-                newMessage.queryLogId = res.queryLogId || res.QueryLogId;
+                // Support both old format (queryLogId) and ProblemDetails extensions
+                newMessage.queryLogId = res.queryLogId || res.QueryLogId || res.extensions?.queryLogId;
                 newMessage.intent = intent;
 
                 // Capture Query Insights (NEW)
@@ -360,18 +365,24 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                 else if (err.status === 0) {
                     errorMsg = '⚠️ لا يمكن الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى.';
                 }
-                // 3. Backend returned a structured error object (500 with { error, sql, queryLogId })
-                else if (err.error && typeof err.error === 'object') {
-                    if (err.error.sql) sql = err.error.sql;
-                    if (err.error.error) errorMsg = err.error.error;
-                    if (err.error.queryLogId) queryLogId = err.error.queryLogId;
-                    if (!errorMsg) errorMsg = '⚠️ حدث خطأ أثناء معالجة طلبك. يرجى المحاولة مرة أخرى.';
+                // 3. ProblemDetails format (RFC-7807) from ExceptionHandlingMiddleware
+                //    Shape: { title, status, detail, instance, extensions: { sql, queryLogId, ... } }
+                else if (err.error && typeof err.error === 'object' && err.error.detail) {
+                    errorMsg = err.error.detail;
+                    sql = err.error.extensions?.sql ?? err.error.sql ?? undefined;
+                    queryLogId = err.error.extensions?.queryLogId ?? err.error.queryLogId ?? undefined;
                 }
-                // 4. Backend returned a plain string error (503, 500, 400)
+                // 4. Legacy structured error object (500 with { error, sql, queryLogId }) – backward compat
+                else if (err.error && typeof err.error === 'object') {
+                    sql = err.error.sql ?? undefined;
+                    errorMsg = err.error.error ?? '⚠️ حدث خطأ أثناء معالجة طلبك. يرجى المحاولة مرة أخرى.';
+                    queryLogId = err.error.queryLogId ?? undefined;
+                }
+                // 5. Backend returned a plain string error (503, 500, 400)
                 else if (typeof err.error === 'string' && err.error.length > 0) {
                     errorMsg = err.error;
                 }
-                // 5. Fallback
+                // 6. Fallback
                 else {
                     errorMsg = '⚠️ حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.';
                 }
