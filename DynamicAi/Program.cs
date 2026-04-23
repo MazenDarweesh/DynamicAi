@@ -64,6 +64,11 @@ try
     // ============================================================================
     // 3. إعداد Pipeline الطلبات
     // ============================================================================
+    // ============================================================================
+    // Exception Handling Middleware (centralized, must be FIRST in pipeline)
+    // ============================================================================
+    app.UseMiddleware<DynamicAi.Api.Middleware.ExceptionHandlingMiddleware>();
+
     // Enable Request Metrics Middleware (Phase 1: Observability)
     app.UseMiddleware<DynamicAi.Api.Middleware.RequestMetricsMiddleware>();
 
