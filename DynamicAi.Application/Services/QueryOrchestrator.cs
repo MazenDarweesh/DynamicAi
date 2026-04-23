@@ -285,71 +285,13 @@ namespace DynamicAi.Application.Services
 
                     result = await handler.HandleAsync(userQuestion, intentResult, context, ct);
 
-                    // 🔮 [AGENTIC 2-PASS PIPELINE] If the inline LLM realized it needs to Predict AFTER fetching data
+                    // 🔮 [AGENTIC 2-PASS PIPELINE] Delegate to shared helper
                     if (result.IsSuccess && result.Intent == "PredictionWithDataRetrieval")
                     {
-                        _logger.LogInformation("");
-                        _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-                        _logger.LogInformation("║        [AGENTIC PASS] Triggering Prediction on Fetched Data            ║");
-                        _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
-
-                        // 1. Force save the fetched data into the conversation context immediately
-                        await _contextService.SaveTurnAsync(sessionId, userQuestion, "DataRetrieval", result.RewrittenSql, result.Data, result.PageId, ct);
-                        _logger.LogInformation("[AgenticPass] ✓ Fetched data saved to context for prediction.");
-
-                        // 2. Call PredictIntentHandler explicitly bypassing the factory (since UnifiedQueryHandler also registers for Prediction)
-                        using var scope = _scopeFactory.CreateScope();
-                        var predictHandler = scope.ServiceProvider.GetServices<IIntentHandler>()
-                                             .FirstOrDefault(h => h.GetType().Name == "PredictIntentHandler");
-
-                        if (predictHandler != null)
-                        {
-                            var predictContext = new IntentHandlerContext
-                            {
-                                PreviousQuestion = previousQuestion,
-                                PreviousSql = result.RewrittenSql,
-                                QueryLogId = queryLogId,
-                                TenantId = tenantId,
-                                CompanyId = comID,
-                                SessionId = sessionId,
-                                PrecomputedCondenserResult = condenserResult,
-                                ConversationHistory = recentTurns
-                            };
-
-                            var mockPredictIntent = new IntentClassificationResult { Intent = IntentType.Prediction, ConfidenceScore = 1.0f };
-                            var predictStart = DateTime.UtcNow;
-                            
-                            _logger.LogInformation("[AgenticPass] 🔮 Delegating to explicitly resolved PredictIntentHandler...");
-                            var predictionResult = await predictHandler.HandleAsync(userQuestion, mockPredictIntent, predictContext, ct);
-                            
-                            var predictDuration = (DateTime.UtcNow - predictStart).TotalMilliseconds;
-                            _logger.LogInformation("[AgenticPass] ✓ Prediction generated in {Duration:F0}ms", predictDuration);
-
-                            // 3. Combine results! Keep data grid, append the prediction text to QueryInsights
-                            if (predictionResult.IsSuccess && predictionResult.Data != null)
-                            {
-                                var firstRow = predictionResult.Data.FirstOrDefault();
-                                if (firstRow != null)
-                                {
-                                    try 
-                                    {
-                                        dynamic dynamicRow = firstRow;
-                                        string predictionText = dynamicRow.Prediction;
-
-                                        if (!string.IsNullOrEmpty(predictionText))
-                                        {
-                                            if (result.QueryInsights == null) result.QueryInsights = new QueryInsightData { RetrievedContext = new List<string>() };
-                                            result.QueryInsights.Reasoning = predictionText;
-                                            _logger.LogInformation("[AgenticPass] ✓ Prediction merged into Reason field successfully.");
-                                        }
-                                    } 
-                                    catch (Exception ex)
-                                    {
-                                        _logger.LogWarning("[AgenticPass] Failed to extract prediction text: {Msg}", ex.Message);
-                                    }
-                                }
-                            }
-                        }
+                        await ExecuteAgenticPredictionPassAsync(
+                            result, userQuestion, previousQuestion,
+                            sessionId, tenantId, comID, queryLogId,
+                            recentTurns, condenserResult, ct);
                     }
                 }
 
@@ -638,37 +580,6 @@ namespace DynamicAi.Application.Services
                 if (cachedResult != null)
                 {
                     _logger.LogInformation("[Orchestrator] ⚡ Directed Cache HIT! CacheId: {CacheId}", cachedResult.CacheId);
-                    
-                    var hitResult = new QueryExecutionResult
-                    {
-                        ErrorMessage = null, // Success is calculated from this
-                        IsCached = true,
-                        RewrittenSql = cachedResult.Sql,
-                        Intent = cachedResult.Intent,
-                        PageId = cachedResult.PageId,
-                        ConfidenceScore = 1.0f
-                    };
-                    
-                    // Fire-and-forget log
-                    _ = Task.Run(async () => {
-                        try {
-                            using var scope = _scopeFactory.CreateScope();
-                            var repo = scope.ServiceProvider.GetRequiredService<IQueryLogRepository>();
-                            await repo.AddAsync(new Domain.Entities.QueryLog {
-                                Id = queryLogId,
-                                RawQuestion = request.Question,
-                                GeneratedSql = cachedResult.Sql,
-                                WasSuccessful = true,
-                                TenantId = request.TenantId,
-                                CompanyId = request.ComID,
-                                CreatedAt = DateTime.UtcNow,
-                                LatencyMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds,
-                                HandlerType = "DirectedCacheHit"
-                            });
-                        } catch { }
-                    });
-
-                    return hitResult;
                 }
             }
 
@@ -690,74 +601,176 @@ namespace DynamicAi.Application.Services
                 IsCondenserBypassed = true, // Force history usage without redacting
                 PrecomputedEmbedding = sharedVector,
                 ExplicitPageId = request.PageId,
-                InjectedContext = request.ExplicitContext
+                InjectedContext = request.ExplicitContext,
+                
+                // --- ALIGNMENT: Cache Fields ---
+                CachedSql = cachedResult?.Sql,
+                CachedPageId = cachedResult?.PageId,
+                CachedIntent = cachedResult?.Intent,
+                CachedCacheId = cachedResult?.CacheId
             };
 
             var intentStub = new IntentClassificationResult
             {
-                Intent =  IntentType.Unknown, // 🌟 التغيير هنا لضمان عدم الانحياز
+                // 🎯 Unknown = routing key only. UnifiedQueryHandler handles all intents.
+                // The LLM freely decides the real intent (DataRetrieval/Chat/Prediction/PredictionWithDataRetrieval).
+                Intent = IntentType.Unknown,
                 ConfidenceScore = 1.0f,
                 QueryEmbedding = sharedVector
             };
 
-            var result = await handler!.HandleAsync(request.Question, intentStub, context, ct);
+            QueryExecutionResult? result = null;
 
-            #region Post-Execution (Async Log & Cache)
-            var totalDuration = (DateTime.UtcNow - startTime).TotalMilliseconds;
-            if (result.IsSuccess)
+            try
             {
-                _ = Task.Run(async () =>
+                result = await handler!.HandleAsync(request.Question, intentStub, context, ct);
+
+                // 🔮 [AGENTIC 2-PASS] Delegate to shared helper (Gap 2 + Gap 3 aligned)
+                if (result.IsSuccess && result.Intent == "PredictionWithDataRetrieval")
                 {
-                    try
+                    await ExecuteAgenticPredictionPassAsync(
+                        result,
+                        request.Question,
+                        request.PreviousQuestion,
+                        request.SessionId ?? "direct-integration",
+                        request.TenantId,
+                        request.ComID,
+                        queryLogId,
+                        recentTurns,
+                        condenserResult: null, // Condenser is bypassed in Directed flow — helper uses safe stub
+                        ct);
+                }
+
+                // Gap 4: Handle failures, including CLARIFICATION_REQUIRED
+                if (!result.IsSuccess)
+                {
+                    await HandleFailureResultAsync(
+                        result,
+                        request.SessionId ?? "direct-integration",
+                        fallbackIntent: "DirectedIntegration",
+                        queryLogId,
+                        ct);
+                }
+
+                #region Post-Execution (Async Log & Cache)
+                var totalDuration = (DateTime.UtcNow - startTime).TotalMilliseconds;
+
+                if (result.IsSuccess && !result.IsCached)
+                {
+                    var inputTokens = (int)_usageTracker.GetSessionSummary().TotalInputTokens;
+                    var outputTokens = (int)_usageTracker.GetSessionSummary().TotalOutputTokens;
+                    var geminiCost = (decimal)_usageTracker.GetSessionSummary().TotalCostUsd;
+                    var schemaContext = result.SchemaContext;
+                    var rewrittenSql = result.RewrittenSql;
+                    var finalHandlerType = "DirectedIntegration_" + (result.Intent ?? "DataRetrieval");
+
+                    _ = Task.Run(async () =>
                     {
-                        using var scope = _scopeFactory.CreateScope();
-                        var queryLogRepo = scope.ServiceProvider.GetRequiredService<IQueryLogRepository>();
-                        var contextService = scope.ServiceProvider.GetRequiredService<IConversationContextService>();
-                        var queryCacheService = scope.ServiceProvider.GetRequiredService<IQueryCacheService>();
-
-                        // Log to DB
-                        await queryLogRepo.AddAsync(new Domain.Entities.QueryLog
+                        try
                         {
-                            Id = queryLogId,
-                            RawQuestion = request.Question,
-                            GeneratedSql = result.RewrittenSql,
-                            WasSuccessful = true,
-                            TenantId = request.TenantId,
-                            CompanyId = request.ComID,
-                            CreatedAt = DateTime.UtcNow,
-                            LatencyMs = (int)totalDuration,
-                            HandlerType = "DirectedIntegration"
-                        });
+                            using var scope = _scopeFactory.CreateScope();
+                            var queryLogRepo = scope.ServiceProvider.GetRequiredService<IQueryLogRepository>();
+                            var contextService = scope.ServiceProvider.GetRequiredService<IConversationContextService>();
+                            var queryCacheService = scope.ServiceProvider.GetRequiredService<IQueryCacheService>();
+                            var feedbackService = scope.ServiceProvider.GetRequiredService<IFeedbackService>();
 
-                        // Store in Cache
-                        await queryCacheService.StoreCachedSqlAsync(
-                            queryLogId,
-                            request.Question,
-                            sharedVector,
-                            result.RewrittenSql ?? "",
-                            request.PageId,
-                            request.TenantId,
-                            request.ComID ?? 0,
-                            "DirectedIntegration"
-                        );
+                            await queryLogRepo.AddAsync(new Domain.Entities.QueryLog
+                            {
+                                Id = queryLogId,
+                                RawQuestion = request.Question,
+                                GeneratedSql = rewrittenSql,
+                                WasSuccessful = true,
+                                SchemaContext = schemaContext,
+                                TenantId = request.TenantId,
+                                CompanyId = request.ComID,
+                                CreatedAt = DateTime.UtcNow,
+                                LatencyMs = (int)totalDuration,
+                                HandlerType = finalHandlerType,
+                                InputTokens = inputTokens,
+                                OutputTokens = outputTokens,
+                                GeminiCost = geminiCost,
+                                ConfidenceScore = result.ConfidenceScore
+                            });
 
-                        // Save Context
-                        await contextService.SaveTurnAsync(
-                            request.SessionId ?? "direct-integration",
-                            request.Question,
-                            "DirectedIntegration",
-                            result.RewrittenSql,
-                            result.Data,
-                            request.PageId
-                        );
-                    }
-                    catch (Exception ex) { Console.WriteLine($"[DirectedOrchestrator] BG Error: {ex.Message}"); }
-                });
+                            await feedbackService.AutoCaptureExampleAsync(queryLogId, request.ComID);
+
+                            if (_queryCacheEnabled && !string.IsNullOrWhiteSpace(rewrittenSql))
+                            {
+                                await queryCacheService.StoreCachedSqlAsync(
+                                    queryLogId, request.Question, sharedVector,
+                                    rewrittenSql, request.PageId,
+                                    request.TenantId, request.ComID ?? 0, finalHandlerType);
+                            }
+
+                            await contextService.SaveTurnAsync(
+                                request.SessionId ?? "direct-integration",
+                                request.Question, finalHandlerType,
+                                rewrittenSql, result.Data, request.PageId);
+                        }
+                        catch (Exception ex) { Console.WriteLine($"[DirectedOrchestrator] BG Error: {ex.Message}"); }
+                    });
+                }
+                else if (result.IsSuccess && result.IsCached)
+                {
+                    var totalDurationCached = (DateTime.UtcNow - startTime).TotalMilliseconds;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            using var scope = _scopeFactory.CreateScope();
+                            var queryLogRepo = scope.ServiceProvider.GetRequiredService<IQueryLogRepository>();
+                            await queryLogRepo.AddAsync(new Domain.Entities.QueryLog
+                            {
+                                Id = queryLogId,
+                                RawQuestion = request.Question,
+                                GeneratedSql = result.RewrittenSql,
+                                WasSuccessful = true,
+                                SchemaContext = "Served from Directed Cache",
+                                TenantId = request.TenantId,
+                                CompanyId = request.ComID,
+                                CreatedAt = DateTime.UtcNow,
+                                LatencyMs = (int)totalDurationCached,
+                                HandlerType = "DirectedCacheHit",
+                                InputTokens = 0,
+                                OutputTokens = 0,
+                                GeminiCost = 0m,
+                                ConfidenceScore = 1.0f
+                            });
+                        }
+                        catch { }
+                    });
+                }
+                #endregion
+
+                // Gap 5: Normalize result.Intent before returning.
+                // UnifiedQueryHandler always stamps the real LLM-decided intent (Chat/Prediction/DataRetrieval).
+                // Only falls back if the handler returned nothing (edge-case failure).
+                if (string.IsNullOrEmpty(result.Intent) || result.Intent == "Unknown")
+                    result.Intent = nameof(IntentType.DataRetrieval); // Safe fallback for directed context
+
+                _logger.LogInformation("[Orchestrator] Directed Pipeline Completed in {Duration:F0}ms", (DateTime.UtcNow - startTime).TotalMilliseconds);
+                return result;
             }
-            #endregion
-
-            return result;
+            catch (InteractionRequiredException)
+            {
+                throw; // Pass through to controller
+            }
+            catch (Exception ex)
+            {
+                // Gap 1: Structured error logging to DB via shared helper
+                LogPipelineErrorAsync(
+                    ex,
+                    request.Question,
+                    request.TenantId,
+                    request.ComID,
+                    queryLogId,
+                    latencyMs: (DateTime.UtcNow - startTime).TotalMilliseconds,
+                    handlerType: result?.Intent ?? "DirectedIntegration",
+                    confidenceScore: null);
+                throw;
+            }
         }
+
 
 
         #endregion
@@ -912,6 +925,176 @@ namespace DynamicAi.Application.Services
         #endregion
 
         #region Helper Methods
+
+        /// <summary>
+        /// [SOLID: SRP] Shared Agentic 2-Pass Pipeline.
+        /// Triggered when a handler signals Intent == "PredictionWithDataRetrieval".
+        /// Saves fetched data to context, resolves PredictIntentHandler, runs prediction,
+        /// and merges the result into result.QueryInsights.Reasoning.
+        /// </summary>
+        private async Task ExecuteAgenticPredictionPassAsync(
+            QueryExecutionResult result,
+            string userQuestion,
+            string? previousQuestion,
+            string sessionId,
+            string tenantId,
+            int? comID,
+            Guid queryLogId,
+            List<ConversationTurn> recentTurns,
+            CondenserResult? condenserResult,
+            CancellationToken ct)
+        {
+            _logger.LogInformation("");
+            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+            _logger.LogInformation("║        [AGENTIC PASS] Triggering Prediction on Fetched Data            ║");
+            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+
+            // 1. Persist the fetched data immediately so PredictIntentHandler can read it
+            await _contextService.SaveTurnAsync(sessionId, userQuestion, "DataRetrieval", result.RewrittenSql, result.Data, result.PageId, ct);
+            _logger.LogInformation("[AgenticPass] ✓ Fetched data saved to context for prediction.");
+
+            // 2. Resolve PredictIntentHandler explicitly (bypassing factory since UnifiedQueryHandler may shadow it)
+            using var scope = _scopeFactory.CreateScope();
+            var predictHandler = scope.ServiceProvider.GetServices<IIntentHandler>()
+                                 .FirstOrDefault(h => h.GetType().Name == "PredictIntentHandler");
+
+            if (predictHandler == null)
+            {
+                _logger.LogWarning("[AgenticPass] PredictIntentHandler not found — skipping prediction pass.");
+                return;
+            }
+
+            var predictContext = new IntentHandlerContext
+            {
+                PreviousQuestion = previousQuestion,
+                PreviousSql = result.RewrittenSql,
+                QueryLogId = queryLogId,
+                TenantId = tenantId,
+                CompanyId = comID,
+                SessionId = sessionId,
+                ConversationHistory = recentTurns,
+                // Condenser is bypassed in directed flow; pass a safe default stub
+                PrecomputedCondenserResult = condenserResult ?? new CondenserResult
+                {
+                    ActionType = QueryActionType.New,
+                    CondensedQuestion = userQuestion
+                }
+            };
+
+            var mockIntent = new IntentClassificationResult { Intent = IntentType.Prediction, ConfidenceScore = 1.0f };
+            var predictStart = DateTime.UtcNow;
+
+            _logger.LogInformation("[AgenticPass] 🔮 Delegating to explicitly resolved PredictIntentHandler...");
+            var predictionResult = await predictHandler.HandleAsync(userQuestion, mockIntent, predictContext, ct);
+
+            _logger.LogInformation("[AgenticPass] ✓ Prediction generated in {Duration:F0}ms", (DateTime.UtcNow - predictStart).TotalMilliseconds);
+
+            // 3. Merge prediction text into QueryInsights.Reasoning
+            if (predictionResult.IsSuccess && predictionResult.Data != null)
+            {
+                var firstRow = predictionResult.Data.FirstOrDefault();
+                if (firstRow != null)
+                {
+                    try
+                    {
+                        dynamic dynamicRow = firstRow;
+                        string predictionText = dynamicRow.Prediction;
+                        if (!string.IsNullOrEmpty(predictionText))
+                        {
+                            if (result.QueryInsights == null)
+                                result.QueryInsights = new QueryInsightData { RetrievedContext = new List<string>() };
+                            result.QueryInsights.Reasoning = predictionText;
+                            _logger.LogInformation("[AgenticPass] ✓ Prediction merged into Reason field successfully.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning("[AgenticPass] Failed to extract prediction text: {Msg}", ex.Message);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// [SOLID: SRP] Handles a failed handler result.
+        /// Detects CLARIFICATION_REQUIRED signal, saves the clarification turn to context
+        /// so the next user follow-up has context, then throws InteractionRequiredException.
+        /// </summary>
+        private async Task HandleFailureResultAsync(
+            QueryExecutionResult result,
+            string sessionId,
+            string fallbackIntent,
+            Guid queryLogId,
+            CancellationToken ct)
+        {
+            _logger.LogWarning("[Orchestrator] Handler returned failure: {Error}", result.ErrorMessage);
+
+            if (result.ErrorMessage?.StartsWith("CLARIFICATION_REQUIRED:") == true)
+            {
+                var clarification = result.ErrorMessage.Replace("CLARIFICATION_REQUIRED:", "").Trim();
+
+                // Save the AI's clarification question as a turn so the next answer ("yes"/"نعم") has context
+                await _contextService.SaveTurnAsync(
+                    sessionId,
+                    clarification,
+                    !string.IsNullOrEmpty(result.Intent) && result.Intent != "Unknown" ? result.Intent : fallbackIntent,
+                    result.RewrittenSql,
+                    null,
+                    result.PageId,
+                    ct);
+
+                _logger.LogInformation("[Orchestrator] 📝 Clarification turn saved to session for followup context");
+                throw new InteractionRequiredException(clarification, queryLogId, result.ConfidenceScore ?? 0);
+            }
+        }
+
+        /// <summary>
+        /// [SOLID: SRP] Fire-and-forget error logger.
+        /// Saves a failed QueryLog entry to the DB without blocking the caller.
+        /// </summary>
+        private void LogPipelineErrorAsync(
+            Exception ex,
+            string userQuestion,
+            string tenantId,
+            int? comID,
+            Guid queryLogId,
+            double latencyMs,
+            string handlerType,
+            float? confidenceScore)
+        {
+            _logger.LogError(ex, "[Orchestrator] Pipeline Failed after {Duration:F0}ms", latencyMs);
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var scope = _scopeFactory.CreateScope();
+                    var queryLogRepo = scope.ServiceProvider.GetRequiredService<IQueryLogRepository>();
+                    var scopedLogger = scope.ServiceProvider.GetRequiredService<ILogger<QueryOrchestrator>>();
+
+                    await queryLogRepo.AddAsync(new Domain.Entities.QueryLog
+                    {
+                        Id = queryLogId,
+                        RawQuestion = userQuestion,
+                        WasSuccessful = false,
+                        ErrorMessage = ex.Message,
+                        TenantId = tenantId,
+                        CompanyId = comID,
+                        CreatedAt = DateTime.UtcNow,
+                        LatencyMs = (int)latencyMs,
+                        HandlerType = handlerType,
+                        ConfidenceScore = confidenceScore
+                    });
+
+                    scopedLogger.LogDebug("[Orchestrator] Error log saved in bg: {LogId}", queryLogId);
+                }
+                catch (Exception logSaveEx)
+                {
+                    Console.WriteLine($"[Orchestrator] Failed to save error log in bg: {logSaveEx.Message}");
+                }
+            });
+        }
+
 
         /// <summary>
         /// Helper to count rows in data result
