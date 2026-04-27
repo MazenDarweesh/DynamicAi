@@ -48,6 +48,7 @@ namespace DynamicAi.Api.Middleware
                     Instance = context.Request.Path,
                     Extensions = {
                         ["type"] = "Question",
+                        ["intent"] = "ClarificationRequired",
                         ["queryLogId"] = iEx.QueryLogId,
                         ["confidenceScore"] = iEx.ConfidenceScore,
                         ["isAmbiguous"] = true
