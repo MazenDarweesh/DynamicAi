@@ -270,6 +270,20 @@ public class UnifiedQueryHandler : IIntentHandler
         var rawResponse = response.Content ?? string.Empty;
         _logger.LogInformation("[UnifiedHandler] ✓ LLM Responded in {Duration:F0}ms", llmDuration);
 
+        // Track LLM Usage
+        int estimatedInputTokens = (renderedPrompt.Length + userQuestion.Length) / 4;
+        int estimatedOutputTokens = rawResponse.Length / 4;
+        
+        await _usageTracker.TrackLlmCallAsync(
+            LlmOperationType.SqlGeneration,
+            requestId: context?.QueryLogId.ToString() ?? Guid.NewGuid().ToString(),
+            inputTokens: estimatedInputTokens,
+            outputTokens: estimatedOutputTokens,
+            cachedTokens: 0,
+            tenantId: tenantId,
+            companyId: companyId,
+            cancellationToken: cancellationToken);
+
         // Phase 4: Parse Unified JSON
         var parsedResponse = ExtractAndParseJson(rawResponse);
         if (parsedResponse == null)
