@@ -128,23 +128,17 @@ public class UnifiedQueryHandler : IIntentHandler
 
         // Phase 1: Context Resolution (RAG vs Direct Injection)
         RetrievalContextBundle retrievalResult;
-        string dictContent = string.Empty;
-        string schemaContent = string.Empty;
-        string rulesContent = string.Empty;
-        int currentPageId = 0;
+        ShippedPageContext? finalContext = null;
 
         if (context?.InjectedContext != null)
         {
             _logger.LogInformation("[UnifiedHandler] 🚀 DIRECTED CONTEXT DETECTED! Bypassing RAG Service completely.");
-            
-            // Map the direct ERP context natively (Dictionary entries will be empty as they are embedded in schema)
-            MapInjectedContextToPromptVariables(
-                context.InjectedContext, 
-                out schemaContent, 
-                out rulesContent);
-                
-            currentPageId = context.InjectedContext.PageId;
-            retrievalResult = new RetrievalContextBundle { PageId = currentPageId };
+            finalContext = context.InjectedContext;
+            retrievalResult = new RetrievalContextBundle 
+            { 
+                PageId = finalContext.PageId,
+                StructuredContext = finalContext 
+            };
         }
         else
         {
@@ -156,17 +150,19 @@ public class UnifiedQueryHandler : IIntentHandler
                 precomputedEmbedding: context?.PrecomputedEmbedding,
                 explicitPageId: context?.ExplicitPageId,
                 ct: cancellationToken);
-
-            if (retrievalResult.DictionaryEntries?.Any() == true)
-                dictContent = string.Join("\n", retrievalResult.DictionaryEntries.Select((e, i) => $"[{i+1}] {e}"));
             
-            schemaContent = retrievalResult.UnifiedPageContext ?? string.Empty;
-            
-            if (retrievalResult.BusinessRules?.Any() == true)
-                rulesContent = string.Join("\n", retrievalResult.BusinessRules.Select((r, i) => $"[Rule {i+1}]\n{r}"));
-                
-            currentPageId = retrievalResult.PageId ?? 0;
+            finalContext = retrievalResult.StructuredContext;
         }
+
+        int currentPageId = finalContext?.PageId ?? 0;
+        
+        string schemaContent = finalContext != null 
+            ? JsonSerializer.Serialize(finalContext, _jsonOptions) 
+            : string.Empty;
+
+        string rulesContent = finalContext?.BusinessRules?.Any() == true
+            ? string.Join("\n", finalContext.BusinessRules.Select((r, i) => $"[Rule {i+1}]\n{r}"))
+            : string.Empty;
 
         // Phase 2: Render Master Prompt
         _logger.LogInformation("[UnifiedHandler] Layer 2: Rendering Master Prompt...");
@@ -178,11 +174,6 @@ public class UnifiedQueryHandler : IIntentHandler
             { "current_date", DateTime.Now.ToString("yyyy-MM-dd") },
             { "current_year", DateTime.Now.Year.ToString() }
         };
-
-        if (!string.IsNullOrEmpty(dictContent))
-        {
-            variables["legacy_dictionary_context"] = dictContent;
-        }
 
         if (!string.IsNullOrEmpty(schemaContent))
         {
@@ -435,7 +426,12 @@ public class UnifiedQueryHandler : IIntentHandler
         var executionResult = await _executionService.ExecuteSqlAsync(finalSql, rewrittenResult.Parameters, context?.ConnectionString, ct);
         
         var queryInsights = new List<string>();
-        if (retrievalResult.DictionaryEntries?.Any() == true) queryInsights.Add($"📚 {retrievalResult.DictionaryEntries.Count} Dictionary Entries");
+        if (retrievalResult.StructuredContext != null)
+        {
+            int columnsCount = retrievalResult.StructuredContext.MasterSetup.Columns.Count + 
+                               retrievalResult.StructuredContext.DetailSetups.Sum(d => d.Columns.Count);
+            queryInsights.Add($"📚 {columnsCount} Column Definitions Loaded");
+        }
         queryInsights.Add("🤖 Dynamic Generated Query");
 
         return new QueryExecutionResult
@@ -449,55 +445,4 @@ public class UnifiedQueryHandler : IIntentHandler
         };
     }
 
-    private void MapInjectedContextToPromptVariables(
-        ShippedPageContext injected, 
-        out string schemaContext, 
-        out string businessRules)
-    {
-        // 1. Build Structural JSON Context explicitly matching properties
-        // We embed Columns directly here, so dictionary_entries variable isn't needed.
-        var schemaObj = new
-        {
-            PageAttribute = new
-            {
-                TableName = injected.MasterSetup.TableName,
-                Primary = injected.MasterSetup.PrimaryKey,
-                TailCondition = injected.MasterSetup.TailCondition,
-                Columns = injected.MasterSetup.Columns.Select(c => new 
-                {
-                    c.SearchName, 
-                    c.ColumnName, 
-                    c.InsertType, 
-                    c.DroModel,
-                    c.DroValue,
-                    c.DroText,
-                    c.arColumnLabel, 
-                    c.enColumnLabel
-                }).ToList()
-            },
-            PageDetail = injected.DetailSetups.Select(d => new
-            {
-                TableName = d.TableName,
-                ForeignKey = d.ForeignKey,
-                Columns = d.Columns.Select(c => new 
-                {
-                    c.SearchName, 
-                    c.ColumnName, 
-                    c.InsertType, 
-                    c.DroModel,
-                    c.DroValue,
-                    c.DroText,
-                    c.arColumnLabel, 
-                    c.enColumnLabel
-                }).ToList()
-            }).ToList()
-        };
-        
-        schemaContext = JsonSerializer.Serialize(schemaObj, new JsonSerializerOptions { WriteIndented = true });
-
-        // 3. Optional Business Rules
-        businessRules = (injected.BusinessRules != null && injected.BusinessRules.Any())
-            ? string.Join("\n", injected.BusinessRules.Select((r, i) => $"[Rule {i+1}]\n{r}"))
-            : string.Empty;
-    }
 }

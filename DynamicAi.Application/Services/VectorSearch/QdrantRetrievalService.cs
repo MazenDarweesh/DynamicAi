@@ -1,6 +1,7 @@
 using DynamicAi.Application.DbConstants;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
+using DynamicAi.Application.Models.DirectIntegration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
@@ -357,6 +358,8 @@ namespace DynamicAi.Application.Services
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            var allRawColumns = new List<JsonNode>();
+
             if (listNamesToFetch.Any())
             {
                 var listFilter = CreateFilter(tenantId, QdrantConstants.SourceTypeData, DbTables.ListSetups, filterVisibleOnly: false);
@@ -369,8 +372,11 @@ namespace DynamicAi.Application.Services
 
                 // Fetch all in one go
                 var listResults = await SearchQdrantAsync(embedding, listFilter, 250 * listNamesToFetch.Count, $"{DbTables.ListSetups} (Batched Attr)", ct);
-                // [Feature Flag] Apply compact format if enabled, otherwise keep raw JSON
-                contextBundle.DictionaryEntries.AddRange(listResults.Select(FormatDictionaryEntry).Where(s => !string.IsNullOrEmpty(s)));
+                foreach (var json in listResults)
+                {
+                    var node = JsonNode.Parse(json);
+                    if (node != null) allRawColumns.Add(node);
+                }
             }
 
             // ============================================================================
@@ -469,8 +475,11 @@ namespace DynamicAi.Application.Services
                     detailListFilter.Must.Add(new Condition { Filter = detailListNamesFilter });
 
                     var detailListResults = await SearchQdrantAsync(embedding, detailListFilter, 250 * detailListNamesToFetch.Count, $"{DbTables.ListSetups} (Batched Details)", ct);
-                    // [Feature Flag] Apply compact format if enabled, otherwise keep raw JSON
-                    contextBundle.DictionaryEntries.AddRange(detailListResults.Select(FormatDictionaryEntry).Where(s => !string.IsNullOrEmpty(s)));
+                    foreach (var json in detailListResults)
+                    {
+                        var node = JsonNode.Parse(json);
+                        if (node != null) allRawColumns.Add(node);
+                    }
                 }
 
                 _logger.LogInformation("[RagRetrieval] ✓ Linked {DetailsCount} PageDetail(s) across {AttrCount} attribute(s).", totalDetailsLinked, allAttributeIds.Count);
@@ -489,42 +498,38 @@ namespace DynamicAi.Application.Services
                 "SalesNote3"
             };
 
-            int originalCount = contextBundle.DictionaryEntries.Count;
+            int originalCount = allRawColumns.Count;
             if (originalCount > 0)
             {
-                // ✅ App-layer filtering: visible=true + Blacklist removal
-                // (visible filter moved here because Qdrant payload doesn't have 'visible' as top-level field)
-                contextBundle.DictionaryEntries = contextBundle.DictionaryEntries
-                    .Where(entry =>
+                var filteredNodes = allRawColumns
+                    .Where(c =>
                     {
-                        // [1] Visible filter - parse visible from JSON
-                        if (entry.Contains("\"visible\":false", StringComparison.OrdinalIgnoreCase))
-                        {
-                            return false; // Skip non-visible entries
-                        }
-
-                        // [2] Blacklist filter - remove deprecated columns
-                        foreach (var blacklisted in blacklistedColumns)
-                        {
-                            if (entry.Contains($"\"ColumnName\":\"{blacklisted}\"", StringComparison.OrdinalIgnoreCase) ||
-                                entry.Contains($"\"SearchName\":\"{blacklisted}\"", StringComparison.OrdinalIgnoreCase))
-                            {
-                                return false;
-                            }
-                        }
+                        if (c["visible"]?.GetValue<bool>() == false) return false;
+                        var colName = c["ColumnName"]?.GetValue<string>();
+                        var searchName = c["SearchName"]?.GetValue<string>();
+                        if (colName != null && blacklistedColumns.Contains(colName)) return false;
+                        if (searchName != null && blacklistedColumns.Contains(searchName)) return false;
                         return true;
                     })
-                    .Distinct()
                     .ToList();
 
-                int filteredCount = contextBundle.DictionaryEntries.Count;
-                _logger.LogInformation("[RagRetrieval] ✓ Dictionary (Visible + Blacklist): {Original} → {Filtered} entries",
-                    originalCount, filteredCount);
-                _logger.LogInformation("[RagRetrieval] 🗜️ DictionaryCompactFormat = {Mode} | Entries ready for LLM prompt.",
-                    _dictionaryCompactFormat ? "ENABLED" : "DISABLED (Raw JSON)");
-            }
+                var columnsByListName = filteredNodes.ToLookup(c => c["ListName"]?.GetValue<string>() ?? "", StringComparer.OrdinalIgnoreCase);
 
-            contextBundle.UnifiedPageContext = BuildMinimalSchemaContext(pageNode);
+                var structuredContext = BuildStructuredContext(pageNode, attributeMap, columnsByListName);
+                structuredContext.BusinessRules = contextBundle.BusinessRules;
+                
+                contextBundle.StructuredContext = structuredContext;
+                contextBundle.UnifiedPageContext = JsonSerializer.Serialize(structuredContext, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+                
+                _logger.LogInformation("[RagRetrieval] ✓ Columns filtered & mapped. Original: {Original} → Filtered: {Filtered}", originalCount, filteredNodes.Count);
+            }
+            else
+            {
+                var structuredContext = BuildStructuredContext(pageNode, attributeMap, Enumerable.Empty<JsonNode>().ToLookup(x => ""));
+                structuredContext.BusinessRules = contextBundle.BusinessRules;
+                contextBundle.StructuredContext = structuredContext;
+                contextBundle.UnifiedPageContext = JsonSerializer.Serialize(structuredContext, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+            }
 
             // ============================================================================
             // النتيجة النهائية
@@ -569,18 +574,74 @@ namespace DynamicAi.Application.Services
             return contextBundle;
         }
 
-        /// <summary>
-        /// Builds a minimal schema context containing only essential fields for LLM (90% size reduction)
-        /// </summary>
-        /// <summary>
-        /// Builds a minimal schema context containing only essential fields for LLM (90% size reduction).
-        /// Supports optional explicit PageAttributes (used when fetched separately to ensure freshness/completeness).
-        /// </summary>
-        /// <summary>
-        /// Builds a minimal schema context containing only essential fields for LLM (90% size reduction).
-        /// Supports optional explicit PageAttributes and PageDetails (fetched separately).
-        /// links Details to Attributes internally to avoid mutation in retrieval logic.
-        /// </summary>
+        private ShippedPageContext BuildStructuredContext(
+            JsonNode pageNode,
+            Dictionary<int, JsonObject> attributeMap,
+            ILookup<string, JsonNode> columnsByListName)
+        {
+            var context = new ShippedPageContext
+            {
+                PageId = pageNode["PageID"]?.GetValue<int>() ?? 0,
+                PageName = pageNode["PageName"]?.GetValue<string>() ?? "",
+                BusinessRules = new List<string>() // Populated elsewhere
+            };
+
+            var masterAttr = attributeMap.Values.FirstOrDefault();
+            if (masterAttr != null)
+            {
+                var masterListName = masterAttr["ListName"]?.GetValue<string>() ?? "";
+                context.MasterSetup = new PageMasterSetup
+                {
+                    ListName = masterListName,
+                    TableName = masterAttr["TableName"]?.GetValue<string>() ?? "",
+                    PrimaryKey = masterAttr["Primary"]?.GetValue<string>() ?? "",
+                    TailCondition = masterAttr["TailCondition"]?.GetValue<string>() ?? "",
+                    Columns = MapColumns(columnsByListName[masterListName])
+                };
+            }
+
+            foreach (var attr in attributeMap.Values)
+            {
+                if (attr["PageDetails"] is JsonArray detailsArray)
+                {
+                    foreach (var detailNode in detailsArray)
+                    {
+                        if (detailNode == null) continue;
+                        var detailListName = detailNode["ListName"]?.GetValue<string>() ?? "";
+                        context.DetailSetups.Add(new PageDetailSetup
+                        {
+                            ListName = detailListName,
+                            TableName = detailNode["TableName"]?.GetValue<string>() ?? "",
+                            ForeignKey = detailNode["ForeignKey"]?.GetValue<string>() ?? "",
+                            Columns = MapColumns(columnsByListName[detailListName])
+                        });
+                    }
+                }
+            }
+
+            return context;
+        }
+
+        private List<ColumnDefinition> MapColumns(IEnumerable<JsonNode> rawColumns)
+        {
+            var list = new List<ColumnDefinition>();
+            foreach (var c in rawColumns)
+            {
+                list.Add(new ColumnDefinition
+                {
+                    SearchName = c["SearchName"]?.GetValue<string>() ?? "",
+                    ColumnName = c["ColumnName"]?.GetValue<string>() ?? "",
+                    InsertType = c["InsertType"]?.GetValue<string>() ?? "",
+                    DroModel = c["DroModel"]?.GetValue<string>(),
+                    DroValue = c["DroValue"]?.GetValue<string>(),
+                    DroText = c["DroText"]?.GetValue<string>(),
+                    arColumnLabel = c["arColumnLabel"]?.GetValue<string>() ?? "",
+                    enColumnLabel = c["enColumnLabel"]?.GetValue<string>()
+                });
+            }
+            return list;
+        }
+
         private string BuildMinimalSchemaContext(JsonNode fullPageNode, List<JsonNode?>? explicitAttributes = null, List<JsonNode?>? explicitPageDetails = null)
         {
             var minimal = new JsonObject
@@ -604,75 +665,11 @@ namespace DynamicAi.Application.Services
                 ["PageAttributes"] = new JsonArray()
             };
 
-            // Link Explicit Details to Attributes if provided
-            var detailsByAttributeId = new Dictionary<int, List<JsonNode>>();
-            if (explicitPageDetails != null)
-            {
-                foreach (var detail in explicitPageDetails)
-                {
-                    if (detail == null) continue;
-                    // Assuming PageDetail has PageAttributeId or we infer it. 
-                    // Wait, Qdrant stored PageDetail usually has "PageAttributeId" column if it's a child.
-                    // Let's rely on the caller logic if possible, BUT here we need to link them.
-                    // If the detail JSON from Qdrant doesn't have the AttributeID, we can't link it here blindly.
-                    // HOWEVER, the caller (GetFullPageContext) knows the ID when it fetches.
-                    // CHALLENGE: If we pass a flat list here, we MUST ensure the JSON contains the Link Key.
-                    // Let's check typical Qdrant data. It stores what the Indexer sent.
-                    // If PageAttributeId isn't in the JSON, this refactor is risky without confirming data shape.
-                    
-                    // RE-EVALUATION: To be safe and compliant with user request "accept explicit details",
-                    // we will assume the caller might still attach them OR we use a lookup if available.
-                    // But for now, let's look at the implementation below.
-                }
-            }
-
-            // To support the user's request cleanly without risking missing keys:
-            // We will stick to the logic where we process attributes.
-            // If explicitPageDetails are passed, we trying to map them.
-            // But since I cannot guarantee 'PageAttributeId' exists in the detail JSON without checking,
-            // I will implement a safer hybrid: 
-            // The caller is responsible for passing attributes THAT HAVE the details attached if they did the linking,
-            // OR we can try to link here if we find the key.
-            
-            // Reverting to the logic: The previous step ALREADY attached them in the explicitAttributes list.
-            // If the user wants to pass them separately, I need to know the Key.
-            // Let's assume for this refactor that explicitAttributes ALREADY has the details (as per previous step),
-            // OR we iterate the passed details list.
-            
-            // Actually, the cleanest way satisfying the user "Refactore... to accept explicitly fetched pagedetail"
-            // is to add the parameter, and IF it's provided, we attempt to add them.
-            // But since we just mutated the explicitAttributes in the previous turn, they are already there?
-            // No, the previous turn's code `explicitAttributes` were local to `GetFullPageContext`.
-            
-            // Implementation:
             var attributesToProcess = explicitAttributes ?? fullPageNode["PageAttributes"]?.AsArray().Select(x => x).ToList() ?? new List<JsonNode?>();
 
-            // Group explicit details by AttributeId (if available in the node) is risky if key is missing.
-            // Code Gear Protocol: "Defensive Recon". I don't see PageAttributeId in the `minimalDetail` projection below.
-            // So it might not be in the Qdrant JSON.
-            // The safer bet is to rely on the caller to have attached them, 
-            // OR just accept the parameter to satisfy the interface but maybe warn/log if unused?
-            // No, that's dishonest.
-            
-            // decision: I will implement the parameter. 
-            // And inside the loop, I will check if `attr["PageDetails"]` is populated.
-            // If explicitPageDetails is provided, I will try to use it, assuming `PageAttributeId` exists.
-            // If not, I fall back to the embedded array.
-            
-            // Wait, look at line 468 in original: `foreach (var detail in attr["PageDetails"]...`
-            // This expects the details to be embedded in the attribute node.
-            
-            // I will keep the logic relying on `attr["PageDetails"]` being populated.
-            // The refactor requested is "accept... fetched pagedetail".
-            // Implementation:
-            // 1. Group explicitPageDetails by PageAttributeId (if param provided).
-            // 2. iterate attributes.
-            // 3. Inject details from map into `minimalAttr`.
-            
             ILookup<int, JsonNode>? detailsLookup = null;
             if (explicitPageDetails != null)
             {
-                // We link details to attributes using AttributeId (Foreign Key in PageDetail)
                 detailsLookup = explicitPageDetails
                     .Where(d => d != null && d!["AttributeId"] != null)
                     .ToLookup(d => d!["AttributeId"]!.GetValue<int>(), d => d!);
@@ -694,14 +691,9 @@ namespace DynamicAi.Application.Services
                     ["TailCondition"] = CloneValue(attr["TailCondition"]),
                     ["IsDepartment"] = CloneValue(attr["IsDepartment"]),
                     ["DepartmentCoulmn"] = CloneValue(attr["DepartmentCoulmn"]),
-                    // ["SchemaScript"] = CloneValue(attr["SchemaScript"]), // Temporarily commented out for experimental testing to reduce token bloat and prevent hallucinations.
                     ["PageDetails"] = new JsonArray()
                 };
 
-                // Source of details: 
-                // 1. Explicitly passed list (matched by ID)
-                // 2. Embedded logic (if attached to node)
-                
                 IEnumerable<JsonNode> detailsSource = new List<JsonNode>();
                 
                 if (detailsLookup != null && attrId.HasValue && detailsLookup.Contains(attrId.Value))
@@ -712,7 +704,6 @@ namespace DynamicAi.Application.Services
                 {
                      detailsSource = arr.OfType<JsonNode>();
                 }
-
 
                 foreach (var detail in detailsSource)
                 {
@@ -734,7 +725,6 @@ namespace DynamicAi.Application.Services
                 minimal["PageAttributes"]!.AsArray().Add(minimalAttr);
             }
 
-            // Return as compact JSON
             return minimal.ToJsonString(new JsonSerializerOptions
             {
                 WriteIndented = false,

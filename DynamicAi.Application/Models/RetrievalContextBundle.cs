@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
+using DynamicAi.Application.Models.DirectIntegration;
 
 namespace DynamicAi.Application.Models
 {
@@ -19,7 +20,13 @@ namespace DynamicAi.Application.Models
         public int? PageId { get; set; }
 
         /// <summary>
+        /// الهيكل الشجري القوي الذي يحتوي على Master و Details والأعمدة
+        /// </summary>
+        public ShippedPageContext? StructuredContext { get; set; }
+
+        /// <summary>
         /// "القاموس" - صفوف البيانات من ListSetups (كنصوص JSON)
+        /// (Deprecated: Will be empty when using StructuredContext)
         /// </summary>
         public List<string> DictionaryEntries { get; set; } = new List<string>();
 
