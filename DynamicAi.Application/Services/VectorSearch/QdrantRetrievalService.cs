@@ -521,6 +521,12 @@ namespace DynamicAi.Application.Services
                 contextBundle.StructuredContext = structuredContext;
                 contextBundle.UnifiedPageContext = JsonSerializer.Serialize(structuredContext, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
                 
+                // Populate legacy DictionaryEntries for logging and fallback
+                contextBundle.DictionaryEntries = filteredNodes.Select(c => c.ToString()).ToList();
+                
+                _logger.LogInformation("[RagRetrieval] ✓ StructuredContext built for PageID {PageId}. Hierarchy: Master -> {DetailCount} Details.", 
+                    structuredContext.PageId, structuredContext.DetailSetups.Count);
+                
                 _logger.LogInformation("[RagRetrieval] ✓ Columns filtered & mapped. Original: {Original} → Filtered: {Filtered}", originalCount, filteredNodes.Count);
             }
             else
@@ -553,11 +559,12 @@ namespace DynamicAi.Application.Services
                 string cacheKey = $"RagContext:{tenantId}:{pageId}";
                 var cachedContext = new CachedPageContext
                 {
-                PageId = pageId,
-                UnifiedPageContext = contextBundle.UnifiedPageContext ?? string.Empty,
-                DictionaryEntries = contextBundle.DictionaryEntries,
-                BusinessRules = contextBundle.BusinessRules,
-                CachedAt = DateTime.UtcNow
+                    PageId = pageId,
+                    UnifiedPageContext = contextBundle.UnifiedPageContext ?? string.Empty,
+                    DictionaryEntries = contextBundle.DictionaryEntries,
+                    BusinessRules = contextBundle.BusinessRules,
+                    StructuredContext = contextBundle.StructuredContext,
+                    CachedAt = DateTime.UtcNow
                 };
 
                 var cacheOptions = new MemoryCacheEntryOptions()

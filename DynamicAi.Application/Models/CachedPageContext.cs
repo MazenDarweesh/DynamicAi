@@ -1,3 +1,5 @@
+using DynamicAi.Application.Models.DirectIntegration;
+
 namespace DynamicAi.Application.Models;
 
 /// <summary>
@@ -32,6 +34,11 @@ public class CachedPageContext
     public DateTime CachedAt { get; set; }
 
     /// <summary>
+    /// Hierarchical context for LLM.
+    /// </summary>
+    public ShippedPageContext? StructuredContext { get; set; }
+
+    /// <summary>
     /// Converts to RetrievalContextBundle for use in SQL generation.
     /// </summary>
     public RetrievalContextBundle ToBundle()
@@ -41,7 +48,8 @@ public class CachedPageContext
             PageId = this.PageId,
             UnifiedPageContext = this.UnifiedPageContext,
             DictionaryEntries = this.DictionaryEntries,
-            BusinessRules = this.BusinessRules
+            BusinessRules = this.BusinessRules,
+            StructuredContext = this.StructuredContext
         };
     }
 }

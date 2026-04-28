@@ -155,6 +155,29 @@ public class UnifiedQueryHandler : IIntentHandler
         }
 
         int currentPageId = finalContext?.PageId ?? 0;
+
+        // --- PHASE 1.5: SECONDARY CACHE CHECK (Post-RAG) ---
+        // If the global check missed because PageId was unknown, we check again now that we have the resolved PageId.
+        if (string.IsNullOrWhiteSpace(context?.CachedSql) && currentPageId > 0)
+        {
+            _logger.LogInformation("[UnifiedHandler] Layer 1.5: Checking Page-Specific Cache for PageID {PageId}...", currentPageId);
+            var pageCachedResult = await _queryCacheService.TryGetCachedSqlAsync(
+                context?.PrecomputedEmbedding ?? new float[0], // Reuse precomputed embedding
+                tenantId,
+                companyId ?? 1,
+                currentPageId,
+                cancellationToken);
+
+            if (pageCachedResult != null)
+            {
+                _logger.LogInformation("[UnifiedHandler] ⚡ SECONDARY CACHE HIT (PageID: {PageId}). Bypassing LLM!", currentPageId);
+                var cachedSqlResult = await ExecuteSqlPipelineAsync(pageCachedResult.Sql, tenantId, companyId, retrievalResult, context, cancellationToken);
+                cachedSqlResult.IsCached = true;
+                cachedSqlResult.CacheId = pageCachedResult.CacheId.ToString();
+                cachedSqlResult.Intent = pageCachedResult.Intent;
+                return cachedSqlResult;
+            }
+        }
         
         string schemaContent = finalContext != null 
             ? JsonSerializer.Serialize(finalContext, _jsonOptions) 
@@ -180,10 +203,21 @@ public class UnifiedQueryHandler : IIntentHandler
             variables["page_attributes_details_listsetups"] = schemaContent;
         }
 
+        if (retrievalResult.DictionaryEntries.Any())
+        {
+            variables["legacy_dictionary_context"] = string.Join("\n", retrievalResult.DictionaryEntries);
+        }
+
         if (!string.IsNullOrEmpty(rulesContent))
         {
             variables["business_rules"] = rulesContent;
         }
+
+        _logger.LogInformation("[UnifiedHandler] Context Strategy: " +
+            "Structured={HasStructured} ({SchemaSize} chars), " +
+            "Legacy={HasLegacy} ({LegacyCount} entries)", 
+            !string.IsNullOrEmpty(schemaContent), schemaContent.Length, 
+            retrievalResult.DictionaryEntries.Any(), retrievalResult.DictionaryEntries.Count);
 
         if (context?.ConversationHistory != null && context.ConversationHistory.Any())
         {
