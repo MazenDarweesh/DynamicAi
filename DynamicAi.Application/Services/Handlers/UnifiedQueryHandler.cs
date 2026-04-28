@@ -432,7 +432,7 @@ public class UnifiedQueryHandler : IIntentHandler
         var finalSql = rewrittenResult.RewrittenSql;
         
         _logger.LogInformation("[UnifiedHandler] Layer 5: Executing final SQL...");
-        var executionResult = await _executionService.ExecuteSqlAsync(finalSql, rewrittenResult.Parameters, ct);
+        var executionResult = await _executionService.ExecuteSqlAsync(finalSql, rewrittenResult.Parameters, context?.ConnectionString, ct);
         
         var queryInsights = new List<string>();
         if (retrievalResult.DictionaryEntries?.Any() == true) queryInsights.Add($"📚 {retrievalResult.DictionaryEntries.Count} Dictionary Entries");

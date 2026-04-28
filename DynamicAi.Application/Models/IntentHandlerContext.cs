@@ -98,4 +98,9 @@ public class IntentHandlerContext
     /// injected directly from the ERP. When set, handlers must bypass RAG and use this context.
     /// </summary>
     public ShippedPageContext? InjectedContext { get; init; }
+
+    /// <summary>
+    /// Target database connection string provided by the caller.
+    /// </summary>
+    public string? ConnectionString { get; init; }
 }

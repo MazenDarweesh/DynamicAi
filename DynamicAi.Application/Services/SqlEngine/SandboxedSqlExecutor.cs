@@ -1,4 +1,4 @@
-﻿using Dapper;
+using Dapper;
 using DynamicAi.Application.Interfaces;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
@@ -93,10 +93,10 @@ namespace DynamicAi.Application.Services
         }
 
         /// <summary>
-        /// (مُعدل) أصبح الآن يقبل قاموس الباراميترات للتنفيذ الآمن.
+        /// (مُعدل) أصبح الآن يقبل قاموس الباراميترات للتنفيذ الآمن، ونص اتصال اختياري.
         /// محمي بـ Polly: Timeout(8s) → Retry(1) → CircuitBreaker(3 failures → open 30s)
         /// </summary>
-        public async Task<IEnumerable<dynamic>> ExecuteSqlAsync(string rewrittenSql, Dictionary<string, object> parameters, CancellationToken ct = default)
+        public async Task<IEnumerable<dynamic>> ExecuteSqlAsync(string rewrittenSql, Dictionary<string, object> parameters, string? connectionString = null, CancellationToken ct = default)
         {
             // ============================================================================
             // [DIAGNOSTIC] طباعة الـ SQL الفعلي المُنفذ
@@ -119,11 +119,28 @@ namespace DynamicAi.Application.Services
             _logger.LogWarning("\n[Full SQL Query]:\n{Sql}\n", rewrittenSql);
             _logger.LogWarning("╚════════════════════════════════════════════════════════════════════════╝");
 
+            string activeConnectionString = _readOnlyConnectionString;
+
+            if (!string.IsNullOrWhiteSpace(connectionString))
+            {
+                try 
+                {
+                    using var testConn = new SqlConnection(connectionString);
+                    await testConn.OpenAsync(ct);
+                    activeConnectionString = connectionString;
+                    _logger.LogInformation("✅ [SqlExecutor] Successfully connected using the provided ConnectionString.");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("⚠️ [SqlExecutor] Failed to connect using provided connection string. Falling back to default. Error: {Error}", ex.Message);
+                }
+            }
+
             try
             {
                 return await _resiliencePipeline.ExecuteAsync(async (token) =>
                 {
-                    await using var connection = new SqlConnection(_readOnlyConnectionString);
+                    await using var connection = new SqlConnection(activeConnectionString);
                     token.ThrowIfCancellationRequested();
                     return await connection.QueryAsync(
                         new CommandDefinition(rewrittenSql, parameters, commandTimeout: QUERY_TIMEOUT_SECONDS, cancellationToken: token));

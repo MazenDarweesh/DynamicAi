@@ -343,7 +343,7 @@ public class SqlIntentHandler : IIntentHandler
 
         // 5. Layer 5: Execution
         _logger.LogInformation("[SqlHandler] Layer 5: Executing SQL...");
-        var executionResult = await _executionService.ExecuteSqlAsync(rewrittenResult.RewrittenSql, rewrittenResult.Parameters, ct);
+        var executionResult = await _executionService.ExecuteSqlAsync(rewrittenResult.RewrittenSql, rewrittenResult.Parameters, context?.ConnectionString, ct);
 
         // Cost tracking handled internally.
 

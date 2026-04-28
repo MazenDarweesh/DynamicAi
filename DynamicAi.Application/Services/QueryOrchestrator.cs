@@ -607,7 +607,10 @@ namespace DynamicAi.Application.Services
                 CachedSql = cachedResult?.Sql,
                 CachedPageId = cachedResult?.PageId,
                 CachedIntent = cachedResult?.Intent,
-                CachedCacheId = cachedResult?.CacheId
+                CachedCacheId = cachedResult?.CacheId,
+
+                // Pass the connection string from the request body
+                ConnectionString = request.ConnectionString
             };
 
             var intentStub = new IntentClassificationResult
