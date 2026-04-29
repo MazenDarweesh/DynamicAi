@@ -203,6 +203,12 @@ public class UnifiedQueryHandler : IIntentHandler
             variables["page_attributes_details_listsetups"] = schemaContent;
         }
 
+        if (finalContext?.MasterSetup != null && !string.IsNullOrEmpty(finalContext.MasterSetup.TailCondition))
+        {
+            variables["tail_condition"] = finalContext.MasterSetup.TailCondition;
+            _logger.LogInformation("[UnifiedHandler] 🛡️ TailCondition extracted and passed to prompt: {TailCondition}", finalContext.MasterSetup.TailCondition);
+        }
+
         if (retrievalResult.DictionaryEntries.Any())
         {
             variables["legacy_dictionary_context"] = string.Join("\n", retrievalResult.DictionaryEntries);

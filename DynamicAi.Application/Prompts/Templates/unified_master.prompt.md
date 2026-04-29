@@ -13,6 +13,7 @@ variables:
   - company_id (required)
   - current_date (required)
   - current_year (required)
+  - tail_condition (optional)
 ---
 
 ## ROLE
@@ -49,6 +50,12 @@ Analyze the user's question and determine which type it is:
 ### PAGE ATTRIBUTES, DETAILS & LISTSETUPS
 This JSON shows the page structure and table relationships. IMPORTANT: If this JSON contains embedded 'Columns' arrays natively, you MUST use the column names provided inside them. If it only shows structure without columns, you MUST use the LEGACY DICTIONARY CONTEXT below.
 {{page_attributes_details_listsetups}}
+{{/if}}
+
+{{#if tail_condition}}
+### MANDATORY SYSTEM FILTER (TailCondition)
+You MUST apply this exact filter to the WHERE clause of your query:
+{{tail_condition}}
 {{/if}}
 
 {{#if legacy_dictionary_context}}

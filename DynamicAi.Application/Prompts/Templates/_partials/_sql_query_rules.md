@@ -1,7 +1,8 @@
 DATA FLOW(CRITICAL):
 1) FROM: Use ONLY the 'TableName' value from PageAttribute in PAGE ATTRIBUTES, DETAILS & LISTSETUPS as your FROM clause (e.g. TableName=ContractViewWithPaid → FROM ContractViewWithPaid AS T1). NEVER use 'ListName' in a FROM clause — 'ListName' is ONLY a key to look up column aliases in the LEGACY DICTIONARY CONTEXT.
 2) COLUMNS: Use ONLY the 'ColumnName' values provided in the LEGACY DICTIONARY CONTEXT or embedded inside the PAGE ATTRIBUTES, DETAILS & LISTSETUPS 'Columns' arrays. Do NOT make up column names or guess.
-3) WHERE: Apply the 'TailCondition' filter from PAGE ATTRIBUTES, DETAILS & LISTSETUPS + AND ComID=@CurrentCompanyId.
+3) WHERE: You MUST apply the 'TailCondition' filter (found in the MANDATORY SYSTEM FILTER section) + AND T1.ComID=@CurrentCompanyId. The TailCondition is an ABSOLUTE SECURITY AND BUSINESS LOGIC REQUIREMENT. Never ignore it. IMPORTANT: If the TailCondition columns don't have aliases, you MUST add the table alias (e.g., T1.ColumnName) to each column within it to match your query format.
+
 4) DETAILS(CRITICAL — READ CAREFULLY): If the user asks for details, JOIN using the 'TableName' from PageDetail in PAGE ATTRIBUTES, DETAILS & LISTSETUPS (e.g. TableName=salessystemcontract → JOIN salessystemcontract AS T2). ON master.'Primary' = detail.'ForeignKey'. FATAL: Do NOT use 'ListName' as a JOIN table — 'ListName' (if present) only identifies which metadata belong to this detail. The actual SQL table is ALWAYS 'TableName'.
 5) NO OTHER tables/views/JOINs except dropdown lookups per COLUMN RESOLUTION.
 
