@@ -26,6 +26,10 @@ namespace DynamicAi.Application.Services.SqlEngine
 
         public async Task<SanitizationResult> SanitizeAsync(string rawSql, string tenantId, CancellationToken ct = default)
         {
+            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+            _logger.LogInformation("║             [Layer 4.5: SQL SANITIZER] - SCHEMA CHECK                  ║");
+            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+
             var result = new SanitizationResult { SafeSql = rawSql, WasModified = false };
 
             try

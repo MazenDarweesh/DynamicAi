@@ -339,6 +339,7 @@ public class SqlIntentHandler : IIntentHandler
             rawSql,
             context?.TenantId ?? "default",
             context?.CompanyId,
+            null, // No tailCondition for legacy flow
             ct);
 
         // 5. Layer 5: Execution

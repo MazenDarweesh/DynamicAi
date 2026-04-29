@@ -1,4 +1,4 @@
-﻿using DynamicAi.Application.Interfaces;
+using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Security;
 using Microsoft.Extensions.Logging;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
@@ -29,7 +29,7 @@ namespace DynamicAi.Application.Services
         public Task ValidateSqlAsync(string rawSql, string tenantId, CancellationToken ct = default)
         {
             _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-            _logger.LogInformation("║              [Layer 3: SQL VALIDATOR] - STARTING VALIDATION            ║");
+            _logger.LogInformation("║              [Layer 4: SQL VALIDATOR] - STARTING VALIDATION            ║");
             _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
             _logger.LogInformation("[SqlValidator] TenantId: {TenantId}", tenantId);
@@ -74,7 +74,7 @@ namespace DynamicAi.Application.Services
                 }
 
                 _logger.LogError("╔════════════════════════════════════════════════════════════════════════╗");
-                _logger.LogError("║              [Layer 3: SQL VALIDATOR] - VALIDATION FAILED             ║");
+                _logger.LogError("║              [Layer 4: SQL VALIDATOR] - VALIDATION FAILED             ║");
                 _logger.LogError("╚════════════════════════════════════════════════════════════════════════╝");
 
                 throw new InvalidDataException($"SQL Syntax Error: {errors.First().Message}");
@@ -98,7 +98,7 @@ namespace DynamicAi.Application.Services
                 _logger.LogError("[SqlValidator] This combination is illegal in T-SQL (Error 10741).");
 
                 _logger.LogError("╔════════════════════════════════════════════════════════════════════════╗");
-                _logger.LogError("║           [Layer 3: SQL VALIDATOR] - TOP+OFFSET VIOLATION             ║");
+                _logger.LogError("║           [Layer 4: SQL VALIDATOR] - TOP+OFFSET VIOLATION             ║");
                 _logger.LogError("╚════════════════════════════════════════════════════════════════════════╝");
 
                 throw new InvalidDataException(
@@ -133,7 +133,7 @@ namespace DynamicAi.Application.Services
                 _logger.LogError("[SqlValidator] Security violation detected: {Message}", secEx.Message);
 
                 _logger.LogError("╔════════════════════════════════════════════════════════════════════════╗");
-                _logger.LogError("║              [Layer 3: SQL VALIDATOR] - SECURITY VIOLATION            ║");
+                _logger.LogError("║              [Layer 4: SQL VALIDATOR] - SECURITY VIOLATION            ║");
                 _logger.LogError("╚════════════════════════════════════════════════════════════════════════╝");
 
                 throw;
@@ -143,7 +143,7 @@ namespace DynamicAi.Application.Services
             // STEP 4: النجاح - الخروج
             // ============================================================================
             _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-            _logger.LogInformation("║           [Layer 3: SQL VALIDATOR] - VALIDATION SUCCESSFUL            ║");
+            _logger.LogInformation("║           [Layer 4: SQL VALIDATOR] - VALIDATION SUCCESSFUL            ║");
             _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
 
             return Task.CompletedTask;

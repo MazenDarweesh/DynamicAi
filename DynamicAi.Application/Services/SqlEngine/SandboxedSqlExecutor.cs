@@ -102,7 +102,7 @@ namespace DynamicAi.Application.Services
             // [DIAGNOSTIC] طباعة الـ SQL الفعلي المُنفذ
             // ============================================================================
             _logger.LogWarning("╔════════════════════════════════════════════════════════════════════════╗");
-            _logger.LogWarning("║         📋 [SQL EXECUTOR] - FINAL QUERY BEFORE EXECUTION              ║");
+            _logger.LogWarning("║              [Layer 5: SQL EXECUTOR] - FINAL QUERY                    ║");
             _logger.LogWarning("╚════════════════════════════════════════════════════════════════════════╝");
             _logger.LogWarning("\n[SQL Query] Characters: {Length}", rewrittenSql.Length);
             _logger.LogWarning("\n[SQL Parameters] Count: {Count}", parameters.Count);

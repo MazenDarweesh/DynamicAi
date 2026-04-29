@@ -1,4 +1,4 @@
-﻿using Microsoft.SqlServer.TransactSql.ScriptDom;
+using Microsoft.SqlServer.TransactSql.ScriptDom;
 
 /// <summary>
 /// (الزائر "الحارس" الذي يقوم بالتحصين - Layer 4)
@@ -11,11 +11,14 @@ internal class SqlHardeningVisitor : TSqlFragmentVisitor
     private readonly int _topRows;
     private int _paramCounter = 0;
 
-    public SqlHardeningVisitor(Dictionary<string, object> parameters, string tenantId, int topRows)
+    private readonly string? _tailCondition;
+
+    public SqlHardeningVisitor(Dictionary<string, object> parameters, string tenantId, int topRows, string? tailCondition = null)
     {
         Parameters = parameters;
         _tenantId = tenantId;
         _topRows = topRows;
+        _tailCondition = tailCondition;
     }
 
     // --- 1. تحصين: ربط الباراميترات (لمنع SQL Injection) ---
@@ -54,17 +57,53 @@ internal class SqlHardeningVisitor : TSqlFragmentVisitor
     // ⚠️ CRITICAL: Do NOT add TOP if OFFSET is present - they are mutually exclusive in T-SQL!
     public override void Visit(QuerySpecification node)
     {
-        // Skip adding TOP if:
-        // 1. Query already has TOP
-        // 2. Query has OFFSET clause (OFFSET/FETCH is the paging mechanism, adding TOP would cause Error 10741)
+        // 1. TOP Injection (Existing)
         if (node.TopRowFilter == null && node.OffsetClause == null)
         {
-            // (الـ AI لم يضف TOP ولا OFFSET، سنضيف TOP بالقوة للحماية)
             node.TopRowFilter = new TopRowFilter
             {
                 Expression = new IntegerLiteral { Value = _topRows.ToString() }
             };
         }
+
+        // 2. TailCondition Injection (MANDATORY Business Logic/Security)
+        if (!string.IsNullOrWhiteSpace(_tailCondition))
+        {
+            // We parse the TailCondition by wrapping it in a dummy SELECT
+            var parser = new TSql160Parser(false);
+            using var reader = new StringReader($"SELECT 1 WHERE ({_tailCondition})");
+            var fragment = parser.Parse(reader, out var errors);
+
+            if (errors.Count == 0 && fragment is TSqlScript script && script.Batches.Count > 0)
+            {
+                var statement = script.Batches[0].Statements[0] as SelectStatement;
+                var querySpec = statement?.QueryExpression as QuerySpecification;
+                var tailExpr = querySpec?.WhereClause?.SearchCondition;
+
+                if (tailExpr != null)
+                {
+                    if (node.WhereClause == null)
+                    {
+                        node.WhereClause = new WhereClause { SearchCondition = tailExpr };
+                    }
+                    else
+                    {
+                        // Check if the tail condition is already present to avoid redundant nesting
+                        // (Simple check: if the raw SQL already contains the tail condition string)
+                        // Actually, ScriptDom will handle merging.
+                        
+                        var combined = new BooleanBinaryExpression
+                        {
+                            FirstExpression = new BooleanParenthesisExpression { Expression = node.WhereClause.SearchCondition },
+                            SecondExpression = new BooleanParenthesisExpression { Expression = tailExpr },
+                            BinaryExpressionType = BooleanBinaryExpressionType.And
+                        };
+                        node.WhereClause.SearchCondition = combined;
+                    }
+                }
+            }
+        }
+
         base.Visit(node);
     }
 

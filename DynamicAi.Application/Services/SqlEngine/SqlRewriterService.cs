@@ -1,4 +1,4 @@
-﻿using DynamicAi.Application.Interfaces;
+using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
 using System.Collections.Generic;
@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 namespace DynamicAi.Application.Services
 {
     /// <summary>
-    /// (تنفيذ Layer 4)
+    /// (تنفيذ Layer 4.8)
     /// يستخدم ScriptDom Visitor لتنفيذ التحصينات الثلاثة.
     /// </summary>
     public class SqlRewriterService : ISqlRewriterService
@@ -22,8 +22,11 @@ namespace DynamicAi.Application.Services
             _logger = logger;
         }
 
-        public Task<RewrittenSqlResult> RewriteAsync(string safeSql, string tenantId, int? comID = 1, CancellationToken ct = default)
+        public Task<RewrittenSqlResult> RewriteAsync(string safeSql, string tenantId, int? comID = 1, string? tailCondition = null, CancellationToken ct = default)
         {
+            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+            _logger.LogInformation("║             [Layer 4.8: SQL REWRITER] - HARDENING                      ║");
+            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
             // 1. إعداد المحلل (Parser)
             TSqlParser parser = new TSql160Parser(false);
             IList<ParseError> errors;
@@ -43,7 +46,7 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("[SqlRewriter] Added @CurrentCompanyId parameter with value: {CompanyId}", comID.Value);
             }
 
-            var visitor = new SqlHardeningVisitor(parameters, tenantId, MAX_ROWS_LIMIT);
+            var visitor = new SqlHardeningVisitor(parameters, tenantId, MAX_ROWS_LIMIT, tailCondition);
 
             // 3. تطبيق التحصينات (الزيارة)
             fragment.Accept(visitor);

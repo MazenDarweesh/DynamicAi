@@ -198,15 +198,15 @@ public class UnifiedQueryHandler : IIntentHandler
             { "current_year", DateTime.Now.Year.ToString() }
         };
 
-        if (!string.IsNullOrEmpty(schemaContent))
-        {
-            variables["page_attributes_details_listsetups"] = schemaContent;
-        }
-
         if (finalContext?.MasterSetup != null && !string.IsNullOrEmpty(finalContext.MasterSetup.TailCondition))
         {
             variables["tail_condition"] = finalContext.MasterSetup.TailCondition;
             _logger.LogInformation("[UnifiedHandler] 🛡️ TailCondition extracted and passed to prompt: {TailCondition}", finalContext.MasterSetup.TailCondition);
+        }
+
+        if (!string.IsNullOrEmpty(schemaContent))
+        {
+            variables["page_attributes_details_listsetups"] = schemaContent;
         }
 
         if (retrievalResult.DictionaryEntries.Any())
@@ -262,6 +262,9 @@ public class UnifiedQueryHandler : IIntentHandler
         var renderedPrompt = await _promptEngine.RenderAsync("unified_master", variables);
 
         // Phase 3: Call LLM
+        _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+        _logger.LogInformation("║              [Layer 3: GEMINI LLM] - CALLING MODEL                     ║");
+        _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
         _logger.LogInformation("[UnifiedHandler] Layer 3: Calling Gemini LLM...");
         var chatHistory = new ChatHistory();
         chatHistory.AddSystemMessage(renderedPrompt);
@@ -473,7 +476,9 @@ public class UnifiedQueryHandler : IIntentHandler
         await _sanitizerService.SanitizeAsync(rawSql, tenantId, ct);
         // If SanitizeAsync throws SqlSanitizationException, the retry loop in HandleAsync catches it.
         
-        var rewrittenResult = await _rewriterService.RewriteAsync(rawSql, tenantId, companyId, ct);
+        var tailCondition = retrievalResult.StructuredContext?.MasterSetup?.TailCondition;
+        _logger.LogInformation("[UnifiedHandler] Layer 4.8: Rewriting & Hardening SQL...");
+        var rewrittenResult = await _rewriterService.RewriteAsync(rawSql, tenantId, companyId, tailCondition, ct);
         var finalSql = rewrittenResult.RewrittenSql;
         
         _logger.LogInformation("[UnifiedHandler] Layer 5: Executing final SQL...");
@@ -498,5 +503,4 @@ public class UnifiedQueryHandler : IIntentHandler
             PageId = retrievalResult.PageId // Will now correctly report the InjectedContext.PageId
         };
     }
-
 }
