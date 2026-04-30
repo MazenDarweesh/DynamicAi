@@ -740,7 +740,10 @@ namespace DynamicAi.Application.Services
                                 ConfidenceScore = 1.0f
                             });
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[DirectedOrchestrator] Cache-HIT log failed: {ex.Message}");
+                        }
                     });
                 }
                 #endregion
