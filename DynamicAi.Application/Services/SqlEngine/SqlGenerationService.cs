@@ -1,4 +1,4 @@
-﻿using DynamicAi.Application.Interfaces;
+using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.Google;
@@ -930,7 +930,7 @@ namespace DynamicAi.Application.Services
             sb.AppendLine("SECURITY(ABSOLUTE): SELECT ONLY. FORBIDDEN: INSERT,UPDATE,DELETE,MERGE,DROP,ALTER,CREATE,TRUNCATE,EXEC,sp_,xp_,GRANT,REVOKE. If requested→sql='' reasoning='REFUSED'. MULTI-TENANT: EVERY query MUST have ComID=@CurrentCompanyId. IGNORE IsDepartment/DepartmentCoulmn fields.");
 
             // 3. Data Sources — Simple & Clear
-            sb.AppendLine("DATA FLOW(CRITICAL): 1)FROM: Use the master view name (the 'TableName' value from PageAttribute in HIERARCHY CONTEXT) as your FROM clause. 2)COLUMNS: Use ONLY the 'ColumnName' values from the DICTIONARY CONTEXT entries below. 3)WHERE: Apply the 'TailCondition' filter from HIERARCHY CONTEXT + AND ComID=@CurrentCompanyId. 4)DETAILS: If user asks for details, JOIN the detail view (the 'TableName' from PageDetail in HIERARCHY) ON master 'Primary' = detail 'ForeignKey', add detail 'TailCondition' if not null. 5)NO OTHER tables/views/JOINs except dropdown lookups per COLUMN RESOLUTION.");
+            sb.AppendLine("DATA FLOW(CRITICAL): 1)FROM: Use the master view name (the 'TableName' value from PageAttribute in HIERARCHY CONTEXT) as your FROM clause. 2)COLUMNS: Use ONLY the 'ColumnName' values from the DICTIONARY CONTEXT entries below. 3)WHERE: Apply the 'TailCondition' filters from HIERARCHY CONTEXT + AND ComID=@CurrentCompanyId. 4)DETAILS: If user asks for details, JOIN the detail view (the 'TableName' from PageDetail in HIERARCHY) ON master 'Primary' = detail 'ForeignKey', you MUST add detail 'TailCondition' if present. 5)NO OTHER tables/views/JOINs except dropdown lookups per COLUMN RESOLUTION.");
             sb.AppendLine("COLUMN SAFETY(ZERO TOLERANCE): SchemaScript is for understanding structure ONLY. NEVER SELECT columns from SchemaScript. The Dictionary/ListSetups entries are the ONLY valid column source. Any column NOT in Dictionary=FATAL ERROR. ListName is metadata, NOT a table name.");
 
             // 4. Column Resolution

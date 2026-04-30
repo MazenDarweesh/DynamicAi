@@ -2,6 +2,7 @@ using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Services.Handlers;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Models.Sql;
+using DynamicAi.Application.Models.DirectIntegration;
 using DynamicAi.Domain.Entities;
 using FakeItEasy;
 using FluentAssertions;
@@ -119,11 +120,11 @@ public class SqlIntentHandlerTests
             rewrittenSql,
             new Dictionary<string, object> { { "p1", 1 } }
         );
-        A.CallTo(() => _rewriterService.RewriteAsync(rawSql, context.TenantId, A<int?>._, A<CancellationToken>._))
+        A.CallTo(() => _rewriterService.RewriteAsync(rawSql, context.TenantId, A<int?>._, A<IEnumerable<TailConditionEntry>?>._, A<CancellationToken>._))
             .Returns(Task.FromResult(rewrittenResult));
 
         // 6. Execution
-        A.CallTo(() => _executionService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters, A<CancellationToken>._))
+        A.CallTo(() => _executionService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters, A<string?>._, A<CancellationToken>._))
             .Returns(Task.FromResult((IEnumerable<dynamic>)execResultData));
 
         // Act
@@ -139,8 +140,8 @@ public class SqlIntentHandlerTests
         A.CallTo(() => _retrievalService.RetrieveContextAsync(userQuestion, context.TenantId, A<int?>.Ignored, A<float[]?>.Ignored, A<int?>.Ignored, A<CancellationToken>._)).MustHaveHappened();
         A.CallTo(() => _generationService.GenerateSqlAsync(userQuestion, contextBundle, A<string?>.Ignored, A<QueryActionType>.Ignored, A<string?>.Ignored, A<int?>.Ignored, A<List<ConversationTurn>?>.Ignored, A<bool>.Ignored, A<CancellationToken>._)).MustHaveHappened();
         A.CallTo(() => _validatorService.ValidateSqlAsync(rawSql, context.TenantId, A<CancellationToken>._)).MustHaveHappened();
-        A.CallTo(() => _rewriterService.RewriteAsync(rawSql, context.TenantId, A<int?>.Ignored, A<CancellationToken>._)).MustHaveHappened();
-        A.CallTo(() => _executionService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters, A<CancellationToken>._)).MustHaveHappened();
+        A.CallTo(() => _rewriterService.RewriteAsync(rawSql, context.TenantId, A<int?>.Ignored, A<IEnumerable<TailConditionEntry>?>.Ignored, A<CancellationToken>._)).MustHaveHappened();
+        A.CallTo(() => _executionService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters, A<string?>.Ignored, A<CancellationToken>._)).MustHaveHappened();
         A.CallTo(() => _usageTracker.TrackEmbeddingCallAsync(
             LlmOperationType.Embedding,
             A<string>.That.Matches(s => s != null),
@@ -181,11 +182,11 @@ public class SqlIntentHandlerTests
             rewrittenSql,
             new Dictionary<string, object>()
         );
-        A.CallTo(() => _rewriterService.RewriteAsync(cachedSql, context.TenantId, A<int?>._, A<CancellationToken>._))
+        A.CallTo(() => _rewriterService.RewriteAsync(cachedSql, context.TenantId, A<int?>._, A<IEnumerable<TailConditionEntry>?>._, A<CancellationToken>._))
             .Returns(Task.FromResult(rewrittenResult));
 
         // 6. Execution
-        A.CallTo(() => _executionService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters, A<CancellationToken>._))
+        A.CallTo(() => _executionService.ExecuteSqlAsync(rewrittenSql, rewrittenResult.Parameters, A<string?>._, A<CancellationToken>._))
             .Returns(Task.FromResult((IEnumerable<dynamic>)execResultData));
 
         // Act
@@ -203,7 +204,7 @@ public class SqlIntentHandlerTests
 
         // Verify Executed Layers
         A.CallTo(() => _validatorService.ValidateSqlAsync(cachedSql, context.TenantId, A<CancellationToken>._)).MustHaveHappened();
-        A.CallTo(() => _rewriterService.RewriteAsync(cachedSql, context.TenantId, A<int?>.Ignored, A<CancellationToken>._)).MustHaveHappened();
+        A.CallTo(() => _rewriterService.RewriteAsync(cachedSql, context.TenantId, A<int?>.Ignored, A<IEnumerable<TailConditionEntry>?>.Ignored, A<CancellationToken>._)).MustHaveHappened();
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
+using DynamicAi.Application.Models.DirectIntegration;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
 using System.Collections.Generic;
 using System.IO;
@@ -10,11 +11,11 @@ namespace DynamicAi.Application.Services
 {
     /// <summary>
     /// (تنفيذ Layer 4.8)
-    /// يستخدم ScriptDom Visitor لتنفيذ التحصينات الثلاثة.
+    /// يستخدم ScriptDom Visitor لتنفيذ التحصينات.
     /// </summary>
     public class SqlRewriterService : ISqlRewriterService
     {
-        private const int MAX_ROWS_LIMIT = 1000; // (الحد الأقصى الافتراضي للصفوف)
+        private const int MAX_ROWS_LIMIT = 1000;
         private readonly ILogger<SqlRewriterService> _logger;
 
         public SqlRewriterService(ILogger<SqlRewriterService> logger)
@@ -22,12 +23,34 @@ namespace DynamicAi.Application.Services
             _logger = logger;
         }
 
-        public Task<RewrittenSqlResult> RewriteAsync(string safeSql, string tenantId, int? comID = 1, string? tailCondition = null, CancellationToken ct = default)
+        public Task<RewrittenSqlResult> RewriteAsync(
+            string safeSql,
+            string tenantId,
+            int? comID = 1,
+            IEnumerable<TailConditionEntry>? tailConditions = null,
+            CancellationToken ct = default)
         {
             _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
             _logger.LogInformation("║             [Layer 4.8: SQL REWRITER] - HARDENING                      ║");
             _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
-            // 1. إعداد المحلل (Parser)
+
+            var entries = tailConditions?.ToList() ?? new List<TailConditionEntry>();
+
+            if (entries.Any())
+            {
+                _logger.LogInformation("[SqlRewriter] 🛡️ TailCondition entries to verify ({Count}):", entries.Count);
+                foreach (var e in entries)
+                {
+                    _logger.LogInformation("[SqlRewriter]   • View={ViewName} | Alias={Alias} | Condition={Condition}",
+                        e.ViewName, e.SqlAlias, e.Condition);
+                }
+            }
+            else
+            {
+                _logger.LogInformation("[SqlRewriter] ℹ️ No TailCondition entries provided.");
+            }
+
+            // 1. Parse SQL
             TSqlParser parser = new TSql160Parser(false);
             IList<ParseError> errors;
             TSqlFragment fragment;
@@ -36,30 +59,27 @@ namespace DynamicAi.Application.Services
                 fragment = parser.Parse(reader, out errors);
             }
 
-            // 2. إعداد الـ Visitor والباراميترات
+            // 2. Prepare parameters & visitor
             var parameters = new Dictionary<string, object>();
 
-            // إضافة ComID إلى الباراميترات إذا كان موجوداً في SQL
             if (comID.HasValue && safeSql.Contains("@CurrentCompanyId", StringComparison.OrdinalIgnoreCase))
             {
                 parameters["@CurrentCompanyId"] = comID.Value;
                 _logger.LogInformation("[SqlRewriter] Added @CurrentCompanyId parameter with value: {CompanyId}", comID.Value);
             }
 
-            var visitor = new SqlHardeningVisitor(parameters, tenantId, MAX_ROWS_LIMIT, tailCondition);
+            var visitor = new SqlHardeningVisitor(parameters, tenantId, MAX_ROWS_LIMIT, entries);
 
-            // 3. تطبيق التحصينات (الزيارة)
-            fragment.Accept(visitor);
+            // 3. Apply hardening (ExplicitVisit-driven traversal)
+            fragment.AcceptChildren(visitor);
 
-            // 4. استخراج الـ SQL "المُحصّن"
-            // FIX: Use Sql160ScriptGenerator (without the 'T' prefix) for version 170
+            // 4. Generate hardened SQL
             var sqlGenerator = new Sql160ScriptGenerator();
-            string rewrittenSql;
-            sqlGenerator.GenerateScript(fragment, out rewrittenSql);
+            sqlGenerator.GenerateScript(fragment, out string rewrittenSql);
 
-            // 5. إرجاع النتيجة
-            var result = new RewrittenSqlResult(rewrittenSql, visitor.Parameters);
-            return Task.FromResult(result);
+            _logger.LogInformation("[SqlRewriter] ✅ Hardening complete. Output SQL length: {Len} chars", rewrittenSql.Length);
+
+            return Task.FromResult(new RewrittenSqlResult(rewrittenSql, visitor.Parameters));
         }
     }
-}
+}

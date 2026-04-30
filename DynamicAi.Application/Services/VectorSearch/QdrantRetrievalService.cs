@@ -620,6 +620,7 @@ namespace DynamicAi.Application.Services
                             ListName = detailListName,
                             TableName = detailNode["TableName"]?.GetValue<string>() ?? "",
                             ForeignKey = detailNode["ForeignKey"]?.GetValue<string>() ?? "",
+                            TailCondition = detailNode["TailCondition"]?.GetValue<string>() ?? "",
                             Columns = MapColumns(columnsByListName[detailListName])
                         });
                     }

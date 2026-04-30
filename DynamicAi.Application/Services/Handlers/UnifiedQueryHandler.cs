@@ -198,10 +198,92 @@ public class UnifiedQueryHandler : IIntentHandler
             { "current_year", DateTime.Now.Year.ToString() }
         };
 
-        if (finalContext?.MasterSetup != null && !string.IsNullOrEmpty(finalContext.MasterSetup.TailCondition))
+        // ─── Build structured TailCondition entries (ViewName + Alias + Condition) ───────
+        // Master always gets alias T1; details get T2, T3, … in declaration order.
+        // This mapping is sent BOTH to the LLM prompt (so it knows which alias to use)
+        // AND to the SQL hardening layer (so it can verify / safety-inject each condition).
+        var tailEntries = new List<TailConditionEntry>();
+
+        if (finalContext?.MasterSetup != null && !string.IsNullOrWhiteSpace(finalContext.MasterSetup.TailCondition))
         {
-            variables["tail_condition"] = finalContext.MasterSetup.TailCondition;
-            _logger.LogInformation("[UnifiedHandler] 🛡️ TailCondition extracted and passed to prompt: {TailCondition}", finalContext.MasterSetup.TailCondition);
+            tailEntries.Add(new TailConditionEntry
+            {
+                ViewName  = finalContext.MasterSetup.TableName,
+                SqlAlias  = "T1",
+                Condition = finalContext.MasterSetup.TailCondition
+            });
+        }
+
+        int detailAliasIndex = 2;
+        foreach (var detail in finalContext?.DetailSetups ?? new())
+        {
+            if (!string.IsNullOrWhiteSpace(detail.TailCondition))
+            {
+                tailEntries.Add(new TailConditionEntry
+                {
+                    ViewName  = detail.TableName,
+                    SqlAlias  = $"T{detailAliasIndex}",
+                    Condition = detail.TailCondition
+                });
+            }
+            detailAliasIndex++;
+        }
+
+        if (tailEntries.Any())
+        {
+            // Determine the total number of reserved aliases so we can tell the LLM
+            // which alias is the first one free for additional JOINs (dropdown lookups, etc.)
+            // Reserved slots: T1 (master) + T2..Tn (one per detail, regardless of whether
+            // it has a TailCondition, because the LLM must still assign them sequentially).
+            int totalDetailCount = finalContext?.DetailSetups?.Count ?? 0;
+            int nextFreeAlias = 1 + 1 + totalDetailCount; // T1=master, then N details
+
+            // Build a human-readable block for the LLM:
+            // Each line shows exactly which alias corresponds to which view and what condition to add.
+            var promptTail = new System.Text.StringBuilder();
+            promptTail.AppendLine("The following TailCondition filters are MANDATORY business rules.");
+            promptTail.AppendLine("For each entry, the 'Alias' is the T-SQL alias you MUST assign to that view — NO EXCEPTIONS.\n");
+
+            // ── Reserved alias map ──
+            promptTail.AppendLine("RESERVED ALIASES (must be used exactly as shown — cannot be reassigned):");
+            promptTail.AppendLine($"  T1 → Master view: {finalContext?.MasterSetup?.TableName}");
+
+            int aliasCheck = 2;
+            foreach (var detail in finalContext?.DetailSetups ?? new())
+            {
+                promptTail.AppendLine($"  T{aliasCheck} → Detail view: {detail.TableName}");
+                aliasCheck++;
+            }
+
+            promptTail.AppendLine();
+            promptTail.AppendLine("MANDATORY FILTERS to inject (apply each to the WHERE clause of the scope using that alias):");
+            foreach (var entry in tailEntries)
+            {
+                promptTail.AppendLine(
+                    $"  • View='{entry.ViewName}' | Alias='{entry.SqlAlias}' → AND {entry.SqlAlias}.{entry.Condition}");
+            }
+
+            // ── Free alias hint ──
+            promptTail.AppendLine();
+            promptTail.AppendLine(
+                $"NEXT FREE ALIAS: T{nextFreeAlias} — use T{nextFreeAlias}, T{nextFreeAlias + 1}, T{nextFreeAlias + 2}… " +
+                $"for any additional JOINs such as dropdown lookup tables. " +
+                $"NEVER use T1–T{nextFreeAlias - 1} for anything other than the reserved views listed above.");
+
+            variables["tail_condition"] = promptTail.ToString().Trim();
+            _logger.LogInformation(
+                "[UnifiedHandler] 🛡️ {Count} TailCondition entries built. Reserved aliases: T1–T{LastReserved}. Next free: T{NextFree}.",
+                tailEntries.Count, nextFreeAlias - 1, nextFreeAlias);
+        }
+        else
+        {
+            // No TailConditions but still tell the LLM alias T1 is the master so dropdown
+            // lookups start from T2 — avoids any alias confusion even in the simple case.
+            int totalDetailCount = finalContext?.DetailSetups?.Count ?? 0;
+            int nextFreeAlias = 2 + totalDetailCount;
+            _logger.LogInformation(
+                "[UnifiedHandler] ℹ️ No TailConditions. Next free alias for dropdowns: T{NextFree}.",
+                nextFreeAlias);
         }
 
         if (!string.IsNullOrEmpty(schemaContent))
@@ -479,9 +561,40 @@ public class UnifiedQueryHandler : IIntentHandler
         await _sanitizerService.SanitizeAsync(rawSql, tenantId, ct);
         // If SanitizeAsync throws SqlSanitizationException, the retry loop in HandleAsync catches it.
         
-        var tailCondition = retrievalResult.StructuredContext?.MasterSetup?.TailCondition;
-        _logger.LogInformation("[UnifiedHandler] Layer 4.8: Rewriting & Hardening SQL...");
-        var rewrittenResult = await _rewriterService.RewriteAsync(rawSql, tenantId, companyId, tailCondition, ct);
+        // ─── Rebuild typed TailConditionEntry list for the hardening layer ─────────────
+        // Same alias assignment logic as in the prompt-building phase (T1=Master, T2/T3=Details).
+        var tailEntries = new List<TailConditionEntry>();
+
+        if (retrievalResult.StructuredContext?.MasterSetup != null
+            && !string.IsNullOrWhiteSpace(retrievalResult.StructuredContext.MasterSetup.TailCondition))
+        {
+            tailEntries.Add(new TailConditionEntry
+            {
+                ViewName  = retrievalResult.StructuredContext.MasterSetup.TableName,
+                SqlAlias  = "T1",
+                Condition = retrievalResult.StructuredContext.MasterSetup.TailCondition
+            });
+        }
+
+        int detailIdx = 2;
+        foreach (var detail in retrievalResult.StructuredContext?.DetailSetups ?? new())
+        {
+            if (!string.IsNullOrWhiteSpace(detail.TailCondition))
+            {
+                tailEntries.Add(new TailConditionEntry
+                {
+                    ViewName  = detail.TableName,
+                    SqlAlias  = $"T{detailIdx}",
+                    Condition = detail.TailCondition
+                });
+            }
+            detailIdx++;
+        }
+
+        _logger.LogInformation(
+            "[UnifiedHandler] Layer 4.8: Hardening SQL — verifying {Count} TailCondition entries (Master+Details)...",
+            tailEntries.Count);
+        var rewrittenResult = await _rewriterService.RewriteAsync(rawSql, tenantId, companyId, tailEntries, ct);
         var finalSql = rewrittenResult.RewrittenSql;
         
         _logger.LogInformation("[UnifiedHandler] Layer 5: Executing final SQL...");

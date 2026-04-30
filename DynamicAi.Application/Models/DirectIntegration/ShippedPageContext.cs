@@ -35,6 +35,7 @@ public class PageDetailSetup
     public string ListName { get; set; } = string.Empty;       // e.g. SalesDetailView
     public string TableName { get; set; } = string.Empty;      // e.g. salessystemcontract
     public string ForeignKey { get; set; } = string.Empty;     // e.g. ContractID
+    public string TailCondition { get; set; } = string.Empty;  // e.g. (IsResale=0...)
 
     // الأعمدة الخاصة بهذا الـ Detail فقط
     public List<ColumnDefinition> Columns { get; set; } = new();
