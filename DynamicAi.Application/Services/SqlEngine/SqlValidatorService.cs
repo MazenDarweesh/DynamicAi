@@ -73,6 +73,8 @@ namespace DynamicAi.Application.Services
                     _logger.LogError("  - Error at Line {Line}, Column {Column}: {Message}", error.Line, error.Column, error.Message);
                 }
 
+                _logger.LogError("[SqlValidator] 🚨 BROKEN SQL CONTENT: \n{RawSql}", rawSql);
+
                 _logger.LogError("╔════════════════════════════════════════════════════════════════════════╗");
                 _logger.LogError("║              [Layer 4: SQL VALIDATOR] - VALIDATION FAILED             ║");
                 _logger.LogError("╚════════════════════════════════════════════════════════════════════════╝");
