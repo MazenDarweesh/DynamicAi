@@ -206,11 +206,14 @@ public class UnifiedQueryHandler : IIntentHandler
 
         if (finalContext?.MasterSetup != null && !string.IsNullOrWhiteSpace(finalContext.MasterSetup.TailCondition))
         {
+            var cleanCond = finalContext.MasterSetup.TailCondition.Trim();
+            if (cleanCond.StartsWith("where", StringComparison.OrdinalIgnoreCase)) cleanCond = cleanCond.Substring(5).Trim();
+
             tailEntries.Add(new TailConditionEntry
             {
                 ViewName  = finalContext.MasterSetup.TableName,
                 SqlAlias  = "T1",
-                Condition = finalContext.MasterSetup.TailCondition
+                Condition = cleanCond
             });
         }
 
@@ -219,11 +222,14 @@ public class UnifiedQueryHandler : IIntentHandler
         {
             if (!string.IsNullOrWhiteSpace(detail.TailCondition))
             {
+                var cleanCond = detail.TailCondition.Trim();
+                if (cleanCond.StartsWith("where", StringComparison.OrdinalIgnoreCase)) cleanCond = cleanCond.Substring(5).Trim();
+
                 tailEntries.Add(new TailConditionEntry
                 {
                     ViewName  = detail.TableName,
                     SqlAlias  = $"T{detailAliasIndex}",
-                    Condition = detail.TailCondition
+                    Condition = cleanCond
                 });
             }
             detailAliasIndex++;
@@ -260,7 +266,8 @@ public class UnifiedQueryHandler : IIntentHandler
             foreach (var entry in tailEntries)
             {
                 promptTail.AppendLine(
-                    $"  • View='{entry.ViewName}' | Alias='{entry.SqlAlias}' → AND {entry.SqlAlias}.{entry.Condition}");
+                    $"  • View='{entry.ViewName}' | Alias='{entry.SqlAlias}' → MANDATORY CONDITION: ({entry.Condition}). " +
+                    $"You MUST prefix every column name inside this condition with '{entry.SqlAlias}.' (e.g. {entry.SqlAlias}.ColumnName).");
             }
 
             // ── Free alias hint ──

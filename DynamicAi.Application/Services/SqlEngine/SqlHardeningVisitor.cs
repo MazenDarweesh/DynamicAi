@@ -52,14 +52,19 @@ internal class SqlHardeningVisitor : TSqlFragmentVisitor
 
     // ─── Pass 1: Build QuerySpecification → Views map ─────────────────────
 
-    public override void Visit(QuerySpecification node)
+    // ─── REMOVED: Visit(QuerySpecification) — it fired BEFORE ExplicitVisit causing
+    //             _queryStack to receive the same node TWICE (pushed) but only popped
+    //             ONCE at the end of ExplicitVisit, corrupting scope tracking.
+    //             TOP injection is now handled exclusively inside ExplicitVisit.
+
+    public override void ExplicitVisit(QuerySpecification node)
     {
         _queryStack.Push(node);
 
         if (!_queryToViews.ContainsKey(node))
             _queryToViews[node] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // TOP Injection (outermost query only)
+        // TOP Injection (outermost query only — moved here from Visit)
         if (!_topInjected && node.TopRowFilter == null && node.OffsetClause == null)
         {
             node.TopRowFilter = new TopRowFilter
@@ -68,16 +73,6 @@ internal class SqlHardeningVisitor : TSqlFragmentVisitor
             };
             _topInjected = true;
         }
-
-        base.Visit(node);
-    }
-
-    public override void ExplicitVisit(QuerySpecification node)
-    {
-        _queryStack.Push(node);
-
-        if (!_queryToViews.ContainsKey(node))
-            _queryToViews[node] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // Visit children so named table references register themselves
         node.AcceptChildren(this);
@@ -166,12 +161,9 @@ internal class SqlHardeningVisitor : TSqlFragmentVisitor
     private static void InjectCondition(QuerySpecification queryNode, TailConditionEntry entry)
     {
         string cleanedTail = entry.Condition.Trim();
+        // (Removal of WHERE is now handled at the source in UnifiedQueryHandler, but keeping as safety)
         if (cleanedTail.StartsWith("WHERE", StringComparison.OrdinalIgnoreCase))
             cleanedTail = cleanedTail[5..].Trim();
-
-        // If alias is known and condition does not already use it, prefix columns
-        // NOTE: We trust the config; if it already has alias, skip prefixing.
-        // Advanced alias-prefixing can be added here later if needed.
 
         var parser = new TSql160Parser(false);
         using var reader = new StringReader($"SELECT 1 WHERE ({cleanedTail})");
@@ -184,6 +176,12 @@ internal class SqlHardeningVisitor : TSqlFragmentVisitor
         var tailExpr = (statement?.QueryExpression as QuerySpecification)?.WhereClause?.SearchCondition;
 
         if (tailExpr == null) return;
+
+        // ─── ALIAS INJECTION (The Safety Net's Safety Net) ───
+        // If the LLM or the config metadata forgot aliases, we add them here.
+        // We only target columns in the current scope, skipping subqueries.
+        var aliasInjector = new AliasInjectorVisitor(entry.SqlAlias);
+        tailExpr.Accept(aliasInjector);
 
         if (queryNode.WhereClause == null)
         {
@@ -203,4 +201,41 @@ internal class SqlHardeningVisitor : TSqlFragmentVisitor
     // ─── Legacy Visit overrides (kept for compat) ─────────────────────────
     public override void Visit(StringLiteral node) { /* Parameter binding deferred to Dapper */ }
     public override void Visit(FromClause node) { /* Tenant isolation handled by the views */ }
+
+    /// <summary>
+    /// زائر يقوم بحقن الـ Alias في الأعمدة التي تفتقر إليه.
+    /// يتجاهل الـ Subqueries لضمان عدم إفساد الأعمدة الداخلية فيها.
+    /// </summary>
+    private class AliasInjectorVisitor : TSqlFragmentVisitor
+    {
+        private readonly string _alias;
+
+        public AliasInjectorVisitor(string alias)
+        {
+            _alias = alias;
+        }
+
+        // 1. Stop traversal into subqueries (IN/EXISTS subqueries inside the condition).
+        //    CRITICAL: Must override ExplicitVisit — NOT Visit.
+        //    In ScriptDom, Visit fires but AcceptChildren is called from ExplicitVisit.
+        //    Overriding Visit with an empty body does NOT stop AcceptChildren from firing.
+        //    By overriding ExplicitVisit without calling base, we prevent child traversal entirely.
+        public override void ExplicitVisit(QuerySpecification node)
+        {
+            // Intentionally empty — do not descend into subqueries.
+            // This ensures T1 prefix is NOT injected into inner subquery columns
+            // e.g. DepartmentId inside: SELECT DepartmentId FROM EmpployeeDepartments
+        }
+
+        // 2. Inject the alias into unaliased columns in the OUTER scope only.
+        public override void Visit(ColumnReferenceExpression node)
+        {
+            if (node.MultiPartIdentifier != null && node.MultiPartIdentifier.Identifiers.Count == 1)
+            {
+                // Column has no alias prefix (e.g. DepartmentId) → prepend it (e.g. T1.DepartmentId)
+                node.MultiPartIdentifier.Identifiers.Insert(0, new Identifier { Value = _alias });
+            }
+            // NOTE: base.Visit is intentionally NOT called — ColumnReferenceExpression has no children to recurse.
+        }
+    }
 }
