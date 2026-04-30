@@ -278,6 +278,9 @@ public class UnifiedQueryHandler : IIntentHandler
         
         var rawResponse = response.Content ?? string.Empty;
         _logger.LogInformation("[UnifiedHandler] ✓ LLM Responded in {Duration:F0}ms", llmDuration);
+        
+        // 🛰️ LOG RAW RESPONSE BEFORE PARSING
+        _logger.LogInformation("[UnifiedHandler] 🛰️ RAW LLM RESPONSE START:\n{RawResponse}\n[UnifiedHandler] 🛰️ RAW LLM RESPONSE END", rawResponse);
 
         // Track LLM Usage
         int estimatedInputTokens = (renderedPrompt.Length + userQuestion.Length) / 4;
