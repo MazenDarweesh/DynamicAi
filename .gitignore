@@ -397,3 +397,11 @@ deployment/
 *.groovy
 *.txt
 *.json
+
+# private folders
+DynamicAi/temp_prompts
+Project_Description/
+testsprite_tests/
+temp_mini_rag/
+qdrant_snapshots/
+
