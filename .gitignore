@@ -387,3 +387,13 @@ FINAL_COMBINED_CV.md
 devtunnelRuning.md
 clear the cache collection in your Qdr.md
 
+# Legacy Docker Files
+back_front_docker/
+# Backend Dockerfile
+deployment/
+
+# md fles & else
+*.md
+*.groovy
+*.txt
+*.json

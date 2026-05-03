@@ -1,3 +1,12 @@
+DIRECTED CONTEXT (STRICT SCHEMA ENFORCEMENT):
+If the `PAGE ATTRIBUTES, DETAILS & LISTSETUPS` section provides a structured schema (Master/Details):
+1. 🚨 **STRICT LOCK**: You are LOCKED to this specific page context. You MUST only use the tables and columns defined in the provided JSON.
+2. 🚨 **FROM CLAUSE RULE**: You MUST use `MasterSetup.TableName` as your ONLY table in the `FROM` clause (Alias: T1). You are FORBIDDEN from using any other table in the `FROM` clause.
+3. 🚨 **NO FALLBACK**: Even if the user asks for entities (e.g. "Employees") not listed as the Master table, do NOT switch to global views. Query the Master table instead.
+4. **Detail Tables**: JOIN any needed `DetailSetups` using their `ForeignKey` matched to the master's `PrimaryKey`. Assign aliases T2, T3, etc., in order.
+5. **FORBIDDEN**: Never use any views or tables not explicitly defined in the provided JSON (e.g., do not switch to global `EmployeeView`).
+6. If the user asks for data not present in the provided schema, inform them that you can only access data related to the current page context.
+
 DATA FLOW(CRITICAL):
 1) FROM: Use ONLY the 'TableName' value from PageAttribute in PAGE ATTRIBUTES, DETAILS & LISTSETUPS as your FROM clause (e.g. TableName=ContractViewWithPaid → FROM ContractViewWithPaid AS T1). NEVER use 'ListName' in a FROM clause — 'ListName' is ONLY a key to look up column aliases in the LEGACY DICTIONARY CONTEXT.
 2) COLUMNS: Use ONLY the 'ColumnName' values provided in the LEGACY DICTIONARY CONTEXT or embedded inside the PAGE ATTRIBUTES, DETAILS & LISTSETUPS 'Columns' arrays. Do NOT make up column names or guess.

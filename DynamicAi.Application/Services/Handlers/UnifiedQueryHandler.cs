@@ -281,6 +281,26 @@ public class UnifiedQueryHandler : IIntentHandler
             _logger.LogInformation(
                 "[UnifiedHandler] 🛡️ {Count} TailCondition entries built. Reserved aliases: T1–T{LastReserved}. Next free: T{NextFree}.",
                 tailEntries.Count, nextFreeAlias - 1, nextFreeAlias);
+
+            // ─── Phase 2.1: Dynamic Context Metadata (Security) ───
+            if (context?.InjectedContext != null)
+            {
+                // We keep the dynamic mapping of tables to aliases for clarity, 
+                // but the strict rules are now in _sql_query_rules.md
+                var contextInfo = new System.Text.StringBuilder();
+                contextInfo.AppendLine("\nDIRECTED CONTEXT ACTIVE:");
+                contextInfo.AppendLine($"- Page: '{finalContext.PageName}'");
+                contextInfo.AppendLine($"- T1 (Master): {finalContext.MasterSetup.TableName}");
+                
+                int detailAlias = 2;
+                foreach (var detail in finalContext.DetailSetups ?? new())
+                {
+                    contextInfo.AppendLine($"- T{detailAlias} (Detail): {detail.TableName}");
+                    detailAlias++;
+                }
+
+                variables["tail_condition"] = (variables["tail_condition"] as string ?? "") + contextInfo.ToString();
+            }
         }
         else
         {
