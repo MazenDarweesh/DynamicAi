@@ -33,7 +33,12 @@ Any additional JOINs you add (e.g. dropdown lookup tables) MUST start from that 
 FATAL ERROR: Using a reserved alias (T1/T2/…) for a dropdown lookup table will corrupt the TailCondition security filters and break the query.
 
 FORMAT(MANDATORY): You MUST assign an alias to EVERY table (e.g., T1, T2). You MUST prefix EVERY column with its table alias (e.g., T1.Col). Selecting a column without its alias (e.g., SELECT Col) is a FATAL ERROR and will crash the system. ALIAS AS [ArabicName] ALWAYS.
-TEXT: You MUST use `LIKE N'%val%'` for ALL user-provided text filters (Names, Titles, Descriptions) to ensure partial match resiliency. NEVER use exact matches (`=`) for text unless explicitly told to.
+TEXT FILTERING (CRITICAL): When filtering text (Names, Titles, Descriptions), do NOT use a single `LIKE N'%val%'` for the whole string. Instead, use SMART TOKENIZATION:
+  1) Split user input into core keywords.
+  2) Flexible Matching: Connect keywords using `%` wildcards between them (e.g., `LIKE N'%word1%word2%'`).
+  3) Prefix Neutrality: Strip common Arabic prefixes like 'ال' from keywords, or wrap every core word with `%`.
+  4) Logical OR for Variations: Generate an `OR` condition to cover common typos/variations for known entities (e.g., `(T1.Name LIKE N'%شركة%' OR T1.Name LIKE N'%اشركة%')`).
+  NEVER use exact matches (`=`) for text unless explicitly told to.
 DATES: >= DATEADD() for ranges, or MONTH(Col)=X.
 MATH: ISNULL(Col,0).
 TOP 1000 default.

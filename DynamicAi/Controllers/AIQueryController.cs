@@ -94,6 +94,11 @@ namespace DynamicAi.Api.Controllers
                 return BadRequest("ExplicitContext and MasterSetup TableName are MANDATORY for direct integration.");
             }
 
+            if (string.IsNullOrWhiteSpace(request.ConnectionString))
+            {
+                return BadRequest("ConnectionString is MANDATORY for direct integration.");
+            }
+
             // All exception handling is delegated to ExceptionHandlingMiddleware.
             var apiStartTime = DateTime.UtcNow;
             var result = await _queryOrchestrator.HandleDirectedPageQueryAsync(request, HttpContext.RequestAborted);
