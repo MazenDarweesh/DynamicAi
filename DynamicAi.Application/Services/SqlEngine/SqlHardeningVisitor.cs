@@ -137,20 +137,51 @@ internal class SqlHardeningVisitor : TSqlFragmentVisitor
     }
 
     /// <summary>
-    /// Rough check: serialize the WHERE clause to string and look for the
-    /// core token of the condition. This avoids false-positive injections.
+    /// Smart check: extracts business tokens (columns/tables) from the condition 
+    /// and checks if they exist in the LLM-generated WHERE clause. 
+    /// This avoids false-positive injections even if the LLM cleans up '1=1' or uses aliases.
     /// </summary>
     private static bool IsConditionAlreadyInWhere(QuerySpecification node, string condition)
     {
         if (node.WhereClause == null) return false;
 
-        // Extract a short key from the condition to search for (first 15 non-space chars)
-        var key = new string(condition.Where(c => !char.IsWhiteSpace(c)).Take(15).ToArray());
-        if (string.IsNullOrEmpty(key)) return false;
-
         var gen = new Sql160ScriptGenerator();
         gen.GenerateScript(node.WhereClause, out var whereText);
-        return whereText.Contains(key, StringComparison.OrdinalIgnoreCase);
+
+        var tokens = ExtractBusinessTokens(condition);
+        if (!tokens.Any()) return false;
+
+        foreach (var token in tokens)
+        {
+            if (!whereText.Contains(token, StringComparison.OrdinalIgnoreCase))
+                return false; // The LLM missed a crucial column/table, so we must inject.
+        }
+
+        return true; // The LLM successfully included all business tokens.
+    }
+
+    /// <summary>
+    /// Extracts potential column and table names from the condition string.
+    /// It splits by non-alphanumeric chars, and filters out SQL keywords and short strings.
+    /// </summary>
+    private static IEnumerable<string> ExtractBusinessTokens(string condition)
+    {
+        // SQL keywords to ignore when extracting tokens
+        var ignoredKeywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "SELECT", "FROM", "WHERE", "AND", "OR", "IN", "IS", "NOT", "NULL", "EXISTS", 
+            "LIKE", "CAST", "CONVERT", "BETWEEN", "AS", "ON", "JOIN", "INNER", "LEFT", "RIGHT", "OUTER"
+        };
+
+        // Split by non-alphanumeric characters (spaces, parenthesis, commas, etc.)
+        var words = System.Text.RegularExpressions.Regex.Split(condition, @"[^a-zA-Z0-9_]+");
+
+        return words
+            .Where(w => w.Length > 2) // Ignore small words like 'T1', 'Id' to avoid false positives
+            .Where(w => !ignoredKeywords.Contains(w)) // Ignore SQL keywords
+            .Where(w => !int.TryParse(w, out _)) // Ignore numbers
+            .Distinct()
+            .ToList();
     }
 
     /// <summary>
