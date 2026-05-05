@@ -405,3 +405,6 @@ testsprite_tests/
 temp_mini_rag/
 qdrant_snapshots/
 
+# Whitelist critical prompt templates
+!DynamicAi.Application/Prompts/**/*.md
+
