@@ -52,11 +52,7 @@ This JSON shows the page structure and table relationships. IMPORTANT: If this J
 {{page_attributes_details_listsetups}}
 {{/if}}
 
-{{#if tail_condition}}
-### MANDATORY SYSTEM FILTER (TailCondition)
-You MUST apply this exact filter to the WHERE clause of your query:
-{{tail_condition}}
-{{/if}}
+{{> _tail_conditions}}
 
 {{#if legacy_dictionary_context}}
 ### LEGACY DICTIONARY CONTEXT (User Labels to DB Columns)
@@ -95,18 +91,7 @@ Format: [Index] ListName | SearchName | ColumnName | InsertType | arColumnLabel 
 
 ---
 
-{{#if conversation_history}}
-## CONVERSATION HISTORY
-PREVIOUS TURNS (most recent first):
-{{conversation_history}}
-
-DECISION RULES for DataRetrieval (pick the BEST match):
-1. WRAP_PREVIOUS: Post-processing ONLY (sort, limit, top N, count) → Wrap previous SQL in subquery.
-2. MODIFY_PARAMETER: Changes ONLY a specific VALUE (month count, year, date range, number).
-3. ADD_CONDITION: Adds a filter, condition, or column to the SAME query.
-4. REGENERATE: Same topic but needs substantially different SQL.
-5. NEW: Completely different topic → Ignore ALL history.
-{{/if}}
+{{> _history_rules}}
 
 ---
 

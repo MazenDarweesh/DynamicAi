@@ -198,119 +198,11 @@ public class UnifiedQueryHandler : IIntentHandler
             { "current_year", DateTime.Now.Year.ToString() }
         };
 
-        // ─── Build structured TailCondition entries (ViewName + Alias + Condition) ───────
-        // Master always gets alias T1; details get T2, T3, … in declaration order.
-        // This mapping is sent BOTH to the LLM prompt (so it knows which alias to use)
-        // AND to the SQL hardening layer (so it can verify / safety-inject each condition).
-        var tailEntries = new List<TailConditionEntry>();
-
-        if (finalContext?.MasterSetup != null && !string.IsNullOrWhiteSpace(finalContext.MasterSetup.TailCondition))
+        // --- Build TailCondition Block ---
+        var (tailEntries, tailBlock) = BuildTailConditionBlock(finalContext, context);
+        if (!string.IsNullOrEmpty(tailBlock))
         {
-            var cleanCond = finalContext.MasterSetup.TailCondition.Trim();
-            if (cleanCond.StartsWith("where", StringComparison.OrdinalIgnoreCase)) cleanCond = cleanCond.Substring(5).Trim();
-
-            tailEntries.Add(new TailConditionEntry
-            {
-                ViewName  = finalContext.MasterSetup.TableName,
-                SqlAlias  = "T1",
-                Condition = cleanCond
-            });
-        }
-
-        int detailAliasIndex = 2;
-        foreach (var detail in finalContext?.DetailSetups ?? new())
-        {
-            if (!string.IsNullOrWhiteSpace(detail.TailCondition))
-            {
-                var cleanCond = detail.TailCondition.Trim();
-                if (cleanCond.StartsWith("where", StringComparison.OrdinalIgnoreCase)) cleanCond = cleanCond.Substring(5).Trim();
-
-                tailEntries.Add(new TailConditionEntry
-                {
-                    ViewName  = detail.TableName,
-                    SqlAlias  = $"T{detailAliasIndex}",
-                    Condition = cleanCond
-                });
-            }
-            detailAliasIndex++;
-        }
-
-        if (tailEntries.Any())
-        {
-            // Determine the total number of reserved aliases so we can tell the LLM
-            // which alias is the first one free for additional JOINs (dropdown lookups, etc.)
-            // Reserved slots: T1 (master) + T2..Tn (one per detail, regardless of whether
-            // it has a TailCondition, because the LLM must still assign them sequentially).
-            int totalDetailCount = finalContext?.DetailSetups?.Count ?? 0;
-            int nextFreeAlias = 1 + 1 + totalDetailCount; // T1=master, then N details
-
-            // Build a human-readable block for the LLM:
-            // Each line shows exactly which alias corresponds to which view and what condition to add.
-            var promptTail = new System.Text.StringBuilder();
-            promptTail.AppendLine("The following TailCondition filters are MANDATORY business rules.");
-            promptTail.AppendLine("For each entry, the 'Alias' is the T-SQL alias you MUST assign to that view — NO EXCEPTIONS.\n");
-
-            // ── Reserved alias map ──
-            promptTail.AppendLine("RESERVED ALIASES (must be used exactly as shown — cannot be reassigned):");
-            promptTail.AppendLine($"  T1 → Master view: {finalContext?.MasterSetup?.TableName}");
-
-            int aliasCheck = 2;
-            foreach (var detail in finalContext?.DetailSetups ?? new())
-            {
-                promptTail.AppendLine($"  T{aliasCheck} → Detail view: {detail.TableName}");
-                aliasCheck++;
-            }
-
-            promptTail.AppendLine();
-            promptTail.AppendLine("MANDATORY FILTERS to inject (apply each to the WHERE clause of the scope using that alias):");
-            foreach (var entry in tailEntries)
-            {
-                promptTail.AppendLine(
-                    $"  • View='{entry.ViewName}' | Alias='{entry.SqlAlias}' → MANDATORY CONDITION: ({entry.Condition}). " +
-                    $"You MUST prefix every column name inside this condition with '{entry.SqlAlias}.' (e.g. {entry.SqlAlias}.ColumnName).");
-            }
-
-            // ── Free alias hint ──
-            promptTail.AppendLine();
-            promptTail.AppendLine(
-                $"NEXT FREE ALIAS: T{nextFreeAlias} — use T{nextFreeAlias}, T{nextFreeAlias + 1}, T{nextFreeAlias + 2}… " +
-                $"for any additional JOINs such as dropdown lookup tables. " +
-                $"NEVER use T1–T{nextFreeAlias - 1} for anything other than the reserved views listed above.");
-
-            variables["tail_condition"] = promptTail.ToString().Trim();
-            _logger.LogInformation(
-                "[UnifiedHandler] 🛡️ {Count} TailCondition entries built. Reserved aliases: T1–T{LastReserved}. Next free: T{NextFree}.",
-                tailEntries.Count, nextFreeAlias - 1, nextFreeAlias);
-
-            // ─── Phase 2.1: Dynamic Context Metadata (Security) ───
-            if (context?.InjectedContext != null)
-            {
-                // We keep the dynamic mapping of tables to aliases for clarity, 
-                // but the strict rules are now in _sql_query_rules.md
-                var contextInfo = new System.Text.StringBuilder();
-                contextInfo.AppendLine("\nDIRECTED CONTEXT ACTIVE:");
-                contextInfo.AppendLine($"- Page: '{finalContext.PageName}'");
-                contextInfo.AppendLine($"- T1 (Master): {finalContext.MasterSetup.TableName}");
-                
-                int detailAlias = 2;
-                foreach (var detail in finalContext.DetailSetups ?? new())
-                {
-                    contextInfo.AppendLine($"- T{detailAlias} (Detail): {detail.TableName}");
-                    detailAlias++;
-                }
-
-                variables["tail_condition"] = (variables["tail_condition"] as string ?? "") + contextInfo.ToString();
-            }
-        }
-        else
-        {
-            // No TailConditions but still tell the LLM alias T1 is the master so dropdown
-            // lookups start from T2 — avoids any alias confusion even in the simple case.
-            int totalDetailCount = finalContext?.DetailSetups?.Count ?? 0;
-            int nextFreeAlias = 2 + totalDetailCount;
-            _logger.LogInformation(
-                "[UnifiedHandler] ℹ️ No TailConditions. Next free alias for dropdowns: T{NextFree}.",
-                nextFreeAlias);
+            variables["tail_condition"] = tailBlock;
         }
 
         if (!string.IsNullOrEmpty(schemaContent))
@@ -334,38 +226,11 @@ public class UnifiedQueryHandler : IIntentHandler
             !string.IsNullOrEmpty(schemaContent), schemaContent.Length, 
             retrievalResult.DictionaryEntries.Any(), retrievalResult.DictionaryEntries.Count);
 
-        if (context?.ConversationHistory != null && context.ConversationHistory.Any())
+        // --- Build Conversation History Block ---
+        var historyBlock = BuildConversationHistoryBlock(context, currentPageId);
+        if (!string.IsNullOrEmpty(historyBlock))
         {
-            var historyBuilder = new System.Text.StringBuilder();
-            
-            // HISTORY SLICING: Prevent Cross-Page Contamination (Hallucinations)
-            // Only feed the LLM prior SQL generated for the EXACT same page structure.
-            // If the user navigates from "Sales" to "Purchases", we hide the Sales SQL.
-            // currentPageId is already resolved in Phase 1
-            
-            var allSqlTurns = context.ConversationHistory.Where(t => !string.IsNullOrEmpty(t.SqlExecuted)).ToList();
-            
-            var turnsWithSql = allSqlTurns
-                .Where(t => (t.PageId ?? 0) == currentPageId)
-                .OrderByDescending(t => t.CreatedAt)
-                .Take(5)
-                .ToList();
-                
-            if (allSqlTurns.Count > turnsWithSql.Count)
-            {
-                _logger.LogWarning("🔪 [UnifiedHandler] HISTORY SLICED: Removed {HiddenTurns} unrelated prior SQL queries from LLM context to prevent cross-page contamination (Current Context PageID: {CurrentPageId}).", 
-                    allSqlTurns.Count - turnsWithSql.Count, currentPageId);
-            }
-                
-            for (int i = 0; i < turnsWithSql.Count; i++)
-            {
-                historyBuilder.AppendLine($"[Turn {i + 1}] Q: \"{turnsWithSql[i].Question}\"");
-                historyBuilder.AppendLine($"         SQL: {turnsWithSql[i].SqlExecuted}");
-            }
-            if (historyBuilder.Length > 0)
-            {
-                variables["conversation_history"] = historyBuilder.ToString();
-            }
+            variables["conversation_history"] = historyBlock;
         }
 
         var renderedPrompt = await _promptEngine.RenderAsync("unified_master", variables);
@@ -645,5 +510,136 @@ public class UnifiedQueryHandler : IIntentHandler
             QueryInsights = new QueryInsightData { RetrievedContext = queryInsights },
             PageId = retrievalResult.PageId // Will now correctly report the InjectedContext.PageId
         };
+    }
+
+    private (List<TailConditionEntry> Entries, string PromptBlock) BuildTailConditionBlock(ShippedPageContext? finalContext, IntentHandlerContext? context)
+    {
+        var tailEntries = new List<TailConditionEntry>();
+        if (finalContext == null) return (tailEntries, string.Empty);
+
+        // 1. Resolve Master Filter
+        if (finalContext.MasterSetup != null && !string.IsNullOrWhiteSpace(finalContext.MasterSetup.TailCondition))
+        {
+            var cleanCond = finalContext.MasterSetup.TailCondition.Trim();
+            if (cleanCond.StartsWith("where", StringComparison.OrdinalIgnoreCase)) cleanCond = cleanCond.Substring(5).Trim();
+
+            tailEntries.Add(new TailConditionEntry
+            {
+                ViewName  = finalContext.MasterSetup.TableName,
+                SqlAlias  = "T1",
+                Condition = cleanCond
+            });
+        }
+
+        // 2. Resolve Detail Filters
+        int detailAliasIndex = 2;
+        foreach (var detail in finalContext.DetailSetups ?? new())
+        {
+            if (!string.IsNullOrWhiteSpace(detail.TailCondition))
+            {
+                var cleanCond = detail.TailCondition.Trim();
+                if (cleanCond.StartsWith("where", StringComparison.OrdinalIgnoreCase)) cleanCond = cleanCond.Substring(5).Trim();
+
+                tailEntries.Add(new TailConditionEntry
+                {
+                    ViewName  = detail.TableName,
+                    SqlAlias  = $"T{detailAliasIndex}",
+                    Condition = cleanCond
+                });
+            }
+            detailAliasIndex++;
+        }
+
+        // 3. Determine Alias Mapping
+        int totalDetailCount = finalContext.DetailSetups?.Count ?? 0;
+        int nextFreeAlias = 1 + 1 + totalDetailCount; // T1=master, then N details
+
+        // 4. Build Prompt Block
+        if (tailEntries.Any())
+        {
+            var promptTail = new System.Text.StringBuilder();
+
+            promptTail.AppendLine("RESERVED ALIASES (must be used exactly as shown — cannot be reassigned):");
+            promptTail.AppendLine($"  T1 → Master view: {finalContext.MasterSetup?.TableName}");
+
+            int aliasCheck = 2;
+            foreach (var detail in finalContext.DetailSetups ?? new())
+            {
+                promptTail.AppendLine($"  T{aliasCheck} → Detail view: {detail.TableName}");
+                aliasCheck++;
+            }
+
+            promptTail.AppendLine();
+            promptTail.AppendLine("MANDATORY FILTERS to inject (apply each to the WHERE clause of the scope using that alias):");
+            foreach (var entry in tailEntries)
+            {
+                promptTail.AppendLine(
+                    $"  • View='{entry.ViewName}' | Alias='{entry.SqlAlias}' → MANDATORY CONDITION: ({entry.Condition}). " +
+                    $"You MUST prefix every column name inside this condition with '{entry.SqlAlias}.' (e.g. {entry.SqlAlias}.ColumnName).");
+            }
+
+            promptTail.AppendLine();
+            promptTail.AppendLine(
+                $"NEXT FREE ALIAS: T{nextFreeAlias} — use T{nextFreeAlias}, T{nextFreeAlias + 1}, T{nextFreeAlias + 2}… " +
+                $"for any additional JOINs such as dropdown lookup tables. " +
+                $"NEVER use T1–T{nextFreeAlias - 1} for anything other than the reserved views listed above.");
+
+            // Add Directed Context Metadata if applicable
+            if (context?.InjectedContext != null)
+            {
+                promptTail.AppendLine("\nDIRECTED CONTEXT ACTIVE:");
+                promptTail.AppendLine($"- Page: '{finalContext.PageName}'");
+                promptTail.AppendLine($"- T1 (Master): {finalContext.MasterSetup.TableName}");
+                
+                int detailAlias = 2;
+                foreach (var detail in finalContext.DetailSetups ?? new())
+                {
+                    promptTail.AppendLine($"- T{detailAlias} (Detail): {detail.TableName}");
+                    detailAlias++;
+                }
+            }
+
+            _logger.LogInformation("[UnifiedHandler] 🛡️ {Count} TailCondition entries built. Reserved aliases: T1–T{LastReserved}. Next free: T{NextFree}.",
+                tailEntries.Count, nextFreeAlias - 1, nextFreeAlias);
+
+            return (tailEntries, promptTail.ToString().Trim());
+        }
+        else
+        {
+            _logger.LogInformation(
+                "[UnifiedHandler] ℹ️ No TailConditions. Next free alias for dropdowns: T{NextFree}.",
+                nextFreeAlias);
+            return (tailEntries, string.Empty);
+        }
+    }
+
+    private string BuildConversationHistoryBlock(IntentHandlerContext? context, int currentPageId)
+    {
+        if (context?.ConversationHistory == null || !context.ConversationHistory.Any()) return string.Empty;
+
+        var allSqlTurns = context.ConversationHistory.Where(t => !string.IsNullOrEmpty(t.SqlExecuted)).ToList();
+        
+        var turnsWithSql = allSqlTurns
+            .Where(t => (t.PageId ?? 0) == currentPageId)
+            .OrderByDescending(t => t.CreatedAt)
+            .Take(5)
+            .ToList();
+            
+        if (allSqlTurns.Count > turnsWithSql.Count)
+        {
+            _logger.LogWarning("🔪 [UnifiedHandler] HISTORY SLICED: Removed {HiddenTurns} unrelated prior SQL queries from LLM context to prevent cross-page contamination (Current Context PageID: {CurrentPageId}).", 
+                allSqlTurns.Count - turnsWithSql.Count, currentPageId);
+        }
+
+        if (!turnsWithSql.Any()) return string.Empty;
+
+        var historyBuilder = new System.Text.StringBuilder();
+        for (int i = 0; i < turnsWithSql.Count; i++)
+        {
+            historyBuilder.AppendLine($"[Turn {i + 1}] Q: \"{turnsWithSql[i].Question}\"");
+            historyBuilder.AppendLine($"         SQL: {turnsWithSql[i].SqlExecuted}");
+        }
+
+        return historyBuilder.ToString().Trim();
     }
 }
