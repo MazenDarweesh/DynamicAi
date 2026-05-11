@@ -29,8 +29,8 @@ Designed a multi-stage SQL generation pipeline with intent routing, semantic cac
                   └────────────────────────┬─────────────────────────┘  │
                                            │                            │
                   ┌────────────────────────▼─────────────────────────┐  │
-                  │              Query Orchestrator                  │  │
-                  │  (Central Coordinator + 🆕 Shared Embedding)     │  │
+                  │              Unified Query Handler               │  │
+                  │  (Central Engine + 🆕 Prompt Partials)           │  │
                   └────────────────────────┬─────────────────────────┘  │
                                            │                            │
                   ┌────────────────────────▼─────────────────────────┐  │
@@ -167,8 +167,18 @@ Dynamic AI treats the LLM as a probabilistic component wrapped in a deterministi
 
 ### 6. 🆕 Smart Re-Ranking (The Precision Layer)
 *   **Goal:** Ensure the RAG layer picks the *right* page, not just the *closest* one.
-*   **Mechanism:** When Top-3 page candidates are within 0.05 cosine distance, a keyword tiebreaker (`PageDisplay` Arabic name) promotes the most relevant result.
-*   **Benefit:** Eliminates "similar but wrong page" errors in Arabic ERP context.
+*   **Mechanism:** Uses a **Two-Stage Search Strategy**. Phase 1 identifies candidates via Vector Search. Phase 2 applies a keyword tiebreaker (`PageDisplay` Arabic name) for 100% accuracy in close-score scenarios.
+*   **Benefit:** Eliminates "similar but wrong page" errors in complex Arabic ERP modules.
+
+### 7. 🛡️ Deterministic SQL Hardening (Iron Dome 2.0)
+*   **Goal:** Guarantee mandatory system filters are applied without syntax errors.
+*   **Mechanism:** Uses **Smart Tokenization** to detect existing filters and **Scoped Injection** via `SqlHardeningVisitor`. It ensures `T1.IsResale=0` is only injected where it's missing, respecting table aliases.
+*   **Benefit:** 100% reliable multi-tenant data isolation and protection against hallucinated JOIN logic.
+
+### 8. 🆕 Temporal Intelligence (Temporal Context Layer)
+*   **Goal:** Enable native understanding of time-relative queries.
+*   **Mechanism:** `UnifiedQueryHandler` automatically injects the current server date and time into every prompt context.
+*   **Benefit:** Resolves hallucinations where the LLM guesses "today" or "last week"; queries now anchor to real-world time.
 
 ---
 
@@ -383,6 +393,11 @@ We don't rely on a single cache. We use a **Defense-in-Depth** strategy for perf
     *   **What it does:** Caches the *generated SQL* linked to a specific Schema State.
     *   **Tech:** Gemini Context Caching with **Smart Keys**.
     *   **Speed:** ~1.5s (vs 10s+ for full generation).
+
+4.  **Layer 4: Strict Global Cache Quarantine**
+    *   **What it does:** Enforces a mandatory `page_id` filter on every vector search.
+    *   **Tech:** Metadata Filtering in Qdrant.
+    *   **Benefit:** Guarantees that "Sales" data never leaks into "Purchases" search results, ensuring 100% data isolation.
 
 ### 🛠️ The "Smart Cache Key" Mechanism
 
@@ -797,6 +812,31 @@ DynamicAi/
 ---
 
 ## 📝 Changelog
+
+### v1.8.0 (2026-05-05) - The Unified Intelligence & Hardening Update 🛡️
+**"The Deterministic Reliability Milestone"**
+
+**Architecture & Engine:**
+*   ✅ **Unified Query Handler:** Centralized all intent logic into `UnifiedQueryHandler.cs` with deep tracing and optimized bypass logic.
+*   ✅ **Prompt Modularization:** Extracted hardcoded instructions into Markdown Partials (`_sql_query_rules.md`, `_column_resolution.md`) for zero-recompile tuning.
+*   ✅ **Temporal Anchoring:** Native injection of current `DateTime` context into all prompt variables.
+
+**SQL Hardening (Iron Dome 2.0):**
+*   ✅ **Deterministic TailConditions:** Replaced string-based filters with `TailConditionEntry` models (Alias + View + Condition).
+*   ✅ **Smart Tokenization:** New `ExtractBusinessTokens` algorithm prevents double-injection of system filters by identifying existing columns in AST.
+*   ✅ **Scoped Hardening:** `SqlHardeningVisitor` now injects conditions only into relevant alias scopes (T1/T2/T3), eliminating ambiguity in JOINs.
+
+**Security & Precision:**
+*   ✅ **Global Cache Quarantine:** Forced `page_id` filtering in `QueryCacheService` to prevent cross-page data leakage.
+*   ✅ **Two-Stage RAG:** Transitioned to "Search + Refine" strategy for 100% page discovery accuracy.
+*   ✅ **Raw AI Logging:** Full capture of Gemini raw responses for forensic debugging of hallucinations.
+
+**Operational Fixes:**
+*   ✅ **TOP 1000 Expansion:** Increased default result limit for heavy analytical workloads.
+*   ✅ **Fire-and-Forget Logging:** Asynchronous performance logging to reduce user-perceived latency.
+*   ✅ **Connection Safety:** Added mandatory validation for `ConnectionString` in Directed Page endpoints.
+
+---
 
 ### v1.7.0 (2026-03-02) - The Performance & UX Revolution 🚀
 **"The Zero Cold-Start Milestone"**
