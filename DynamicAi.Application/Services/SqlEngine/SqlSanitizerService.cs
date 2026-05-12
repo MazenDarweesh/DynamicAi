@@ -85,16 +85,17 @@ namespace DynamicAi.Application.Services.SqlEngine
 
             // ══════════════════════════════════════════════════════════════════════
             // 🔍 STEP: Discover extra tables the LLM added (e.g. lookup JOINs)
-            // Extract all table names referenced in FROM/JOIN from the AST,
-            // then find which ones are NOT already in our schemaMap.
-            // If we have a connectionString, fetch those extras and merge them in.
             // ══════════════════════════════════════════════════════════════════════
+            var tableExtractor = new TableNameExtractor();
+            fragment.Accept(tableExtractor);
+            var allReferencedTables = tableExtractor.TableNames.ToList();
+
+            _logger.LogInformation("[SqlSanitizer] 🔎 SQL References {Count} table(s): [{Tables}]", 
+                allReferencedTables.Count, string.Join(", ", allReferencedTables));
+
             if (!string.IsNullOrEmpty(connectionString))
             {
-                var tableExtractor = new TableNameExtractor();
-                fragment.Accept(tableExtractor);
-
-                var missingTables = tableExtractor.TableNames
+                var missingTables = allReferencedTables
                     .Where(t => !schemaMap.ContainsKey(t))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
@@ -102,28 +103,37 @@ namespace DynamicAi.Application.Services.SqlEngine
                 if (missingTables.Any())
                 {
                     _logger.LogInformation(
-                        "[SqlSanitizer] 🔍 Detected {Count} extra table(s) not in prefetched schema: [{Tables}]. Fetching on-demand...",
+                        "[SqlSanitizer] 📥 Found {Count} table(s) missing from local cache: [{Tables}]. ConnectionString present, attempting on-demand fetch...",
                         missingTables.Count, string.Join(", ", missingTables));
 
                     try
                     {
-                        // Fetch ONLY the missing tables — fast query (~100ms)
-                        var extraSchema = await _schemaProvider.GetSchemaForViewsAsync(
-                            connectionString, missingTables, ct);
+                        var fetchStart = DateTime.UtcNow;
+                        var extraSchema = await _schemaProvider.GetSchemaForViewsAsync(connectionString, missingTables, ct);
+                        var duration = (DateTime.UtcNow - fetchStart).TotalMilliseconds;
 
-                        // Merge into current schemaMap (working copy)
                         foreach (var kvp in extraSchema)
                             schemaMap[kvp.Key] = kvp.Value;
 
                         _logger.LogInformation(
-                            "[SqlSanitizer] ✅ Extra schema merged: {Fetched}/{Requested} tables resolved.",
-                            extraSchema.Count, missingTables.Count);
+                            "[SqlSanitizer] ✅ Targeted Fetch Complete ({Duration:F0}ms). Merged {Fetched}/{Requested} missing tables into schema map.",
+                            duration, extraSchema.Count, missingTables.Count);
+                        
+                        if (extraSchema.Count < missingTables.Count)
+                        {
+                            var failed = missingTables.Where(t => !extraSchema.ContainsKey(t)).ToList();
+                            _logger.LogWarning("[SqlSanitizer] ⚠️ Could not resolve schema for: [{Failed}]. These might be hallucinated or deleted tables.", 
+                                string.Join(", ", failed));
+                        }
                     }
                     catch (Exception ex)
                     {
-                        // Fail-Open for extras: if fetch fails, let the validator report missing tables normally.
-                        _logger.LogWarning(ex, "[SqlSanitizer] ⚠️ Could not fetch schema for extra tables. They will appear as validation errors.");
+                        _logger.LogWarning(ex, "[SqlSanitizer] ❌ On-demand schema fetch failed. Proceeding with partial schema.");
                     }
+                }
+                else
+                {
+                    _logger.LogInformation("[SqlSanitizer] ✨ All referenced tables are already present in the prefetched schema map.");
                 }
             }
 
