@@ -34,72 +34,178 @@ namespace DynamicAi.Application.Services.SqlEngine
 
             try
             {
-                // 1. Get Schema Map (Cached)
+                // 1. Get Schema Map from Global Cache (warmed at startup — no DB call)
                 var schemaMap = await _schemaProvider.GetSchemaMapAsync(ct);
 
-                // 2. Parse SQL
-                TSqlParser parser = new TSql160Parser(false);
-                IList<ParseError> errors;
-                TSqlFragment fragment;
-                using (var reader = new StringReader(rawSql))
-                {
-                    fragment = parser.Parse(reader, out errors);
-                }
-
-                if (errors.Any())
-                {
-                    _logger.LogWarning("[SqlSanitizer] Parse errors detected. Skipping sanitization.");
-                    return result; // Cannot sanitize broken SQL
-                }
-
-                // 3. Visit and Detect
-                var visitor = new SanitizationVisitor(schemaMap);
-                fragment.Accept(visitor);
-
-                foreach (var warning in visitor.Warnings)
-                {
-                    _logger.LogWarning(warning);
-                }
-
-                // 4. STRICT MODE: If there are validation errors, throw immediately
-                if (visitor.ValidationErrors.Any())
-                {
-                    var errorSummary = string.Join("\n", visitor.ValidationErrors);
-                    _logger.LogWarning("[SqlSanitizer] 🛡️ STRICT MODE: {TableCount} table(s) with schema violation(s):\n{Errors}",
-                        visitor.ValidationErrors.Count, errorSummary);
-
-                    throw new SqlSanitizationException(
-                        $"SQL schema validation failed with {visitor.ValidationErrors.Count} error(s):\n{errorSummary}",
-                        visitor.ValidationErrors);
-                }
-
-                if (visitor.ColumnsToRemove.Any())
-                {
-                    // 5. Rewrite SQL (The Surgery) — fallback if no strict errors but columns to clean
-                    _logger.LogInformation("[SqlSanitizer] Found {Count} invalid columns. Rewriting SQL tree...", visitor.ColumnsToRemove.Count);
-                    
-                    var rewrittenSql = RemoveInvalidColumns(rawSql, fragment, visitor.ColumnsToRemove);
-                    
-                    result.SafeSql = rewrittenSql;
-                    result.WasModified = true;
-                    result.Changes = visitor.ColumnsToRemove
-                        .Select(c => c.MultiPartIdentifier.Identifiers.Last().Value)
-                        .Distinct()
-                        .ToList();
-                }
+                return await RunCoreValidationAsync(rawSql, schemaMap, result, ct);
             }
             catch (SqlSanitizationException)
             {
-                // 🛡️ MUST propagate to UnifiedQueryHandler's retry loop!
                 throw;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[SqlSanitizer] Error during sanitization. Returning original SQL.");
-                // Fail-safe: Return original SQL if sanitization crashes
+                return result;
+            }
+        }
+
+        /// <summary>
+        /// Core logic shared between both SanitizeAsync overloads.
+        /// Parses SQL, visits AST, checks columns, and throws/rewrites as needed.
+        /// </summary>
+        private async Task<SanitizationResult> RunCoreValidationAsync(
+            string rawSql,
+            Dictionary<string, HashSet<string>> schemaMap,
+            SanitizationResult result,
+            CancellationToken ct,
+            string? connectionString = null)
+        {
+            // Fail-Open: if schema is empty, skip validation (e.g. Warmer not yet run)
+            if (schemaMap == null || !schemaMap.Any())
+            {
+                _logger.LogWarning("[SqlSanitizer] Schema map is empty. Skipping validation (Fail-Open).");
+                return result;
+            }
+
+            // Parse SQL into AST
+            TSqlParser parser = new TSql160Parser(false);
+            IList<ParseError> errors;
+            TSqlFragment fragment;
+            using (var reader = new StringReader(rawSql))
+            {
+                fragment = parser.Parse(reader, out errors);
+            }
+
+            if (errors.Any())
+            {
+                _logger.LogWarning("[SqlSanitizer] Parse errors detected. Skipping sanitization.");
+                return result;
+            }
+
+            // ══════════════════════════════════════════════════════════════════════
+            // 🔍 STEP: Discover extra tables the LLM added (e.g. lookup JOINs)
+            // Extract all table names referenced in FROM/JOIN from the AST,
+            // then find which ones are NOT already in our schemaMap.
+            // If we have a connectionString, fetch those extras and merge them in.
+            // ══════════════════════════════════════════════════════════════════════
+            if (!string.IsNullOrEmpty(connectionString))
+            {
+                var tableExtractor = new TableNameExtractor();
+                fragment.Accept(tableExtractor);
+
+                var missingTables = tableExtractor.TableNames
+                    .Where(t => !schemaMap.ContainsKey(t))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (missingTables.Any())
+                {
+                    _logger.LogInformation(
+                        "[SqlSanitizer] 🔍 Detected {Count} extra table(s) not in prefetched schema: [{Tables}]. Fetching on-demand...",
+                        missingTables.Count, string.Join(", ", missingTables));
+
+                    try
+                    {
+                        // Fetch ONLY the missing tables — fast query (~100ms)
+                        var extraSchema = await _schemaProvider.GetSchemaForViewsAsync(
+                            connectionString, missingTables, ct);
+
+                        // Merge into current schemaMap (working copy)
+                        foreach (var kvp in extraSchema)
+                            schemaMap[kvp.Key] = kvp.Value;
+
+                        _logger.LogInformation(
+                            "[SqlSanitizer] ✅ Extra schema merged: {Fetched}/{Requested} tables resolved.",
+                            extraSchema.Count, missingTables.Count);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Fail-Open for extras: if fetch fails, let the validator report missing tables normally.
+                        _logger.LogWarning(ex, "[SqlSanitizer] ⚠️ Could not fetch schema for extra tables. They will appear as validation errors.");
+                    }
+                }
+            }
+
+            // Visit AST and detect invalid columns
+            var visitor = new SanitizationVisitor(schemaMap);
+            fragment.Accept(visitor);
+
+            foreach (var warning in visitor.Warnings)
+                _logger.LogWarning(warning);
+
+            // STRICT MODE: throw on validation errors so the retry loop can send them back to LLM
+            if (visitor.ValidationErrors.Any())
+            {
+                var errorSummary = string.Join("\n", visitor.ValidationErrors);
+                _logger.LogWarning("[SqlSanitizer] 🛡️ STRICT MODE: {Count} violation(s):\n{Errors}",
+                    visitor.ValidationErrors.Count, errorSummary);
+
+                throw new SqlSanitizationException(
+                    $"SQL schema validation failed with {visitor.ValidationErrors.Count} error(s):\n{errorSummary}",
+                    visitor.ValidationErrors);
+            }
+
+            if (visitor.ColumnsToRemove.Any())
+            {
+                _logger.LogInformation("[SqlSanitizer] Found {Count} invalid columns. Rewriting SQL tree...", visitor.ColumnsToRemove.Count);
+                var rewrittenSql = RemoveInvalidColumns(rawSql, fragment, visitor.ColumnsToRemove);
+                result.SafeSql = rewrittenSql;
+                result.WasModified = true;
+                result.Changes = visitor.ColumnsToRemove
+                    .Select(c => c.MultiPartIdentifier.Identifiers.Last().Value)
+                    .Distinct()
+                    .ToList();
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// [Per-Request Path] يستخدم Schema Task بدأت مسبقاً بالتوازي مع الـ LLM.
+        /// عند الاستدعاء: إما أن الـ Task خلصت (0ms await) أو لا تزال تعمل (await ينتظرها).
+        /// </summary>
+        public async Task<SanitizationResult> SanitizeAsync(
+            string rawSql,
+            string tenantId,
+            Task<Dictionary<string, HashSet<string>>> schemaTask,
+            CancellationToken ct = default,
+            string? connectionString = null)
+        {
+            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
+            _logger.LogInformation("║         [Layer 4.5: SQL SANITIZER] - TARGETED SCHEMA CHECK             ║");
+            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+
+            var result = new SanitizationResult { SafeSql = rawSql, WasModified = false };
+
+            try
+            {
+                // ⏳ Await the schema task that started in parallel with the LLM call.
+                // If the LLM took 3s and schema fetch took 0.2s → this await costs 0ms.
+                // If somehow schema is slower → we wait here, but that's exceptional.
+                var schemaMap = await schemaTask;
+
+                if (schemaMap == null || !schemaMap.Any())
+                {
+                    _logger.LogWarning("[SqlSanitizer] Targeted schema is empty. Skipping sanitization (Fail-Open).");
+                    return result;
+                }
+
+                _logger.LogInformation("[SqlSanitizer] 🎯 Validating against targeted schema: {ViewCount} views, {ColCount} total columns.",
+                    schemaMap.Count, schemaMap.Values.Sum(s => s.Count));
+
+                // Reuse the same core validation logic — pass connectionString so extra JOINed tables can be auto-fetched
+                return await RunCoreValidationAsync(rawSql, schemaMap, result, ct, connectionString);
+            }
+            catch (SqlSanitizationException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[SqlSanitizer] Error during targeted sanitization. Returning original SQL.");
+                return result;
+            }
         }
 
         /// <summary>
@@ -352,6 +458,23 @@ namespace DynamicAi.Application.Services.SqlEngine
                 }
 
                 return expr;
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // TableNameExtractor — extracts all real table/view names from AST.
+        // Used to discover extra tables the LLM joined (e.g. lookup tables).
+        // Only collects NamedTableReference nodes (FROM / JOIN targets).
+        // ══════════════════════════════════════════════════════════════════════
+        private class TableNameExtractor : TSqlFragmentVisitor
+        {
+            public HashSet<string> TableNames { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            public override void Visit(NamedTableReference node)
+            {
+                var name = node.SchemaObject?.BaseIdentifier?.Value;
+                if (!string.IsNullOrWhiteSpace(name))
+                    TableNames.Add(name);
             }
         }
     }

@@ -28,6 +28,7 @@ public class UnifiedQueryHandler : IIntentHandler
     private readonly ISandboxedSqlExecutor _executionService;
     private readonly IQueryCacheService _queryCacheService;
     private readonly ILlmUsageTracker _usageTracker;
+    private readonly IDbSchemaProvider _schemaProvider;
     private readonly ILogger<UnifiedQueryHandler> _logger;
     private readonly JsonSerializerOptions _jsonOptions;
 
@@ -41,6 +42,7 @@ public class UnifiedQueryHandler : IIntentHandler
         ISandboxedSqlExecutor executionService,
         IQueryCacheService queryCacheService,
         ILlmUsageTracker usageTracker,
+        IDbSchemaProvider schemaProvider,
         ILogger<UnifiedQueryHandler> logger)
     {
         _promptEngine = promptEngine;
@@ -52,6 +54,7 @@ public class UnifiedQueryHandler : IIntentHandler
         _executionService = executionService;
         _queryCacheService = queryCacheService;
         _usageTracker = usageTracker;
+        _schemaProvider = schemaProvider;
         _logger = logger;
         _jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
     }
@@ -88,7 +91,7 @@ public class UnifiedQueryHandler : IIntentHandler
                 // Dummy bundle so the executor knows which PageId this was tied to.
                 var dummyRetrieval = new RetrievalContextBundle { PageId = context.CachedPageId ?? 0 };
                 
-                var cachedSqlResult = await ExecuteSqlPipelineAsync(context.CachedSql, tenantId, companyId, dummyRetrieval, context, cancellationToken);
+                var cachedSqlResult = await ExecuteSqlPipelineAsync(context.CachedSql, tenantId, companyId, dummyRetrieval, context, cancellationToken, schemaPrefetchTask: null);
                 cachedSqlResult.IsCached = true;
                 cachedSqlResult.CacheId = context.CachedCacheId; // 🆔 Carry original Qdrant Entry ID to result
                 
@@ -156,6 +159,38 @@ public class UnifiedQueryHandler : IIntentHandler
 
         int currentPageId = finalContext?.PageId ?? 0;
 
+        // ═══════════════════════════════════════════════════════════════════
+        // 🚀 PARALLEL SCHEMA PREFETCH (Fire-and-Hold)
+        // ═══════════════════════════════════════════════════════════════════
+        // إذا الطلب جاء مع ConnectionString مخصص → ابدأ جلب الـ Schema الآن
+        // بدون await (لا نتوقف هنا). المهمة ستعمل في الخلفية بينما نبني الـ Prompt
+        // ونستدعي الـ LLM. لما نوصل للـ Sanitizer، نعمل await على المهمة دي —
+        // في الغالب ستكون خلصت بالفعل لأن الـ LLM أبطأ بكتير من DB.
+        Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask = null;
+
+        if (!string.IsNullOrEmpty(context?.ConnectionString) && finalContext != null)
+        {
+            var viewNames = new List<string?> { finalContext.MasterSetup?.TableName }
+                .Concat(finalContext.DetailSetups?.Select(d => d.TableName) ?? [])
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .Select(v => v!)
+                .ToList();
+
+            if (viewNames.Any())
+            {
+                _logger.LogInformation(
+                    "[UnifiedHandler] 🔄 PARALLEL: Starting schema prefetch for {Count} views in background (connection-scoped).",
+                    viewNames.Count);
+
+                // لا نستخدم Task.Run لأن GetSchemaForViewsAsync هي async بالفعل.
+                // نستدعيها مباشرة بدون await — هتبدأ وترجع Task نمسك فيه.
+                schemaPrefetchTask = _schemaProvider.GetSchemaForViewsAsync(
+                    context.ConnectionString,
+                    viewNames,
+                    cancellationToken);
+            }
+        }
+
         // --- PHASE 1.5: SECONDARY CACHE CHECK (Post-RAG) ---
         // If the global check missed because PageId was unknown, we check again now that we have the resolved PageId.
         if (string.IsNullOrWhiteSpace(context?.CachedSql) && currentPageId > 0)
@@ -171,7 +206,7 @@ public class UnifiedQueryHandler : IIntentHandler
             if (pageCachedResult != null)
             {
                 _logger.LogInformation("[UnifiedHandler] ⚡ SECONDARY CACHE HIT (PageID: {PageId}). Bypassing LLM!", currentPageId);
-                var cachedSqlResult = await ExecuteSqlPipelineAsync(pageCachedResult.Sql, tenantId, companyId, retrievalResult, context, cancellationToken);
+            var cachedSqlResult = await ExecuteSqlPipelineAsync(pageCachedResult.Sql, tenantId, companyId, retrievalResult, context, cancellationToken, schemaPrefetchTask: null);
                 cachedSqlResult.IsCached = true;
                 cachedSqlResult.CacheId = pageCachedResult.CacheId.ToString();
                 cachedSqlResult.Intent = pageCachedResult.Intent;
@@ -344,7 +379,7 @@ public class UnifiedQueryHandler : IIntentHandler
                         parsedResponse = retryParsed; // update for metadata
                     }
 
-                    var sqlResult = await ExecuteSqlPipelineAsync(currentSql, tenantId, companyId, retrievalResult, context, cancellationToken);
+                    var sqlResult = await ExecuteSqlPipelineAsync(currentSql, tenantId, companyId, retrievalResult, context, cancellationToken, schemaPrefetchTask);
                     sqlResult.ConfidenceScore = (float?)parsedResponse.Confidence;
                     if (sqlResult.QueryInsights == null) sqlResult.QueryInsights = new QueryInsightData { RetrievedContext = new List<string>() };
                     sqlResult.QueryInsights.RetrievedContext?.Add($"🤖 Intent Detected: {parsedResponse.Intent}");
@@ -434,7 +469,8 @@ public class UnifiedQueryHandler : IIntentHandler
         int? companyId,
         RetrievalContextBundle retrievalResult,
         IntentHandlerContext? context,
-        CancellationToken ct)
+        CancellationToken ct,
+        Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask = null)
     {
         if (string.IsNullOrWhiteSpace(rawSql))
         {
@@ -448,10 +484,21 @@ public class UnifiedQueryHandler : IIntentHandler
         _logger.LogInformation("[UnifiedHandler] Layer 4: Validating & Expanding SQL...");
         await _validatorService.ValidateSqlAsync(rawSql, tenantId, ct);
 
-        // 🛡️ Strict Sanitization: check columns/tables against schema BEFORE DB execution
+        // 🛡️ Schema Sanitization: use pre-fetched targeted schema if available, else global schema
         _logger.LogInformation("[UnifiedHandler] Layer 4.5: Sanitizing SQL against schema...");
-        await _sanitizerService.SanitizeAsync(rawSql, tenantId, ct);
-        // If SanitizeAsync throws SqlSanitizationException, the retry loop in HandleAsync catches it.
+        if (schemaPrefetchTask != null)
+        {
+            // Per-Request Path: await the task that started in parallel with LLM call.
+            // المهمة دي ابتدت لما بنينا الـ Prompt، فوقت الـ LLM كانت بتشتغل.
+            // في الغالب ستكون خلصت بالفعل (await بيكلف 0ms أو أقل من 1ms).
+            // connectionString مطلوب عشان الـ Sanitizer يجيب schema الجداول الإضافية (lookups / JOINs)
+            await _sanitizerService.SanitizeAsync(rawSql, tenantId, schemaPrefetchTask, ct, context?.ConnectionString);
+        }
+        else
+        {
+            // Default Path: global schema from DefaultConnection (warmed at startup)
+            await _sanitizerService.SanitizeAsync(rawSql, tenantId, ct);
+        }
         
         // ─── Rebuild typed TailConditionEntry list for the hardening layer ─────────────
         // Same alias assignment logic as in the prompt-building phase (T1=Master, T2/T3=Details).

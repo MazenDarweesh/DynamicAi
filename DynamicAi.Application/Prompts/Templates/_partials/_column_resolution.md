@@ -2,7 +2,7 @@ COLUMN RESOLUTION: For EACH column (from LEGACY DICTIONARY or PAGE ATTRIBUTES, D
 A) Find the column definition (SearchName, ColumnName, InsertType, etc.).
 B) Read ColumnName, SearchName, InsertType, DroModel, DroValue, DroText, Vis.
 C) If InsertType!='dropdown' → SELECT T1.ColumnName AS [arColumnLabel].
-D) If dropdown AND SearchName != ColumnName (e.g. SearchName='CreateByID', ColumnName='CreateBy') → CRITICAL: DO NOT PERFORM ANY JOIN. You MUST strictly SELECT T1.ColumnName AS [arColumnLabel].
+D) If dropdown AND SearchName != ColumnName (e.g. SearchName='CreateByID', ColumnName='CreateBy') → 🚨 CRITICAL: DO NOT PERFORM ANY JOIN TO FETCH THE NAME. You MUST strictly SELECT the existing string column `T1.ColumnName` (e.g., `T1.CreateBy AS [اسم الموظف]`). The view already resolved the name for you.
 E) If dropdown AND SearchName == ColumnName:
    - Perform a LEFT JOIN with the view specified in `DroModel`.
    - The JOIN condition MUST be: `T1.SearchName = DroModel.DroValue`.

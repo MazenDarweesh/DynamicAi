@@ -21,7 +21,8 @@ DATA FLOW(CRITICAL):
    These filters are ABSOLUTE SECURITY AND BUSINESS LOGIC REQUIREMENTS — you may NEVER omit them.
 
 4) DETAILS(CRITICAL — READ CAREFULLY): If the user asks for details, JOIN using 'TableName' from PageDetail in PAGE ATTRIBUTES, DETAILS & LISTSETUPS (e.g. TableName=salessystemcontract → JOIN salessystemcontract AS T2). ON master.'Primary' = detail.'ForeignKey'. Assign aliases sequentially (T2, T3, …) — these MUST match the Alias values shown in MANDATORY SYSTEM FILTER for that detail view. Apply the detail TailCondition immediately in the WHERE clause using the correct alias (e.g. AND T2.IsResale=0). FATAL: Do NOT use 'ListName' as a JOIN table.
-5) NO OTHER tables/views/JOINs except dropdown lookups per COLUMN RESOLUTION.
+5) NO OTHER tables/views/JOINs except dropdown lookups strictly defined in COLUMN RESOLUTION rule (E).
+6) 🚨 NO HALLUCINATED JOINS FOR LOOKUPS: If the user asks for a descriptive name (e.g., "Employee Name", "اسم الموظف اللي ضافهم") and the original view already contains this string (even if named strangely, like `CreateBy` or `EmployeeName`), YOU MUST USE THAT COLUMN DIRECTLY FROM THE VIEW (e.g., `T1.CreateBy`). DO NOT perform a `JOIN` to external lookup views (like `EmployeeView`) just to get a name. Use the data already present in the view.
 
 ALIAS RESERVATION(CRITICAL — MUST READ BEFORE WRITING ANY JOIN):
 The MANDATORY SYSTEM FILTER section declares a set of RESERVED aliases (e.g. T1, T2, T3).
