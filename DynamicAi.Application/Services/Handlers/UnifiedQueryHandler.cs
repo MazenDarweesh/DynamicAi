@@ -274,6 +274,10 @@ public class UnifiedQueryHandler : IIntentHandler
         _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
         _logger.LogInformation("║              [Layer 3: GEMINI LLM] - CALLING MODEL                     ║");
         _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+        
+        // 🛰️ LOG FULL PROMPT
+        _logger.LogInformation("[UnifiedHandler] 🛰️ FULL RENDERED PROMPT START:\n{Prompt}\n[UnifiedHandler] 🛰️ FULL RENDERED PROMPT END", renderedPrompt);
+        
         _logger.LogInformation("[UnifiedHandler] Layer 3: Calling Gemini LLM...");
         var chatHistory = new ChatHistory();
         chatHistory.AddSystemMessage(renderedPrompt);
