@@ -10,6 +10,7 @@ using DynamicAi.Domain.Entities;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SqlServer.TransactSql.ScriptDom;
 
 namespace DynamicAi.Application.Services.Handlers;
 
@@ -31,6 +32,9 @@ public class UnifiedQueryHandler : IIntentHandler
     private readonly IDbSchemaProvider _schemaProvider;
     private readonly ILogger<UnifiedQueryHandler> _logger;
     private readonly JsonSerializerOptions _jsonOptions;
+
+    // TSql160Parser is thread-safe for parsing — instantiated once and reused across all requests.
+    private static readonly TSqlParser _sqlParser = new TSql160Parser(false);
 
     public UnifiedQueryHandler(
         IPromptTemplateEngine promptEngine,
@@ -175,6 +179,17 @@ public class UnifiedQueryHandler : IIntentHandler
                 .Where(v => !string.IsNullOrWhiteSpace(v))
                 .Select(v => v!)
                 .ToList();
+
+            var tailConditionTables = ExtractTablesFromTailConditions(finalContext);
+            var addedFromTail = tailConditionTables.Where(t => !viewNames.Contains(t, StringComparer.OrdinalIgnoreCase)).ToList();
+            viewNames.AddRange(addedFromTail);
+
+            if (addedFromTail.Any())
+                _logger.LogInformation(
+                    "[UnifiedHandler] 🔍 TailCondition AST scan found {Count} additional table(s) to prefetch: [{Tables}]",
+                    addedFromTail.Count, string.Join(", ", addedFromTail));
+            else
+                _logger.LogInformation("[UnifiedHandler] ✅ TailCondition AST scan: no extra tables detected (no subqueries in conditions).");
 
             if (viewNames.Any())
             {
@@ -692,5 +707,57 @@ public class UnifiedQueryHandler : IIntentHandler
         }
 
         return historyBuilder.ToString().Trim();
+    }
+
+    private static List<string> ExtractTablesFromTailConditions(ShippedPageContext context)
+    {
+        var tables = new List<string>();
+        var allConditions = new List<string>();
+        
+        if (!string.IsNullOrEmpty(context.MasterSetup?.TailCondition))
+            allConditions.Add(context.MasterSetup.TailCondition);
+        foreach (var d in context.DetailSetups ?? new())
+            if (!string.IsNullOrEmpty(d.TailCondition))
+                allConditions.Add(d.TailCondition);
+
+        TSqlParser parser = _sqlParser;  // reuse static instance (thread-safe)
+        var tableVisitor = new ExtractTablesVisitor();
+
+        foreach (var cond in allConditions)
+        {
+            var cleanCond = cond.Trim();
+            if (cleanCond.StartsWith("where", StringComparison.OrdinalIgnoreCase)) 
+                cleanCond = cleanCond.Substring(5).Trim();
+
+            var dummyQuery = $"SELECT 1 FROM DUMMY WHERE {cleanCond}";
+            using (var reader = new StringReader(dummyQuery))
+            {
+                var fragment = parser.Parse(reader, out IList<ParseError> errors);
+                if (!errors.Any())
+                {
+                    fragment.Accept(tableVisitor);
+                }
+            }
+        }
+
+        return tableVisitor.Tables.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private class ExtractTablesVisitor : TSqlFragmentVisitor
+    {
+        public List<string> Tables { get; } = new List<string>();
+
+        public override void Visit(NamedTableReference node)
+        {
+            if (node.SchemaObject?.BaseIdentifier?.Value != null)
+            {
+                var tableName = node.SchemaObject.BaseIdentifier.Value;
+                if (!tableName.Equals("DUMMY", StringComparison.OrdinalIgnoreCase))
+                {
+                    Tables.Add(tableName);
+                }
+            }
+            base.Visit(node);
+        }
     }
 }
