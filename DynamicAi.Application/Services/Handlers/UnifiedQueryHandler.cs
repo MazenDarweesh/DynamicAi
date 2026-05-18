@@ -529,12 +529,11 @@ public class UnifiedQueryHandler : IIntentHandler
             tailEntries.Add(new TailConditionEntry
             {
                 ViewName  = retrievalResult.StructuredContext.MasterSetup.TableName,
-                SqlAlias  = "T1",
+                SqlAlias  = "TM",
                 Condition = retrievalResult.StructuredContext.MasterSetup.TailCondition
             });
         }
 
-        int detailIdx = 2;
         foreach (var detail in retrievalResult.StructuredContext?.DetailSetups ?? new())
         {
             if (!string.IsNullOrWhiteSpace(detail.TailCondition))
@@ -542,11 +541,10 @@ public class UnifiedQueryHandler : IIntentHandler
                 tailEntries.Add(new TailConditionEntry
                 {
                     ViewName  = detail.TableName,
-                    SqlAlias  = $"T{detailIdx}",
+                    SqlAlias  = "TD",
                     Condition = detail.TailCondition
                 });
             }
-            detailIdx++;
         }
 
         _logger.LogInformation(
@@ -592,13 +590,12 @@ public class UnifiedQueryHandler : IIntentHandler
             tailEntries.Add(new TailConditionEntry
             {
                 ViewName  = finalContext.MasterSetup.TableName,
-                SqlAlias  = "T1",
+                SqlAlias  = "TM",
                 Condition = cleanCond
             });
         }
 
-        // 2. Resolve Detail Filters
-        int detailAliasIndex = 2;
+        // 2. Resolve Detail Filters (alias: TD — applied by hardening layer only when TD is present in the query)
         foreach (var detail in finalContext.DetailSetups ?? new())
         {
             if (!string.IsNullOrWhiteSpace(detail.TailCondition))
@@ -609,72 +606,63 @@ public class UnifiedQueryHandler : IIntentHandler
                 tailEntries.Add(new TailConditionEntry
                 {
                     ViewName  = detail.TableName,
-                    SqlAlias  = $"T{detailAliasIndex}",
+                    SqlAlias  = "TD",
                     Condition = cleanCond
                 });
             }
-            detailAliasIndex++;
         }
 
-        // 3. Determine Alias Mapping
-        int totalDetailCount = finalContext.DetailSetups?.Count ?? 0;
-        int nextFreeAlias = 1 + 1 + totalDetailCount; // T1=master, then N details
-
-        // 4. Build Prompt Block
+        // 3. Build Prompt Block
         if (tailEntries.Any())
         {
             var promptTail = new System.Text.StringBuilder();
 
-            promptTail.AppendLine("RESERVED ALIASES (must be used exactly as shown — cannot be reassigned):");
-            promptTail.AppendLine($"  T1 → Master view: {finalContext.MasterSetup?.TableName}");
+            promptTail.AppendLine("RESERVED ALIASES (FIXED — must be used exactly as shown — cannot be reassigned or reused):");
+            promptTail.AppendLine($"  TM → Master view: {finalContext.MasterSetup?.TableName} (always in FROM clause)");
 
-            int aliasCheck = 2;
             foreach (var detail in finalContext.DetailSetups ?? new())
             {
-                promptTail.AppendLine($"  T{aliasCheck} → Detail view: {detail.TableName}");
-                aliasCheck++;
+                promptTail.AppendLine($"  TD → Detail view: {detail.TableName} (JOIN only when the question requires detail-level columns)");
             }
 
+            promptTail.AppendLine("  T1, T2, T3… → Available for dropdown lookup JOINs only (never for master/detail).");
             promptTail.AppendLine();
-            promptTail.AppendLine("MANDATORY FILTERS to inject (apply each to the WHERE clause of the scope using that alias):");
+            promptTail.AppendLine("MANDATORY FILTERS:");
             foreach (var entry in tailEntries)
             {
                 promptTail.AppendLine(
-                    $"  • View='{entry.ViewName}' | Alias='{entry.SqlAlias}' → MANDATORY CONDITION: ({entry.Condition}). " +
-                    $"You MUST prefix every column name inside this condition with '{entry.SqlAlias}.' (e.g. {entry.SqlAlias}.ColumnName).");
+                    $"  • View='{entry.ViewName}' | Alias='{entry.SqlAlias}' → CONDITION: ({entry.Condition}). " +
+                    $"Prefix every column in this condition with '{entry.SqlAlias}.' (e.g. {entry.SqlAlias}.ColumnName). " +
+                    (entry.SqlAlias == "TD"
+                        ? "⚠️ Apply this filter ONLY if you JOIN TD. If TD is not in your query, SKIP this filter entirely."
+                        : "Apply this filter unconditionally in the main WHERE clause."));
             }
 
             promptTail.AppendLine();
-            promptTail.AppendLine(
-                $"NEXT FREE ALIAS: T{nextFreeAlias} — use T{nextFreeAlias}, T{nextFreeAlias + 1}, T{nextFreeAlias + 2}… " +
-                $"for any additional JOINs such as dropdown lookup tables. " +
-                $"NEVER use T1–T{nextFreeAlias - 1} for anything other than the reserved views listed above.");
+            promptTail.AppendLine("DROPDOWN LOOKUP JOINS (if needed per COLUMN RESOLUTION rule E): use T1, T2, T3… starting from T1.");
 
             // Add Directed Context Metadata if applicable
             if (context?.InjectedContext != null)
             {
                 promptTail.AppendLine("\nDIRECTED CONTEXT ACTIVE:");
                 promptTail.AppendLine($"- Page: '{finalContext.PageName}'");
-                promptTail.AppendLine($"- T1 (Master): {finalContext.MasterSetup.TableName}");
+                promptTail.AppendLine($"- TM (Master): {finalContext.MasterSetup.TableName}");
                 
-                int detailAlias = 2;
                 foreach (var detail in finalContext.DetailSetups ?? new())
                 {
-                    promptTail.AppendLine($"- T{detailAlias} (Detail): {detail.TableName}");
-                    detailAlias++;
+                    promptTail.AppendLine($"- TD (Detail): {detail.TableName} — join only if user needs detail columns");
                 }
             }
 
-            _logger.LogInformation("[UnifiedHandler] 🛡️ {Count} TailCondition entries built. Reserved aliases: T1–T{LastReserved}. Next free: T{NextFree}.",
-                tailEntries.Count, nextFreeAlias - 1, nextFreeAlias);
+            _logger.LogInformation("[UnifiedHandler] 🛡️ {Count} TailCondition entries built. Aliases: TM=Master, TD=Detail. Dropdown lookups use T1,T2,T3…",
+                tailEntries.Count);
 
             return (tailEntries, promptTail.ToString().Trim());
         }
         else
         {
             _logger.LogInformation(
-                "[UnifiedHandler] ℹ️ No TailConditions. Next free alias for dropdowns: T{NextFree}.",
-                nextFreeAlias);
+                "[UnifiedHandler] ℹ️ No TailConditions. Dropdown lookup aliases start from T1.");
             return (tailEntries, string.Empty);
         }
     }

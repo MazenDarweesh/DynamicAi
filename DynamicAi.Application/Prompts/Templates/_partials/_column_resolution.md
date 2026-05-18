@@ -1,12 +1,12 @@
 COLUMN RESOLUTION: For EACH column (from LEGACY DICTIONARY or PAGE ATTRIBUTES, DETAILS & LISTSETUPS 'Columns' array):
 A) Find the column definition (SearchName, ColumnName, InsertType, etc.).
 B) Read ColumnName, SearchName, InsertType, DroModel, DroValue, DroText, Vis.
-C) If InsertType!='dropdown' → SELECT T1.ColumnName AS [arColumnLabel].
-D) If dropdown AND SearchName != ColumnName (e.g. SearchName='CreateByID', ColumnName='CreateBy') → 🚨 CRITICAL: DO NOT PERFORM ANY JOIN TO FETCH THE NAME. You MUST strictly SELECT the existing string column `T1.ColumnName` (e.g., `T1.CreateBy AS [اسم الموظف]`). The view already resolved the name for you.
+C) If InsertType!='dropdown' → SELECT TM.ColumnName AS [arColumnLabel].
+D) If dropdown AND SearchName != ColumnName (e.g. SearchName='CreateByID', ColumnName='CreateBy') → 🚨 CRITICAL: DO NOT PERFORM ANY JOIN TO FETCH THE NAME. You MUST strictly SELECT the existing string column `TM.ColumnName` (e.g., `TM.CreateBy AS [اسم الموظف]`). The view already resolved the name for you.
 E) If dropdown AND SearchName == ColumnName:
-   - Perform a LEFT JOIN with the view specified in `DroModel`.
-   - The JOIN condition MUST be: `T1.SearchName = DroModel.DroValue`.
-   - The selected column MUST be: `DroModel.DroText AS [arColumnLabel]`.
+   - Perform a LEFT JOIN with the view specified in `DroModel`. Use a numeric alias (T1, T2, T3…) for this lookup view.
+   - The JOIN condition MUST be: `TM.SearchName = T1.DroValue` (using the assigned numeric alias).
+   - The selected column MUST be: `T1.DroText AS [arColumnLabel]` (using the assigned numeric alias).
 F) ALWAYS alias AS [arColumnLabel].
 
 DEFAULT COLUMNS: 'هات/اعرض/جيب' without specifics → ALL visible=true columns per COLUMN RESOLUTION. NEVER SELECT *.
