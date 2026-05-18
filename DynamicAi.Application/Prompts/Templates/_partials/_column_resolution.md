@@ -2,11 +2,21 @@ COLUMN RESOLUTION: For EACH column (from LEGACY DICTIONARY or PAGE ATTRIBUTES, D
 A) Find the column definition (SearchName, ColumnName, InsertType, etc.).
 B) Read ColumnName, SearchName, InsertType, DroModel, DroValue, DroText, Vis.
 C) If InsertType!='dropdown' → SELECT TM.ColumnName AS [arColumnLabel].
-D) If dropdown AND SearchName != ColumnName (e.g. SearchName='CreateByID', ColumnName='CreateBy') → 🚨 CRITICAL: DO NOT PERFORM ANY JOIN TO FETCH THE NAME. You MUST strictly SELECT the existing string column `TM.ColumnName` (e.g., `TM.CreateBy AS [اسم الموظف]`). The view already resolved the name for you.
+D) If dropdown AND SearchName != ColumnName:
+   - This means the view ALREADY stores the display name in ColumnName (not an ID).
+   - Example: SearchName='CreateByID', ColumnName='CreateBy' → the view stores the employee name directly in 'CreateBy'.
+   - 🚨 CRITICAL: DO NOT PERFORM ANY JOIN. SELECT `TM.ColumnName AS [arColumnLabel]` directly.
+   - 🚨 FATAL ERROR: Do NOT try to select a related DroText column (like 'EmployeeNameA') from the master view — it does NOT exist there. The name is already in ColumnName.
 E) If dropdown AND SearchName == ColumnName:
-   - Perform a LEFT JOIN with the view specified in `DroModel`. Use a numeric alias (T1, T2, T3…) for this lookup view.
-   - The JOIN condition MUST be: `TM.SearchName = T1.DroValue` (using the assigned numeric alias).
-   - The selected column MUST be: `T1.DroText AS [arColumnLabel]` (using the assigned numeric alias).
+   - This means the column stores a RAW NUMERIC ID (e.g., EmpID=42, SalesMan=7). The display name does NOT exist anywhere in the master view.
+   - You MUST perform a LEFT JOIN with the view specified in `DroModel` to resolve the ID to its display name.
+   - The JOIN condition MUST be: `TM.ColumnName = LookupAlias.DroValue`.
+   - The selected column MUST be: `LookupAlias.DroText AS [arColumnLabel]`.
+   - Use a sequential alias (T1, T2, T3…) for the lookup view. NEVER reuse a reserved alias.
+   - 🚨 FATAL ERROR: Do NOT select `TM.ColumnName` — that is a numeric ID, not a name. Do NOT guess or invent columns like `TM.EmployeeNameA` from the master view.
+   - Example: SearchName='EmpID', ColumnName='EmpID', DroModel='EmployeeView', DroValue='EmployeeID', DroText='EmployeeNameA'
+     → LEFT JOIN EmployeeView AS T3 ON TM.EmpID = T3.EmployeeID
+     → SELECT T3.EmployeeNameA AS [موظف البيع]
 F) ALWAYS alias AS [arColumnLabel].
 
 DEFAULT COLUMNS: 'هات/اعرض/جيب' without specifics → ALL visible=true columns per COLUMN RESOLUTION. NEVER SELECT *.
