@@ -699,7 +699,7 @@ public class UnifiedQueryHandler : IIntentHandler
         for (int i = 0; i < turnsWithSql.Count; i++)
         {
             historyBuilder.AppendLine($"[Turn {i + 1}] Q: \"{turnsWithSql[i].Question}\"");
-            historyBuilder.AppendLine($"         SQL: {turnsWithSql[i].SqlExecuted}");
+            historyBuilder.AppendLine($"         SQL: {CompressSqlForHistory(turnsWithSql[i].SqlExecuted ?? string.Empty)}");
         }
 
         return historyBuilder.ToString().Trim();
@@ -737,6 +737,34 @@ public class UnifiedQueryHandler : IIntentHandler
         }
 
         return tableVisitor.Tables.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// يضغط الـ SQL المخزون في الـ Conversation History لتقليل استهلاك الـ Tokens.
+    /// يحذف: TOP N، Whitespace الزائد، TailCondition المكررة (يُعيدها الـ Rewriter دائماً).
+    /// يحتفظ بـ: SELECT Columns (بالـ Arabic Labels)، JOINs، WHERE conditions الحقيقية.
+    /// </summary>
+    private static string CompressSqlForHistory(string sql)
+    {
+        if (string.IsNullOrWhiteSpace(sql)) return sql;
+
+        // 1. إزالة TOP N (يُضيفها الـ Rewriter تلقائياً)
+        var result = Regex.Replace(sql, @"\bSELECT\s+TOP\s+\d+\s+",
+            "SELECT ", RegexOptions.IgnoreCase);
+
+        // 2. ضغط المسافات والأسطر الزائدة إلى مسافة واحدة
+        result = Regex.Replace(result, @"\s+", " ").Trim();
+
+        // 3. حذف الـ TailCondition المكررة التي يحقنها الـ Rewriter (AND ((1 = 1 AND ...))
+        // هذا الجزء يأتي دائماً في نهاية الـ WHERE ويبدأ بـ AND ((1 = 1
+        result = Regex.Replace(result,
+            @"\s*AND\s*\(\s*\(\s*1\s*=\s*1.*?\)\s*\)\s*;?\s*$",
+            ";", RegexOptions.Singleline | RegexOptions.IgnoreCase).Trim();
+
+        // 4. تنظيف نهاية السطر
+        if (!result.EndsWith(";")) result += ";";
+
+        return result;
     }
 
     /// <summary>
