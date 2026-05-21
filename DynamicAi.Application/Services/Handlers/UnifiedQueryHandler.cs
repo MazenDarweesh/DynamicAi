@@ -8,6 +8,7 @@ using DynamicAi.Application.Prompts;
 using DynamicAi.Application.Models.DirectIntegration;
 using DynamicAi.Domain.Entities;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
@@ -32,6 +33,7 @@ public class UnifiedQueryHandler : IIntentHandler
     private readonly IDbSchemaProvider _schemaProvider;
     private readonly ILogger<UnifiedQueryHandler> _logger;
     private readonly JsonSerializerOptions _jsonOptions;
+    private readonly bool _compactDirectedContext;
 
     // TSql160Parser is thread-safe for parsing — instantiated once and reused across all requests.
     private static readonly TSqlParser _sqlParser = new TSql160Parser(false);
@@ -47,7 +49,8 @@ public class UnifiedQueryHandler : IIntentHandler
         IQueryCacheService queryCacheService,
         ILlmUsageTracker usageTracker,
         IDbSchemaProvider schemaProvider,
-        ILogger<UnifiedQueryHandler> logger)
+        ILogger<UnifiedQueryHandler> logger,
+        IConfiguration configuration)
     {
         _promptEngine = promptEngine;
         _chatService = chatService;
@@ -61,6 +64,9 @@ public class UnifiedQueryHandler : IIntentHandler
         _schemaProvider = schemaProvider;
         _logger = logger;
         _jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        _compactDirectedContext = configuration.GetValue<bool>("Features:DirectedContextCompactEnabled", false);
+        _logger.LogInformation("[UnifiedHandler] 🗜️ DirectedContextCompact = {Mode}",
+            _compactDirectedContext ? "ENABLED (Pipe-Delimited)" : "DISABLED (Raw JSON)");
     }
 
     public IntentType[] SupportedIntents => new[]
@@ -229,8 +235,10 @@ public class UnifiedQueryHandler : IIntentHandler
             }
         }
         
-        string schemaContent = finalContext != null 
-            ? JsonSerializer.Serialize(finalContext, _jsonOptions) 
+        string schemaContent = finalContext != null
+            ? (_compactDirectedContext
+                ? CompressPageContextForPrompt(finalContext)
+                : JsonSerializer.Serialize(finalContext, _jsonOptions))
             : string.Empty;
 
         string rulesContent = finalContext?.BusinessRules?.Any() == true
@@ -729,6 +737,65 @@ public class UnifiedQueryHandler : IIntentHandler
         }
 
         return tableVisitor.Tables.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// يضغط ShippedPageContext إلى صيغة Pipe-Delimited مضغوطة وصديقة للـ LLM.
+    /// بدلاً من JSON مكرر (~27k chars) → سطور نظيفة (~9k chars).
+    ///
+    /// Column Format per row:
+    ///   SearchName | ColumnName | InsertType | arLabel | enLabel | [Dro:Model:Value:Text]
+    /// </summary>
+    private static string CompressPageContextForPrompt(ShippedPageContext ctx)
+    {
+        var sb = new System.Text.StringBuilder();
+
+        // ── Page Header ──────────────────────────────────────────────────────
+        sb.AppendLine($"PageId={ctx.PageId} | PageName={ctx.PageName}");
+        sb.AppendLine();
+
+        // ── Master Setup ─────────────────────────────────────────────────────
+        sb.AppendLine($"[MASTER] Table={ctx.MasterSetup.TableName} | PK={ctx.MasterSetup.PrimaryKey} | Alias=TM");
+        if (!string.IsNullOrWhiteSpace(ctx.MasterSetup.TailCondition))
+            sb.AppendLine($"[MASTER.TailCondition] {ctx.MasterSetup.TailCondition.Trim()}");
+
+        sb.AppendLine("[MASTER.COLUMNS] SearchName | ColumnName | InsertType | arLabel | enLabel | DroInfo");
+        foreach (var col in ctx.MasterSetup.Columns)
+        {
+            var dro = col.DroModel != null
+                ? $"Dro:{col.DroModel}:{col.DroValue}:{col.DroText}"
+                : string.Empty;
+            sb.AppendLine($"  {col.SearchName} | {col.ColumnName} | {col.InsertType} | {col.arColumnLabel} | {col.enColumnLabel} | {dro}");
+        }
+        sb.AppendLine();
+
+        // ── Detail Setups ─────────────────────────────────────────────────────
+        foreach (var detail in ctx.DetailSetups ?? new())
+        {
+            sb.AppendLine($"[DETAIL] Table={detail.TableName} | FK={detail.ForeignKey} | Alias=TD");
+            if (!string.IsNullOrWhiteSpace(detail.TailCondition))
+                sb.AppendLine($"[DETAIL.TailCondition] {detail.TailCondition.Trim()}");
+
+            sb.AppendLine("[DETAIL.COLUMNS] SearchName | ColumnName | InsertType | arLabel | enLabel | DroInfo");
+            foreach (var col in detail.Columns)
+            {
+                var dro = col.DroModel != null
+                    ? $"Dro:{col.DroModel}:{col.DroValue}:{col.DroText}"
+                    : string.Empty;
+                sb.AppendLine($"  {col.SearchName} | {col.ColumnName} | {col.InsertType} | {col.arColumnLabel} | {col.enColumnLabel} | {dro}");
+            }
+            sb.AppendLine();
+        }
+
+        // ── Business Rules ─────────────────────────────────────────────────────
+        if (ctx.BusinessRules?.Any() == true)
+        {
+            sb.AppendLine("[BUSINESS_RULES]");
+            foreach (var rule in ctx.BusinessRules)
+                sb.AppendLine($"  • {rule}");
+        }
+
+        return sb.ToString().Trim();
     }
 
     private class ExtractTablesVisitor : TSqlFragmentVisitor
