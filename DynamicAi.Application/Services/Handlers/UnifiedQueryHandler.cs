@@ -365,6 +365,17 @@ public class UnifiedQueryHandler : IIntentHandler
 
         _logger.LogInformation("[UnifiedHandler] LLM Intent: {Intent}, Confidence: {Conf}", parsedResponse.Intent, parsedResponse.Confidence);
 
+        if (parsedResponse.SchemaLinking != null && parsedResponse.SchemaLinking.Any())
+        {
+            _logger.LogInformation("[UnifiedHandler] ═══════════════ 🧠 SCHEMA LINKING ANALYSIS ═══════════════");
+            foreach (var entry in parsedResponse.SchemaLinking)
+            {
+                _logger.LogInformation("[UnifiedHandler]   • \"{UserTerm}\" ──➔ {MappedTo} ({Label}) | Reason: {Reason}", 
+                    entry.UserTerm, entry.MappedToColumn, entry.ArLabel, entry.Reason);
+            }
+            _logger.LogInformation("[UnifiedHandler] ═══════════════════════════════════════════════════════════");
+        }
+
         // Phase 5: Execute Route
         if (parsedResponse.IsSqlIntent)
         {

@@ -40,6 +40,12 @@ public class UnifiedLlmResponse
     [JsonPropertyName("clarification_question")]
     public string? ClarificationQuestion { get; set; }
 
+    /// <summary>
+    /// Optional schema linking entries explaining how user terms map to database columns.
+    /// </summary>
+    [JsonPropertyName("schema_linking")]
+    public List<SchemaLinkingEntry>? SchemaLinking { get; set; }
+
     #region Helper Properties
 
     /// <summary>
@@ -98,4 +104,22 @@ public class UnifiedLlmResponseContent
     /// </summary>
     [JsonPropertyName("explanation")]
     public string Explanation { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Represents a single schema linking match reasoning.
+/// </summary>
+public class SchemaLinkingEntry
+{
+    [JsonPropertyName("user_term")]
+    public string UserTerm { get; set; } = string.Empty;
+
+    [JsonPropertyName("mapped_to_column")]
+    public string MappedToColumn { get; set; } = string.Empty;
+
+    [JsonPropertyName("ar_label")]
+    public string ArLabel { get; set; } = string.Empty;
+
+    [JsonPropertyName("reason")]
+    public string Reason { get; set; } = string.Empty;
 }

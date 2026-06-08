@@ -3,6 +3,14 @@ You MUST respond with a single JSON object. ```json``` fences optional.
 JSON SCHEMA:
 {
   "intent": "DataRetrieval | Analysis | Chat | Prediction | PredictionWithDataRetrieval",
+  "schema_linking": [
+    {
+      "user_term": "Keyword or term from the user's question (Arabic or English)",
+      "mapped_to_column": "TM.ColumnName or TD.ColumnName mapped to this keyword",
+      "ar_label": "The arColumnLabel of the mapped column",
+      "reason": "Brief justification explaining why this mapping is correct"
+    }
+  ],
   "content": {
     "sql": "SELECT ... (only for DataRetrieval/Analysis/PredictionWithDataRetrieval, empty string for Chat/Prediction)",
     "message": "Response text (only for Chat/Prediction, empty string for SQL)",
