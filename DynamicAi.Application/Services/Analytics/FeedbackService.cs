@@ -52,6 +52,7 @@ public class FeedbackService : IFeedbackService
                 FeedbackSource = "UserLike",
                 TenantId = tenantId ?? queryLog.CompanyId, // Use passed value or fallback to QueryLog
                 OriginalQueryLogId = queryLogId,
+                PageId = queryLog.PageId,
                 IsVerified = false // ينتظر مراجعة الـ Admin
             };
 
@@ -96,6 +97,7 @@ public class FeedbackService : IFeedbackService
                 CorrectionNotes = userComment ?? "User disliked - needs manual SQL correction",
                 FeedbackSource = "UserDislike",
                 OriginalQueryLogId = queryLogId,
+                PageId = queryLog.PageId,
                 TenantId = tenantId ?? queryLog.CompanyId, // Use passed value or fallback to QueryLog
                 IsVerified = false
             };
@@ -180,6 +182,7 @@ public class FeedbackService : IFeedbackService
                 FeedbackSource = "AutoCapture",
                 OriginalQueryLogId = queryLogId,
                 TenantId = tenantId ?? queryLog.CompanyId,
+                PageId = queryLog.PageId,
                 IsVerified = false,
                 CreatedAt = DateTime.UtcNow
             };

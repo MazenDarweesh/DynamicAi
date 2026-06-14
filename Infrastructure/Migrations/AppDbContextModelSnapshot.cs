@@ -119,6 +119,9 @@ namespace Infrastructure.Migrations
                     b.Property<int?>("OutputTokens")
                         .HasColumnType("int");
 
+                    b.Property<int?>("PageId")
+                        .HasColumnType("int");
+
                     b.Property<string>("RawQuestion")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -172,6 +175,9 @@ namespace Infrastructure.Migrations
 
                     b.Property<Guid?>("OriginalQueryLogId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("PageId")
+                        .HasColumnType("int");
 
                     b.Property<string>("SchemaContext")
                         .HasColumnType("nvarchar(max)");

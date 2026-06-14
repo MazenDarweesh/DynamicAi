@@ -17,6 +17,9 @@ namespace DynamicAi.Domain.Entities
         /// <summary>معرف الشركة</summary>
         public int? CompanyId { get; set; }
 
+        /// <summary>معرف الصفحة المصدر للاستعلام (null = عام / غير محدد)</summary>
+        public int? PageId { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         #region Observability Fields (Phase A)

@@ -35,6 +35,9 @@ public class TrainingExample
     /// <summary>معرف الـ QueryLog الأصلي للربط</summary>
     public Guid? OriginalQueryLogId { get; set; }
 
+    /// <summary>معرف الصفحة المصدر لهذا المثال</summary>
+    public int? PageId { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? VerifiedAt { get; set; }
 }
