@@ -16,3 +16,4 @@ export * from './training-stats.model';
 export * from './manual-training.model';
 export * from './pending-training.model';
 export * from './query-insight.model';
+export * from './column-synonym.model';

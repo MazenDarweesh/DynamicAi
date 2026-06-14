@@ -58,4 +58,34 @@ export class TrainingService {
     rejectExample(id: string): Observable<FeedbackResponse> {
         return this.http.delete<FeedbackResponse>(`${this.baseUrl}/${id}`);
     }
+
+    /**
+     * Get pending (unverified) column synonyms
+     */
+    getPendingSynonyms(): Observable<any> {
+        return this.http.get<any>('/api/feedback/synonyms/pending');
+    }
+
+    /**
+     * Approve a column synonym link
+     */
+    approveSynonym(id: string, approvedBy: string = 'admin'): Observable<any> {
+        return this.http.post<any>(`/api/feedback/synonyms/${id}/approve`, {}, {
+            params: { approvedBy }
+        });
+    }
+
+    /**
+     * Reject (delete) a column synonym link
+     */
+    rejectSynonym(id: string): Observable<any> {
+        return this.http.delete<any>(`/api/feedback/synonyms/${id}/reject`);
+    }
+
+    /**
+     * Get approved synonyms for a specific page context
+     */
+    getApprovedSynonymsByPage(pageId: number): Observable<any> {
+        return this.http.get<any>(`/api/feedback/synonyms/approved/${pageId}`);
+    }
 }

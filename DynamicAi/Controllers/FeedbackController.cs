@@ -21,6 +21,7 @@ public class FeedbackController : ControllerBase
     private readonly IIntentExampleManagementService _intentManager;
     private readonly IQueryLogRepository _queryLogRepo;
     private readonly IConversationContextService _contextService;
+    private readonly IColumnSynonymRepository _synonymRepo;
     private readonly ILogger<FeedbackController> _logger;
     private readonly bool _intentClassificationEnabled;
 
@@ -32,6 +33,7 @@ public class FeedbackController : ControllerBase
         IIntentExampleManagementService intentManager,
         IQueryLogRepository queryLogRepo,
         IConversationContextService contextService,
+        IColumnSynonymRepository synonymRepo,
         IConfiguration configuration,
         ILogger<FeedbackController> logger)
     {
@@ -42,6 +44,7 @@ public class FeedbackController : ControllerBase
         _intentManager = intentManager;
         _queryLogRepo = queryLogRepo;
         _contextService = contextService;
+        _synonymRepo = synonymRepo;
         _logger = logger;
         bool.TryParse(configuration["Features:IntentClassificationEnabled"], out var intentEnabled);
         _intentClassificationEnabled = intentEnabled;
@@ -460,6 +463,42 @@ public class FeedbackController : ControllerBase
                 Message = "فشل في الحذف"
             });
         }
+    }
+
+    #endregion
+
+    #region Column Synonyms Management
+
+    /// <summary>جلب المرادفات المعلقة التي تنتظر موافقة الأدمن</summary>
+    [HttpGet("synonyms/pending")]
+    public async Task<IActionResult> GetPendingSynonyms()
+    {
+        var pending = await _synonymRepo.GetPendingAsync();
+        return Ok(new { count = pending.Count, items = pending });
+    }
+
+    /// <summary>الموافقة على مرادف واعتماده في الـ Prompt</summary>
+    [HttpPost("synonyms/{id:guid}/approve")]
+    public async Task<IActionResult> ApproveSynonym(Guid id, [FromQuery] string approvedBy = "admin")
+    {
+        var success = await _synonymRepo.ApproveAsync(id, approvedBy);
+        return success ? Ok(new { message = "✅ Synonym approved." }) : NotFound();
+    }
+
+    /// <summary>رفض وحذف مرادف غير صحيح</summary>
+    [HttpDelete("synonyms/{id:guid}/reject")]
+    public async Task<IActionResult> RejectSynonym(Guid id)
+    {
+        var success = await _synonymRepo.RejectAsync(id);
+        return success ? Ok(new { message = "🗑️ Synonym rejected and removed." }) : NotFound();
+    }
+
+    /// <summary>جلب المرادفات المعتمدة لصفحة محددة (للتشخيص)</summary>
+    [HttpGet("synonyms/approved/{pageId:int}")]
+    public async Task<IActionResult> GetApprovedSynonymsByPage(int pageId)
+    {
+        var approved = await _synonymRepo.GetApprovedByPageAsync(pageId);
+        return Ok(new { pageId, count = approved.Count, items = approved });
     }
 
     #endregion

@@ -150,6 +150,7 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddScoped<IQueryLogRepository, QueryLogRepository>();
     services.AddScoped<ILlmUsageLogRepository, LlmUsageLogRepository>();
     services.AddScoped<IConversationContextService, ConversationContextService>();
+    services.AddScoped<IColumnSynonymRepository, ColumnSynonymRepository>();
 
     // --- Feedback Service (Golden Dataset) ---
     services.AddScoped<IFeedbackService, FeedbackService>();

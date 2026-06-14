@@ -1,4 +1,4 @@
-﻿using DynamicAi.Domain.Entities;
+using DynamicAi.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace DynamicAi.Infrastructure.Persistence
@@ -11,11 +11,20 @@ namespace DynamicAi.Infrastructure.Persistence
         public DbSet<QueryLog> QueryLogs { get; set; }
         public DbSet<TrainingExample> TrainingExamples { get; set; }
         public DbSet<LlmUsageLog> LlmUsageLogs { get; set; }
+        public DbSet<ColumnSynonym> ColumnSynonyms { get; set; }
 
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            modelBuilder.Entity<ColumnSynonym>(entity =>
+            {
+                entity.HasIndex(e => new { e.PageId, e.TableName, e.ColumnName, e.UserTerm })
+                      .IsUnique();
+
+                entity.HasIndex(e => new { e.PageId, e.IsApproved });
+            });
 
             // Configure GeminiCost to use decimal(18,8) for high precision cost tracking
             // This allows storing costs like $0.00125000 without truncation

@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -10,6 +11,7 @@ using DynamicAi.Domain.Entities;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
 
@@ -31,6 +33,8 @@ public class UnifiedQueryHandler : IIntentHandler
     private readonly IQueryCacheService _queryCacheService;
     private readonly ILlmUsageTracker _usageTracker;
     private readonly IDbSchemaProvider _schemaProvider;
+    private readonly IColumnSynonymRepository _synonymRepository;
+    private readonly IMemoryCache _memoryCache;
     private readonly ILogger<UnifiedQueryHandler> _logger;
     private readonly JsonSerializerOptions _jsonOptions;
     private readonly bool _compactDirectedContext;
@@ -49,6 +53,8 @@ public class UnifiedQueryHandler : IIntentHandler
         IQueryCacheService queryCacheService,
         ILlmUsageTracker usageTracker,
         IDbSchemaProvider schemaProvider,
+        IColumnSynonymRepository synonymRepository,
+        IMemoryCache memoryCache,
         ILogger<UnifiedQueryHandler> logger,
         IConfiguration configuration)
     {
@@ -62,6 +68,8 @@ public class UnifiedQueryHandler : IIntentHandler
         _queryCacheService = queryCacheService;
         _usageTracker = usageTracker;
         _schemaProvider = schemaProvider;
+        _synonymRepository = synonymRepository;
+        _memoryCache = memoryCache;
         _logger = logger;
         _jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         _compactDirectedContext = configuration.GetValue<bool>("Features:DirectedContextCompactEnabled", false);
@@ -234,10 +242,22 @@ public class UnifiedQueryHandler : IIntentHandler
                 return cachedSqlResult;
             }
         }
+
+        // Retrieve approved synonyms with 120-minute memory cache
+        var approvedSynonyms = new List<ColumnSynonym>();
+        if (currentPageId > 0)
+        {
+            var cacheKey = $"synonyms_page_{currentPageId}";
+            if (!_memoryCache.TryGetValue(cacheKey, out approvedSynonyms) || approvedSynonyms == null)
+            {
+                approvedSynonyms = await _synonymRepository.GetApprovedByPageAsync(currentPageId, cancellationToken);
+                _memoryCache.Set(cacheKey, approvedSynonyms, TimeSpan.FromMinutes(120));
+            }
+        }
         
         string schemaContent = finalContext != null
             ? (_compactDirectedContext
-                ? CompressPageContextForPrompt(finalContext)
+                ? CompressPageContextForPrompt(finalContext, approvedSynonyms)
                 : JsonSerializer.Serialize(finalContext, _jsonOptions))
             : string.Empty;
 
@@ -374,6 +394,41 @@ public class UnifiedQueryHandler : IIntentHandler
                     entry.UserTerm, entry.MappedToColumn, entry.ArLabel, entry.Reason);
             }
             _logger.LogInformation("[UnifiedHandler] ═══════════════════════════════════════════════════════════");
+
+            // 🔤 Auto-capture schema linking synonyms (fire-and-forget)
+            if (currentPageId > 0)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        foreach (var entry in parsedResponse.SchemaLinking)
+                        {
+                            if (string.IsNullOrWhiteSpace(entry.UserTerm) ||
+                                string.IsNullOrWhiteSpace(entry.MappedToColumn)) continue;
+
+                            var parts = entry.MappedToColumn.Split('.');
+                            var columnName = parts.Length > 1 ? parts[1] : parts[0];
+                            var tableName = ResolveAliasToTable(entry.MappedToColumn, finalContext);
+                            if (string.IsNullOrEmpty(tableName)) continue;
+
+                            await _synonymRepository.UpsertAsync(new ColumnSynonym
+                            {
+                                PageId = currentPageId,
+                                TableName = tableName,
+                                ColumnName = columnName,
+                                UserTerm = entry.UserTerm.Trim(),
+                                Language = ContainsArabic(entry.UserTerm) ? "ar" : "en"
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // Swallow and log to avoid blocking the main query execution path
+                        System.Diagnostics.Debug.WriteLine($"Failed to auto-capture synonym: {ex.Message}");
+                    }
+                });
+            }
         }
 
         // Phase 5: Execute Route
@@ -785,7 +840,7 @@ public class UnifiedQueryHandler : IIntentHandler
     /// Column Format per row:
     ///   SearchName | ColumnName | InsertType | arLabel | enLabel | [Dro:Model:Value:Text]
     /// </summary>
-    private static string CompressPageContextForPrompt(ShippedPageContext ctx)
+    private static string CompressPageContextForPrompt(ShippedPageContext ctx, List<ColumnSynonym> approvedSynonyms)
     {
         var sb = new System.Text.StringBuilder();
 
@@ -804,7 +859,15 @@ public class UnifiedQueryHandler : IIntentHandler
             var dro = col.DroModel != null
                 ? $"Dro:{col.DroModel}:{col.DroValue}:{col.DroText}"
                 : string.Empty;
-            sb.AppendLine($"  {col.SearchName} | {col.ColumnName} | {col.InsertType} | {col.arColumnLabel} | {col.enColumnLabel} | {dro}");
+
+            var colSynonyms = approvedSynonyms
+                .Where(s => s.TableName.Equals(ctx.MasterSetup.TableName, StringComparison.OrdinalIgnoreCase)
+                         && s.ColumnName.Equals(col.ColumnName, StringComparison.OrdinalIgnoreCase))
+                .Select(s => s.UserTerm)
+                .ToList();
+
+            var synonymPart = colSynonyms.Any() ? $" (مرادفات: {string.Join("، ", colSynonyms)})" : string.Empty;
+            sb.AppendLine($"  {col.SearchName} | {col.ColumnName} | {col.InsertType} | {col.arColumnLabel}{synonymPart} | {col.enColumnLabel} | {dro}");
         }
         sb.AppendLine();
 
@@ -821,7 +884,15 @@ public class UnifiedQueryHandler : IIntentHandler
                 var dro = col.DroModel != null
                     ? $"Dro:{col.DroModel}:{col.DroValue}:{col.DroText}"
                     : string.Empty;
-                sb.AppendLine($"  {col.SearchName} | {col.ColumnName} | {col.InsertType} | {col.arColumnLabel} | {col.enColumnLabel} | {dro}");
+
+                var colSynonyms = approvedSynonyms
+                    .Where(s => s.TableName.Equals(detail.TableName, StringComparison.OrdinalIgnoreCase)
+                             && s.ColumnName.Equals(col.ColumnName, StringComparison.OrdinalIgnoreCase))
+                    .Select(s => s.UserTerm)
+                    .ToList();
+
+                var synonymPart = colSynonyms.Any() ? $" (مرادفات: {string.Join("، ", colSynonyms)})" : string.Empty;
+                sb.AppendLine($"  {col.SearchName} | {col.ColumnName} | {col.InsertType} | {col.arColumnLabel}{synonymPart} | {col.enColumnLabel} | {dro}");
             }
             sb.AppendLine();
         }
@@ -836,6 +907,21 @@ public class UnifiedQueryHandler : IIntentHandler
 
         return sb.ToString().Trim();
     }
+
+    private static string? ResolveAliasToTable(string mappedToColumn, ShippedPageContext? ctx)
+    {
+        if (ctx == null || !mappedToColumn.Contains('.')) return null;
+        var alias = mappedToColumn.Split('.')[0].Trim().ToUpperInvariant();
+        return alias switch
+        {
+            "TM" => ctx.MasterSetup?.TableName,
+            "TD" => ctx.DetailSetups?.FirstOrDefault()?.TableName,
+            _ => null
+        };
+    }
+
+    private static bool ContainsArabic(string text)
+        => text.Any(c => c >= '\u0600' && c <= '\u06FF');
 
     private class ExtractTablesVisitor : TSqlFragmentVisitor
     {
