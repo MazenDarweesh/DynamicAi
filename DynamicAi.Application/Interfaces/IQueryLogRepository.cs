@@ -1,4 +1,5 @@
 using DynamicAi.Domain.Entities;
+using DynamicAi.Application.Models;
 
 namespace DynamicAi.Application.Interfaces;
 
@@ -33,4 +34,7 @@ public interface IQueryLogRepository
 
     /// <summary>تحديث حالة التقييم</summary>
     Task UpdateFeedbackStatusAsync(Guid id, string status, CancellationToken cancellationToken = default);
+
+    /// <summary>جلب مقاييس الصحة التشغيلية الشاملة للـ Dashboard</summary>
+    Task<HealthAggregateResult> GetHealthAggregateAsync(DateTime cutoff, string? tenantId = null, CancellationToken cancellationToken = default);
 }

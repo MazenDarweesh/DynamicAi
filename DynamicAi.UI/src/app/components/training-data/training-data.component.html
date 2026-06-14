@@ -15,32 +15,96 @@
         <div class="stats-grid">
             <div class="stat-card glass">
                 <div class="icon">✅</div>
-                <div class="value">{{ stats?.verified || '-' }}</div>
+                <div class="value">{{ stats?.dataset?.verified || '-' }}</div>
                 <div class="label">Verified</div>
             </div>
 
             <div class="stat-card glass">
                 <div class="icon">💎</div>
-                <div class="value">{{ stats?.total || '-' }}</div>
+                <div class="value">{{ stats?.dataset?.total || '-' }}</div>
                 <div class="label">Total Captured</div>
             </div>
 
             <div class="stat-card glass">
                 <div class="icon">⏳</div>
-                <div class="value">{{ stats?.pendingReview || '-' }}</div>
+                <div class="value">{{ stats?.dataset?.pendingReview || '-' }}</div>
                 <div class="label">Pending</div>
             </div>
 
             <div class="stat-card glass">
                 <div class="icon">🎯</div>
-                <div class="value">{{ stats?.targetForFineTuning || '-' }}</div>
+                <div class="value">{{ stats?.dataset?.targetForFineTuning || '-' }}</div>
                 <div class="label">Target Goal</div>
             </div>
 
             <div class="stat-card glass">
                 <div class="icon">📊</div>
-                <div class="value">{{ stats?.progress?.toFixed(1) || '-' }}%</div>
+                <div class="value">{{ stats?.dataset?.progress?.toFixed(1) || '-' }}%</div>
                 <div class="label">Progress</div>
+            </div>
+        </div>
+
+        <!-- Operational Health Section -->
+        <div class="health-section glass" *ngIf="stats?.health">
+            <h3>🛡️ Operational Health Dashboard</h3>
+            <p class="hint">Telemetry and Quality metrics over the {{ stats?.health?.period }}</p>
+
+            <div class="health-grid">
+                <!-- Success Rate Ring/Card -->
+                <div class="health-card">
+                    <div class="health-metric">
+                        <div class="gauge-value" [style.color]="stats!.health.successRate >= 90 ? '#10b981' : stats!.health.successRate >= 75 ? '#f59e0b' : '#ef4444'">
+                            {{ stats?.health?.successRate }}%
+                        </div>
+                        <div class="gauge-label">Execution Success Rate</div>
+                    </div>
+                    <div class="health-submetrics">
+                        <span>Total: <strong>{{ stats?.health?.totalQueries }}</strong></span>
+                        <span class="success-dot">Passed: <strong>{{ stats?.health?.successfulQueries }}</strong></span>
+                        <span class="fail-dot">Failed: <strong>{{ stats?.health?.failedQueries }}</strong></span>
+                    </div>
+                </div>
+
+                <!-- Self-Healing / Robustness Card -->
+                <div class="health-card">
+                    <div class="health-metric">
+                        <div class="gauge-value" style="color: #60a5fa;">
+                            {{ stats?.health?.selfHealingRate }}%
+                        </div>
+                        <div class="gauge-label">Self-Healing Triggered</div>
+                    </div>
+                    <div class="health-submetrics">
+                        <span>Self-Healed: <strong>{{ stats?.health?.selfHealingCount }}</strong></span>
+                        <span>Fallback Model: <strong>{{ stats?.health?.fallbackCount }} ({{ stats?.health?.fallbackRate }}%)</strong></span>
+                    </div>
+                </div>
+
+                <!-- User Feedback Card -->
+                <div class="health-card">
+                    <div class="health-metric">
+                        <div class="gauge-value" [style.color]="stats!.health.likeRatio >= 80 ? '#10b981' : stats!.health.likeRatio >= 60 ? '#f59e0b' : '#ef4444'">
+                            {{ stats?.health?.likeRatio }}%
+                        </div>
+                        <div class="gauge-label">Approval Like Ratio</div>
+                    </div>
+                    <div class="health-submetrics">
+                        <span class="like-dot">Likes: <strong>{{ stats?.health?.likes }}</strong></span>
+                        <span class="dislike-dot">Dislikes: <strong>{{ stats?.health?.dislikes }}</strong></span>
+                    </div>
+                </div>
+
+                <!-- Synonym Metrics Card -->
+                <div class="health-card">
+                    <div class="health-metric">
+                        <div class="gauge-value" style="color: #c084fc;">
+                            {{ stats?.synonyms?.approved }}
+                        </div>
+                        <div class="gauge-label">Approved Column Synonyms</div>
+                    </div>
+                    <div class="health-submetrics">
+                        <span class="pending-dot">Pending Approval: <strong>{{ stats?.synonyms?.pending }}</strong></span>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -67,13 +131,13 @@
         <div class="progress-section glass" *ngIf="stats">
             <h3>📈 Progress to Fine-Tuning Goal</h3>
             <div class="progress-bar-container">
-                <div class="progress-bar-fill" [style.width.%]="stats.progress"
+                <div class="progress-bar-fill" [style.width.%]="stats.dataset.progress"
                     [style.background-color]="getProgressColor()">
                 </div>
             </div>
             <p class="progress-text">
-                {{ stats.verified }} / {{ stats.targetForFineTuning }} examples
-                ({{ stats.progress.toFixed(1) }}%)
+                {{ stats.dataset.verified }} / {{ stats.dataset.targetForFineTuning }} examples
+                ({{ stats.dataset.progress.toFixed(1) }}%)
             </p>
         </div>
 

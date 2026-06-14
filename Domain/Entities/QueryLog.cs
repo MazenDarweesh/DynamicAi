@@ -36,6 +36,9 @@ namespace DynamicAi.Domain.Entities
         /// <summary>هل تم استخدام LLM بدلاً من Qdrant؟</summary>
         public bool WasFallback { get; set; } = false;
 
+        /// <summary>هل تم استخدام Self-Healing (إعادة محاولة JSON) في هذا الطلب؟</summary>
+        public bool SelfHealingUsed { get; set; } = false;
+
         /// <summary>درجة ثقة الـ Router (0.0 - 1.0)</summary>
         public float? ConfidenceScore { get; set; }
 

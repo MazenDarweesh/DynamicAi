@@ -352,10 +352,13 @@ public class UnifiedQueryHandler : IIntentHandler
             companyId: companyId,
             cancellationToken: cancellationToken);
 
+        bool selfHealingUsed = false;
+
         // Phase 4: Parse Unified JSON
         var parsedResponse = ExtractAndParseJson(rawResponse);
         if (parsedResponse == null)
         {
+            selfHealingUsed = true;
             _logger.LogWarning("[UnifiedHandler] 🔄 JSON Parse failed. Asking LLM to fix unescaped quotes or syntax...");
             chatHistory.AddAssistantMessage(rawResponse);
             chatHistory.AddUserMessage(
@@ -377,7 +380,8 @@ public class UnifiedQueryHandler : IIntentHandler
                 {
                     Data = new[] { new { Message = "عذراً، لم أتمكن من صياغة الإجابة بالشكل الصحيح.", Type = "Error" } },
                     QueryLogId = context?.QueryLogId,
-                    ErrorMessage = "Failed to parse JSON from LLM"
+                    ErrorMessage = "Failed to parse JSON from LLM",
+                    SelfHealingUsed = selfHealingUsed
                 };
             }
             _logger.LogInformation("[UnifiedHandler] ✅ JSON successfully parsed after self-healing.");
@@ -445,6 +449,7 @@ public class UnifiedQueryHandler : IIntentHandler
                 {
                     if (attempt > 0)
                     {
+                        selfHealingUsed = true;
                         _logger.LogWarning("[UnifiedHandler] 🔄 Self-Healing Attempt {Attempt}/{Max}. Asking LLM to fix: {Error}",
                             attempt, maxRetries, lastError);
 
@@ -478,6 +483,7 @@ public class UnifiedQueryHandler : IIntentHandler
                     sqlResult.QueryInsights.RetrievedContext?.Add($"🤖 Intent Detected: {parsedResponse.Intent}");
                     sqlResult.QueryInsights.Reasoning = parsedResponse.Content.Explanation;
                     sqlResult.Intent = parsedResponse.Intent;
+                    sqlResult.SelfHealingUsed = selfHealingUsed;
 
                     if (attempt > 0)
                     {
@@ -498,7 +504,8 @@ public class UnifiedQueryHandler : IIntentHandler
                         {
                             ErrorMessage = $"CLARIFICATION_REQUIRED: عذراً، الاستعلام الذي تم توليده يحتوي على أعمدة أو جداول غير موجودة. حاول إعادة صياغة سؤالك.",
                             QueryLogId = context?.QueryLogId,
-                            Intent = parsedResponse.Intent
+                            Intent = parsedResponse.Intent,
+                            SelfHealingUsed = selfHealingUsed
                         };
                     }
                 }
@@ -524,7 +531,8 @@ public class UnifiedQueryHandler : IIntentHandler
                 ConfidenceScore = (float?)parsedResponse.Confidence,
                 IsCached = false,
                 QueryInsights = new QueryInsightData { Reasoning = parsedResponse.Content.Explanation },
-                Intent = parsedResponse.Intent
+                Intent = parsedResponse.Intent,
+                SelfHealingUsed = selfHealingUsed
             };
         }
 
@@ -532,7 +540,8 @@ public class UnifiedQueryHandler : IIntentHandler
         return new QueryExecutionResult
         {
             Data = new[] { new { Message = "عذراً، لم أتمكن من معالجة طلبك.", Type = "Unknown" } },
-            QueryLogId = context?.QueryLogId
+            QueryLogId = context?.QueryLogId,
+            SelfHealingUsed = selfHealingUsed
         };
     }
 

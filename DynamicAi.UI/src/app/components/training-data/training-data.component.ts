@@ -176,8 +176,8 @@ export class TrainingDataComponent implements OnInit {
 
     getProgressColor(): string {
         if (!this.stats) return '#6b7280';
-        if (this.stats.progress >= 80) return '#10b981';
-        if (this.stats.progress >= 50) return '#f59e0b';
+        if (this.stats.dataset.progress >= 80) return '#10b981';
+        if (this.stats.dataset.progress >= 50) return '#f59e0b';
         return '#ef4444';
     }
 

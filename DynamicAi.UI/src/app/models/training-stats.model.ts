@@ -1,29 +1,31 @@
 /**
- * Training statistics for Golden Dataset
+ * Training statistics and operational health dashboard details
  */
 export interface TrainingStats {
-    /**
-     * Number of verified training examples
-     */
-    verified: number;
-
-    /**
-     * Total number of examples (verified + pending)
-     */
-    total: number;
-
-    /**
-     * Number of examples pending review
-     */
-    pendingReview: number;
-
-    /**
-     * Target number of examples for fine-tuning
-     */
-    targetForFineTuning: number;
-
-    /**
-     * Progress percentage toward target
-     */
-    progress: number;
+    dataset: {
+        verified: number;
+        total: number;
+        pendingReview: number;
+        targetForFineTuning: number;
+        progress: number;
+    };
+    health: {
+        period: string;
+        totalQueries: number;
+        successRate: number;
+        errorRate: number;
+        successfulQueries: number;
+        failedQueries: number;
+        likes: number;
+        dislikes: number;
+        likeRatio: number;
+        selfHealingCount: number;
+        selfHealingRate: number;
+        fallbackCount: number;
+        fallbackRate: number;
+    };
+    synonyms: {
+        pending: number;
+        approved: number;
+    };
 }

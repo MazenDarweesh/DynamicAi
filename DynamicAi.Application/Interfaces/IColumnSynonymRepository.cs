@@ -26,5 +26,8 @@ namespace DynamicAi.Application.Interfaces
 
         /// <summary>رفض وحذف مرادف</summary>
         Task<bool> RejectAsync(Guid id, CancellationToken ct = default);
+
+        /// <summary>جلب عدد المرادفات المعتمدة إجمالاً</summary>
+        Task<int> GetApprovedCountAsync(CancellationToken ct = default);
     }
 }

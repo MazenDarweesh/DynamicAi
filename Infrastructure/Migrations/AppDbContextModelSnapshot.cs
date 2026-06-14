@@ -179,6 +179,9 @@ namespace Infrastructure.Migrations
                     b.Property<string>("SchemaContext")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<bool>("SelfHealingUsed")
+                        .HasColumnType("bit");
+
                     b.Property<string>("TenantId")
                         .HasColumnType("nvarchar(max)");
 

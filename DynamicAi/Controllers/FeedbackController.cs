@@ -334,29 +334,67 @@ public class FeedbackController : ControllerBase
     }
 
     /// <summary>
-    /// إحصائيات الـ Golden Dataset.
+    /// إحصائيات الـ Golden Dataset ولوحة متابعة جودة التشغيل (Operational Health Dashboard).
     /// </summary>
     [HttpGet("training/stats")]
     public async Task<IActionResult> GetTrainingStats()
     {
         try
         {
+            var cutoff = DateTime.UtcNow.AddDays(-30); // 30-day window
+
+            // 1. Golden Dataset
             var verifiedCount = await _trainingRepo.GetVerifiedCountAsync();
             var totalCount = await _trainingRepo.GetTotalCountAsync();
 
+            // 2. Operational Health (Last 30 Days)
+            var health = await _queryLogRepo.GetHealthAggregateAsync(cutoff);
+
+            // 3. Synonym Statistics
+            var pendingSynonymsList = await _synonymRepo.GetPendingAsync();
+            var pendingSynonymsCount = pendingSynonymsList.Count;
+            var approvedSynonymsCount = await _synonymRepo.GetApprovedCountAsync();
+
             return Ok(new
             {
-                verified = verifiedCount,
-                total = totalCount,
-                pendingReview = totalCount - verifiedCount,
-                targetForFineTuning = 500,
-                progress = Math.Round((double)verifiedCount / 500 * 100, 1)
+                // Golden Dataset
+                dataset = new
+                {
+                    verified = verifiedCount,
+                    total = totalCount,
+                    pendingReview = totalCount - verifiedCount,
+                    targetForFineTuning = 500,
+                    progress = Math.Round((double)verifiedCount / 500 * 100, 1)
+                },
+                // Operational Health
+                health = new
+                {
+                    period = $"Last 30 days (from {health.PeriodFrom:yyyy-MM-dd})",
+                    totalQueries = health.TotalQueries,
+                    successRate = health.SuccessRate,
+                    errorRate = Math.Round(100 - health.SuccessRate, 1),
+                    successfulQueries = health.SuccessfulQueries,
+                    failedQueries = health.FailedQueries,
+                    likes = health.Likes,
+                    dislikes = health.Dislikes,
+                    likeRatio = health.LikeRatio,
+                    selfHealingCount = health.SelfHealingCount,
+                    selfHealingRate = health.SelfHealingRate,
+                    fallbackCount = health.FallbackCount,
+                    fallbackRate = health.FallbackRate
+                },
+                // Synonyms
+                synonyms = new
+                {
+                    pending = pendingSynonymsCount,
+                    approved = approvedSynonymsCount
+                }
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[Stats] ❌ Error getting training stats");
-            return StatusCode(500, new { error = "حدث خطأ" });
+            _logger.LogError(ex, "[Stats] ❌ Error getting health dashboard stats");
+            return StatusCode(500, new { error = "حدث خطأ أثناء تحميل الإحصائيات التشغيلية." });
         }
     }
 

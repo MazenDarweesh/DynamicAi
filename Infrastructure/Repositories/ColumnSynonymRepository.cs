@@ -70,5 +70,8 @@ namespace DynamicAi.Infrastructure.Repositories
             await _context.SaveChangesAsync(ct);
             return true;
         }
+
+        public async Task<int> GetApprovedCountAsync(CancellationToken ct = default)
+            => await _context.ColumnSynonyms.CountAsync(s => s.IsApproved, ct);
     }
 }

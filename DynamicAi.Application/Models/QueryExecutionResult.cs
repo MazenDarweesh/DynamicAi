@@ -67,6 +67,11 @@ public class QueryExecutionResult
     /// Insight data for debugging and transparency (Query Insight Panel).
     /// </summary>
     public QueryInsightData? QueryInsights { get; set; }
+
+    /// <summary>
+    /// Whether self-healing JSON retry was triggered.
+    /// </summary>
+    public bool SelfHealingUsed { get; set; }
 }
 
 /// <summary>

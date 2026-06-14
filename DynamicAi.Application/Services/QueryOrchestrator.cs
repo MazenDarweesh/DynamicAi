@@ -344,7 +344,8 @@ namespace DynamicAi.Application.Services
                                 InputTokens = inputTokens,
                                 OutputTokens = outputTokens,
                                 GeminiCost = geminiCost,
-                                ConfidenceScore = confidenceScore
+                                ConfidenceScore = confidenceScore,
+                                SelfHealingUsed = result.SelfHealingUsed
                             };
 
                             await queryLogRepo.AddAsync(queryLog);
@@ -695,7 +696,8 @@ namespace DynamicAi.Application.Services
                                 InputTokens = inputTokens,
                                 OutputTokens = outputTokens,
                                 GeminiCost = geminiCost,
-                                ConfidenceScore = result.ConfidenceScore
+                                ConfidenceScore = result.ConfidenceScore,
+                                SelfHealingUsed = result.SelfHealingUsed
                             });
 
                             await feedbackService.AutoCaptureExampleAsync(queryLogId, request.ComID);

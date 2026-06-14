@@ -1,6 +1,7 @@
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Domain.Entities;
 using DynamicAi.Infrastructure.Persistence;
+using DynamicAi.Application.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace DynamicAi.Infrastructure.Repositories;
@@ -132,5 +133,47 @@ public class QueryLogRepository : IQueryLogRepository
             log.FeedbackStatus = status;
             await _context.SaveChangesAsync(cancellationToken);
         }
+    }
+
+    public async Task<HealthAggregateResult> GetHealthAggregateAsync(DateTime cutoff, string? tenantId = null, CancellationToken cancellationToken = default)
+    {
+        var query = _context.QueryLogs.Where(q => q.CreatedAt >= cutoff);
+        if (!string.IsNullOrEmpty(tenantId))
+            query = query.Where(q => q.TenantId == tenantId);
+
+        var total = await query.CountAsync(cancellationToken);
+        if (total == 0)
+        {
+            return new HealthAggregateResult
+            {
+                PeriodFrom = cutoff,
+                PeriodTo = DateTime.UtcNow
+            };
+        }
+
+        var successful = await query.CountAsync(q => q.WasSuccessful, cancellationToken);
+        var likes = await query.CountAsync(q => q.FeedbackStatus == "Like", cancellationToken);
+        var dislikes = await query.CountAsync(q => q.FeedbackStatus == "Dislike", cancellationToken);
+        var healing = await query.CountAsync(q => q.SelfHealingUsed, cancellationToken);
+        var fallbacks = await query.CountAsync(q => q.WasFallback, cancellationToken);
+
+        var feedbackTotal = likes + dislikes;
+
+        return new HealthAggregateResult
+        {
+            TotalQueries = total,
+            SuccessfulQueries = successful,
+            FailedQueries = total - successful,
+            SuccessRate = Math.Round(successful * 100.0 / total, 1),
+            Likes = likes,
+            Dislikes = dislikes,
+            LikeRatio = feedbackTotal > 0 ? Math.Round(likes * 100.0 / feedbackTotal, 1) : 0,
+            SelfHealingCount = healing,
+            SelfHealingRate = Math.Round(healing * 100.0 / total, 1),
+            FallbackCount = fallbacks,
+            FallbackRate = Math.Round(fallbacks * 100.0 / total, 1),
+            PeriodFrom = cutoff,
+            PeriodTo = DateTime.UtcNow
+        };
     }
 }
