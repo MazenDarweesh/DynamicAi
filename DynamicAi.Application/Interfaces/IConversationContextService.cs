@@ -20,4 +20,6 @@ public interface IConversationContextService
         CancellationToken cancellationToken = default);
 
     Task RemoveLastRelevantTurnAsync(string sessionId, int? pageId = null, CancellationToken cancellationToken = default);
+
+    Task RemoveTurnByQuestionAsync(string sessionId, string question, int? pageId = null, CancellationToken cancellationToken = default);
 }

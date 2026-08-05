@@ -12,5 +12,6 @@ export interface DislikeRequest {
     tenantId: string;
     companyId: number;
     displayedMessage?: string;
+    pageId?: number;
 }
 

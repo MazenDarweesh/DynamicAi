@@ -440,7 +440,8 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
             companyId: 1,
             displayedMessage: msg.text,
             queryLogId: msg.queryLogId,
-            userComment: userComment
+            userComment: userComment,
+            pageId: this.selectedPage?.pageId
         };
 
         this.apiService.dislike(request).subscribe({

@@ -228,4 +228,56 @@ public class ConversationContextService : IConversationContextService
         }
         return Task.CompletedTask;
     }
+
+    public Task RemoveTurnByQuestionAsync(string sessionId, string question, int? pageId = null, CancellationToken cancellationToken = default)
+    {
+        if (!_enabled) return Task.CompletedTask;
+
+        var cacheKey = $"context-{sessionId}";
+        if (_cache.TryGetValue<List<ConversationTurn>>(cacheKey, out var history) && history != null && history.Count > 0)
+        {
+            var cleanQuestion = question.Trim();
+            // Try exact match first (case-insensitive)
+            var turnToRemove = history
+                .Where(x => (!pageId.HasValue || x.PageId == pageId.Value) && 
+                            x.Question.Trim().Equals(cleanQuestion, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(x => x.CreatedAt)
+                .FirstOrDefault();
+
+            // Fallback 1: Substring/contained match
+            if (turnToRemove == null)
+            {
+                turnToRemove = history
+                    .Where(x => (!pageId.HasValue || x.PageId == pageId.Value) && 
+                                (x.Question.Contains(cleanQuestion, StringComparison.OrdinalIgnoreCase) || 
+                                 cleanQuestion.Contains(x.Question, StringComparison.OrdinalIgnoreCase)))
+                    .OrderByDescending(x => x.CreatedAt)
+                    .FirstOrDefault();
+            }
+
+            // Fallback 2: Last relevant turn in the same page
+            if (turnToRemove == null)
+            {
+                turnToRemove = history
+                    .Where(x => x.IsRelevantForContext && (!pageId.HasValue || x.PageId == pageId.Value))
+                    .OrderByDescending(x => x.CreatedAt)
+                    .FirstOrDefault();
+            }
+
+            if (turnToRemove != null)
+            {
+                history.Remove(turnToRemove);
+                _cache.Set(cacheKey, history, new MemoryCacheEntryOptions
+                {
+                    SlidingExpiration = TimeSpan.FromMinutes(_ttlMinutes)
+                });
+                _logger.LogInformation("[Context] 🗑️ Removed turn from session: {SessionId} (Question: {Question})", sessionId, turnToRemove.Question);
+            }
+            else
+            {
+                _logger.LogWarning("[Context] ⚠️ Could not find any turn matching question \"{Question}\" to remove in session: {SessionId}", question, sessionId);
+            }
+        }
+        return Task.CompletedTask;
+    }
 }

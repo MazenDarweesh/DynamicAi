@@ -147,7 +147,14 @@ public class FeedbackController : ControllerBase
             // ═══════════════════════════════════════════════════════════════════
             if (!string.IsNullOrEmpty(request.SessionId))
             {
-                await _contextService.RemoveLastRelevantTurnAsync(request.SessionId, request.PageId);
+                if (!string.IsNullOrEmpty(request.Question))
+                {
+                    await _contextService.RemoveTurnByQuestionAsync(request.SessionId, request.Question, request.PageId);
+                }
+                else
+                {
+                    await _contextService.RemoveLastRelevantTurnAsync(request.SessionId, request.PageId);
+                }
             }
 
             // ═══════════════════════════════════════════════════════════════════
