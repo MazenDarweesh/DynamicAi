@@ -1,9 +1,12 @@
+using DynamicAi.Api.Security;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DynamicAi.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
 public class ConfigController : ControllerBase
 {
     private readonly IConfiguration _configuration;

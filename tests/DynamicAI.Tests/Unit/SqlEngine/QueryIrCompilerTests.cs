@@ -547,12 +547,26 @@ public class QueryIrCompilerTests
         var actUnknownOp = () => _sut.Compile(unknownOpPlan, ctx, companyId: 1);
         actUnknownOp.Should().Throw<QueryIrCompilationException>();
 
+        var noVisibleColumnsCtx = new ShippedPageContext
+        {
+            PageId = 244,
+            PageName = "No Visible Columns",
+            MasterSetup = new PageMasterSetup
+            {
+                TableName = "ContractViewWithPaid",
+                PrimaryKey = "ContractID",
+                Columns =
+                {
+                    new ColumnDefinition { SearchName = "ContractID", ColumnName = "ContractID", IsVisible = false }
+                }
+            }
+        };
         var emptyPlan = new QueryIrPlan
         {
             Intent = "DataRetrieval",
-            Explanation = "Empty select and aggregations"
+            Explanation = "Empty select and aggregations with no visible master columns"
         };
-        var actEmpty = () => _sut.Compile(emptyPlan, ctx, companyId: 1);
+        var actEmpty = () => _sut.Compile(emptyPlan, noVisibleColumnsCtx, companyId: 1);
         actEmpty.Should().Throw<QueryIrCompilationException>();
     }
 

@@ -82,6 +82,8 @@ public static class PageContextFormatter
             var row = $"  {col.SearchName} | {col.ColumnName} | {col.InsertType} | {col.arColumnLabel}{synonymPart} | {col.enColumnLabel}";
             if (!string.IsNullOrEmpty(dro))
                 row += $" | {dro}";
+            if (!col.IsVisible)
+                row += " | [HIDDEN]";
             sb.AppendLine(row);
         }
     }

@@ -1,23 +1,31 @@
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models.DirectIntegration;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DynamicAi.Api.Controllers
 {
     [ApiController]
     [Route("[controller]")]
+    [Authorize]
     public class AIQueryController : ControllerBase
     {
         private readonly IQueryOrchestrator _queryOrchestrator;
+        private readonly ITenantConnectionResolver _tenantConnectionResolver;
         private readonly ILogger<AIQueryController> _logger;
 
-        public AIQueryController(IQueryOrchestrator queryOrchestrator, ILogger<AIQueryController> logger)
+        public AIQueryController(
+            IQueryOrchestrator queryOrchestrator,
+            ITenantConnectionResolver tenantConnectionResolver,
+            ILogger<AIQueryController> logger)
         {
             _queryOrchestrator = queryOrchestrator;
+            _tenantConnectionResolver = tenantConnectionResolver;
             _logger = logger;
         }
 
         [HttpGet("ping")]
+        [AllowAnonymous]
         public IActionResult Ping()
         {
             return Ok(new { Message = "Pong", Time = DateTime.UtcNow });
@@ -53,10 +61,16 @@ namespace DynamicAi.Api.Controllers
                 return BadRequest("ExplicitContext and MasterSetup TableName are MANDATORY for direct integration.");
             }
 
-            if (string.IsNullOrWhiteSpace(request.ConnectionString))
+            var resolution = _tenantConnectionResolver.Resolve(
+                request.TenantKey,
+                request.ConnectionString,
+                request.PageId);
+            if (!resolution.IsSuccess)
             {
-                return BadRequest("ConnectionString is MANDATORY for direct integration.");
+                return StatusCode(resolution.StatusCode, new { Error = resolution.ErrorMessage });
             }
+
+            request.ConnectionString = resolution.ConnectionString;
 
             // All exception handling is delegated to ExceptionHandlingMiddleware.
             var apiStartTime = DateTime.UtcNow;

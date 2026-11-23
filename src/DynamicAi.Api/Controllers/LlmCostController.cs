@@ -1,6 +1,8 @@
+using DynamicAi.Api.Security;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Domain.Entities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DynamicAi.Api.Controllers;
@@ -9,6 +11,7 @@ namespace DynamicAi.Api.Controllers;
 [Route("api/llm-costs")]
 [Produces("application/json")]
 [Tags("LLM Cost Management")]
+[Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
 public class LlmCostController : ControllerBase
 {
     private readonly ILlmUsageLogRepository _usageRepo;

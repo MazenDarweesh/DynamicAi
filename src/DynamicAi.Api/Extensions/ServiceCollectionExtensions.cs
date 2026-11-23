@@ -1,3 +1,4 @@
+using DynamicAi.Api.Security;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Prompts;
@@ -10,6 +11,7 @@ using DynamicAi.Infrastructure.Persistence;
 using DynamicAi.Infrastructure.Repositories;
 using DynamicAi.Infrastructure.Services;
 using Google.GenAI;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 
 namespace DynamicAi.Api.Extensions;
@@ -24,7 +26,7 @@ public static class ServiceCollectionExtensions
         services
             .AddApplicationServices()
             .AddInfrastructureServices(configuration)
-            .AddApiPresentation();
+            .AddApiPresentation(configuration);
 
         return services;
     }
@@ -77,6 +79,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IQueryCacheService, ExactQueryCacheService>();
         services.AddSingleton<ITokenCounter, GeminiTokenCounter>();
 
+        services.Configure<IntegrationSecurityOptions>(configuration.GetSection(IntegrationSecurityOptions.Section));
+        services.AddSingleton<ITenantConnectionResolver, TenantConnectionResolver>();
+
         services.Configure<LlmProviderPricingConfig>(configuration.GetSection("LlmProviderPricing"));
         services.AddSingleton<ILlmUsageTracker, LlmUsageTracker>();
 
@@ -98,8 +103,23 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    private static IServiceCollection AddApiPresentation(this IServiceCollection services)
+    private static IServiceCollection AddApiPresentation(this IServiceCollection services, IConfiguration configuration)
     {
+        services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.Section));
+
+        services
+            .AddAuthentication(ApiKeyAuthenticationHandler.SchemeName)
+            .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(
+                ApiKeyAuthenticationHandler.SchemeName,
+                _ => { });
+
+        services.AddAuthorization(options =>
+        {
+            options.AddPolicy(
+                ApiKeyAuthenticationHandler.AdminPolicyName,
+                policy => policy.RequireRole("Admin"));
+        });
+
         services.AddControllers();
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen();

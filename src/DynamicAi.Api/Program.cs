@@ -45,6 +45,7 @@ try
     app.UseStaticFiles();
 
     app.UseCors("AllowAngularDev");
+    app.UseAuthentication();
     app.UseAuthorization();
     app.MapControllers();
 

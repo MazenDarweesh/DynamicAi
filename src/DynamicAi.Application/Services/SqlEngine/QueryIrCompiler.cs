@@ -60,9 +60,19 @@ public sealed class QueryIrCompiler : IQueryIrCompiler
             throw new QueryIrCompilationException("Query IR plan flagged requires_advanced_sql.");
         }
 
-        if (plan.Select.Count == 0 && plan.Aggregations.Count == 0)
+        IReadOnlyList<string> effectiveSelectFields = plan.Select;
+        if (effectiveSelectFields.Count == 0 && plan.Aggregations.Count == 0)
         {
-            throw new QueryIrCompilationException("Query IR plan is empty: specify at least one select field or aggregation.");
+            effectiveSelectFields = (pageContext.MasterSetup.Columns ?? Enumerable.Empty<ColumnDefinition>())
+                .Where(c => c.IsVisible && !string.IsNullOrWhiteSpace(c.ColumnName))
+                .Select(c => $"TM.{c.ColumnName}")
+                .ToList();
+
+            if (effectiveSelectFields.Count == 0)
+            {
+                throw new QueryIrCompilationException(
+                    "Query IR plan is empty: specify at least one select field or aggregation, or ensure MasterSetup has visible columns.");
+            }
         }
 
         if (plan.Limit.HasValue && plan.Limit.Value <= 0)
@@ -83,7 +93,7 @@ public sealed class QueryIrCompiler : IQueryIrCompiler
         var usedOutputAliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var aggregationAliasExprs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var rawField in plan.Select)
+        foreach (var rawField in effectiveSelectFields)
         {
             var binding = ResolveField(rawField, contextIndex);
             var projectionExpr = state.GetProjectionExpression(binding);
@@ -225,9 +235,9 @@ public sealed class QueryIrCompiler : IQueryIrCompiler
                 {
                     orderByClauses.Add($"TM.{BracketIdentifier(pageContext.MasterSetup.PrimaryKey)} DESC");
                 }
-                else if (selectClauses.Count > 0 && plan.Select.Count > 0)
+                else if (selectClauses.Count > 0 && effectiveSelectFields.Count > 0)
                 {
-                    var fallbackBinding = ResolveField(plan.Select[0], contextIndex);
+                    var fallbackBinding = ResolveField(effectiveSelectFields[0], contextIndex);
                     orderByClauses.Add($"{state.GetProjectionExpression(fallbackBinding)} DESC");
                 }
                 else if (aggregationAliasExprs.Count > 0)

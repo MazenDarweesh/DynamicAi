@@ -1,5 +1,7 @@
+using DynamicAi.Api.Security;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DynamicAi.Controllers;
@@ -9,6 +11,7 @@ namespace DynamicAi.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
 public class FeedbackController : ControllerBase
 {
     private readonly IFeedbackService _feedbackService;

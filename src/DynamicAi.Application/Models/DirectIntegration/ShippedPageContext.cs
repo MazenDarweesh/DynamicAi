@@ -51,4 +51,5 @@ public class ColumnDefinition
     public string? DroText { get; set; }
     public string arColumnLabel { get; set; } = string.Empty;
     public string? enColumnLabel { get; set; }
+    public bool IsVisible { get; set; } = true;
 }

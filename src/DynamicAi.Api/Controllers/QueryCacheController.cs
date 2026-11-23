@@ -1,5 +1,7 @@
+using DynamicAi.Api.Security;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DynamicAi.Api.Controllers;
@@ -12,6 +14,7 @@ namespace DynamicAi.Api.Controllers;
 [Route("api/query-cache")]
 [Produces("application/json")]
 [Tags("Query Cache Management")]
+[Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
 public class QueryCacheController : ControllerBase
 {
     #region Fields

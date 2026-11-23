@@ -19,8 +19,14 @@ public class DirectedPageAskRequest
     public int PageId { get; set; }
 
     /// <summary>
+    /// Logical tenant key resolved server-side to a configured database connection string,
+    /// replacing raw <see cref="ConnectionString"/> payloads from ERP clients.
+    /// </summary>
+    public string? TenantKey { get; set; }
+
+    /// <summary>
     /// Connection string for the target database.
-    /// If null, the system will fallback to the default connection string in appsettings.json.
+    /// Deprecated in favor of <see cref="TenantKey"/>; only accepted when legacy fallback is enabled.
     /// </summary>
     public string? ConnectionString { get; set; }
 

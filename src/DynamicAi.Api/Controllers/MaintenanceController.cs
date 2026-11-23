@@ -1,5 +1,7 @@
+using DynamicAi.Api.Security;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,6 +13,7 @@ namespace DynamicAi.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
 public class MaintenanceController : ControllerBase
 {
     private readonly AppDbContext _dbContext;
