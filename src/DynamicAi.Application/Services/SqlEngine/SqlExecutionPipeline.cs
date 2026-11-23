@@ -36,7 +36,8 @@ public class SqlExecutionPipeline : ISqlExecutionPipeline
         int pageId,
         IntentHandlerContext? context,
         CancellationToken ct,
-        Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask = null)
+        Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask = null,
+        Dictionary<string, object?>? extraParameters = null)
     {
         if (string.IsNullOrWhiteSpace(rawSql))
         {
@@ -70,6 +71,18 @@ public class SqlExecutionPipeline : ISqlExecutionPipeline
 
         var finalSql = rewrittenResult.RewrittenSql;
 
+        var executionParameters = new Dictionary<string, object>(
+            rewrittenResult.Parameters,
+            StringComparer.OrdinalIgnoreCase);
+
+        if (extraParameters != null)
+        {
+            foreach (var kvp in extraParameters)
+            {
+                executionParameters.TryAdd(kvp.Key, kvp.Value ?? DBNull.Value);
+            }
+        }
+
         _logger.LogInformation("[SqlExecutionPipeline] Executing hardened SQL (PageId={PageId})", pageId);
         IEnumerable<dynamic> executionResult;
 
@@ -81,7 +94,7 @@ public class SqlExecutionPipeline : ISqlExecutionPipeline
             {
                 executionResult = await _executionService.ExecuteSqlAsync(
                     finalSql,
-                    rewrittenResult.Parameters,
+                    executionParameters,
                     context?.ConnectionString,
                     ct);
 

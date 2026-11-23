@@ -23,6 +23,7 @@ public sealed class GoogleGenAiClient : ILlmClient
     private const string DefaultChatModel = "gemini-3.5-flash-lite";
     private static readonly TimeSpan AttemptTimeout = TimeSpan.FromSeconds(45);
     private static readonly Schema UnifiedResponseSchema = BuildUnifiedResponseSchema();
+    private static readonly Schema QueryIrResponseSchema = BuildQueryIrResponseSchema();
 
     private readonly Client _client;
     private readonly string _defaultModel;
@@ -111,7 +112,12 @@ public sealed class GoogleGenAiClient : ILlmClient
             };
         }
 
-        if (request.UseUnifiedJsonSchema)
+        if (request.UseQueryIrSchema)
+        {
+            config.ResponseMimeType = "application/json";
+            config.ResponseSchema = QueryIrResponseSchema;
+        }
+        else if (request.UseUnifiedJsonSchema)
         {
             config.ResponseMimeType = "application/json";
             config.ResponseSchema = UnifiedResponseSchema;
@@ -192,6 +198,114 @@ public sealed class GoogleGenAiClient : ILlmClient
                 }
             },
             Required = ["intent", "content", "confidence", "needs_clarification"]
+        };
+    }
+
+    private static Schema BuildQueryIrResponseSchema()
+    {
+        return new Schema
+        {
+            Type = SchemaType.OBJECT,
+            Properties = new Dictionary<string, Schema>
+            {
+                ["intent"] = new Schema
+                {
+                    Type = SchemaType.STRING,
+                    Description = "Detected intent: DataRetrieval, Analysis, Chat, Prediction, or PredictionWithDataRetrieval."
+                },
+                ["select"] = new Schema
+                {
+                    Type = SchemaType.ARRAY,
+                    Items = new Schema { Type = SchemaType.STRING }
+                },
+                ["aggregations"] = new Schema
+                {
+                    Type = SchemaType.ARRAY,
+                    Items = new Schema
+                    {
+                        Type = SchemaType.OBJECT,
+                        Properties = new Dictionary<string, Schema>
+                        {
+                            ["function"] = new Schema
+                            {
+                                Type = SchemaType.STRING,
+                                Description = "Aggregation function: count, sum, avg, min, or max."
+                            },
+                            ["field"] = new Schema { Type = SchemaType.STRING, Nullable = true },
+                            ["alias"] = new Schema { Type = SchemaType.STRING, Nullable = true }
+                        },
+                        Required = ["function"]
+                    }
+                },
+                ["filters"] = new Schema
+                {
+                    Type = SchemaType.ARRAY,
+                    Items = new Schema
+                    {
+                        Type = SchemaType.OBJECT,
+                        Properties = new Dictionary<string, Schema>
+                        {
+                            ["field"] = new Schema { Type = SchemaType.STRING },
+                            ["op"] = new Schema
+                            {
+                                Type = SchemaType.STRING,
+                                Description = "Filter operator: eq, neq, gt, gte, lt, lte, contains, starts_with, between, in, last_n_days, last_n_months, this_month, this_year, is_null, or is_not_null."
+                            },
+                            ["value"] = new Schema { Type = SchemaType.STRING, Nullable = true },
+                            ["value_to"] = new Schema { Type = SchemaType.STRING, Nullable = true },
+                            ["values"] = new Schema
+                            {
+                                Type = SchemaType.ARRAY,
+                                Nullable = true,
+                                Items = new Schema { Type = SchemaType.STRING }
+                            }
+                        },
+                        Required = ["field", "op"]
+                    }
+                },
+                ["group_by"] = new Schema
+                {
+                    Type = SchemaType.ARRAY,
+                    Items = new Schema { Type = SchemaType.STRING }
+                },
+                ["order_by"] = new Schema
+                {
+                    Type = SchemaType.ARRAY,
+                    Items = new Schema
+                    {
+                        Type = SchemaType.OBJECT,
+                        Properties = new Dictionary<string, Schema>
+                        {
+                            ["field"] = new Schema { Type = SchemaType.STRING },
+                            ["dir"] = new Schema
+                            {
+                                Type = SchemaType.STRING,
+                                Description = "Sort direction: asc or desc."
+                            }
+                        },
+                        Required = ["field", "dir"]
+                    }
+                },
+                ["limit"] = new Schema { Type = SchemaType.INTEGER, Nullable = true },
+                ["offset"] = new Schema { Type = SchemaType.INTEGER, Nullable = true },
+                ["needs_clarification"] = new Schema { Type = SchemaType.BOOLEAN },
+                ["clarification_question"] = new Schema { Type = SchemaType.STRING, Nullable = true },
+                ["requires_advanced_sql"] = new Schema { Type = SchemaType.BOOLEAN },
+                ["message"] = new Schema { Type = SchemaType.STRING, Nullable = true },
+                ["explanation"] = new Schema { Type = SchemaType.STRING }
+            },
+            Required =
+            [
+                "intent",
+                "select",
+                "aggregations",
+                "filters",
+                "group_by",
+                "order_by",
+                "needs_clarification",
+                "requires_advanced_sql",
+                "explanation"
+            ]
         };
     }
 

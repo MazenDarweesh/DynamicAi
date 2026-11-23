@@ -2,6 +2,7 @@ using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Prompts;
 using DynamicAi.Application.Services;
+using DynamicAi.Application.Services.Analytics;
 using DynamicAi.Application.Services.Handlers;
 using DynamicAi.Application.Services.LLM;
 using DynamicAi.Application.Services.SqlEngine;
@@ -36,6 +37,7 @@ public static class ServiceCollectionExtensions
         services.AddTransient<IPredictionService, PredictionService>();
 
         // Single-Pass SQL Guard, Validation, Rewriting & Execution
+        services.AddSingleton<IQueryIrCompiler, QueryIrCompiler>();
         services.AddTransient<ISqlGuardPipeline, SqlGuardPipeline>();
         services.AddTransient<ISqlExecutionPipeline, SqlExecutionPipeline>();
         services.AddTransient<ISqlSanitizerService, SqlSanitizerService>();
@@ -46,6 +48,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IPromptTemplateEngine, PromptTemplateEngine>();
 
         // Analytics, Feedback, Diagnostics & Budget
+        services.AddSingleton<IPredictionMathService, PredictionMathService>();
         services.AddScoped<IFeedbackService, FeedbackService>();
         services.AddScoped<IMetricsService, MetricsService>();
         services.AddTransient<IDailyBudgetLimitService, DailyBudgetLimitService>();

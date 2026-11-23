@@ -11,6 +11,7 @@ public sealed record LlmRequest
     public double Temperature { get; init; } = 0.0;
     public int MaxOutputTokens { get; init; } = 4096;
     public bool UseUnifiedJsonSchema { get; init; } = false;
+    public bool UseQueryIrSchema { get; init; } = false;
     public string? ResponseMimeType { get; init; }
 }
 

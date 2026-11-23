@@ -145,7 +145,8 @@ public class UnifiedQueryHandlerClarificationTests
         A.CallTo(() => _sqlPipeline.ExecuteAsync(
                 A<string>._, A<string>._, A<int?>._, A<ShippedPageContext?>._,
                 A<int>._, A<IntentHandlerContext?>._, A<CancellationToken>._,
-                A<Task<Dictionary<string, HashSet<string>>>?>._))
+                A<Task<Dictionary<string, HashSet<string>>>?>._,
+                A<Dictionary<string, object?>?>._))
             .MustNotHaveHappened();
     }
 

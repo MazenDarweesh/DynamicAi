@@ -16,17 +16,20 @@ public class PredictionService : IPredictionService
     private readonly ILlmUsageTracker _usageTracker;
     private readonly IConversationContextService _contextService;
     private readonly ILogger<PredictionService> _logger;
+    private readonly IPredictionMathService _mathService;
 
     public PredictionService(
         ILlmClient llmClient,
         ILlmUsageTracker usageTracker,
         IConversationContextService contextService,
-        ILogger<PredictionService> logger)
+        ILogger<PredictionService> logger,
+        IPredictionMathService? mathService = null)
     {
         _llmClient = llmClient;
         _usageTracker = usageTracker;
         _contextService = contextService;
         _logger = logger;
+        _mathService = mathService ?? new Analytics.PredictionMathService();
     }
 
     public async Task<string?> GeneratePredictionAsync(
@@ -47,7 +50,8 @@ public class PredictionService : IPredictionService
             pageId: null,
             cancellationToken: cancellationToken);
 
-        var systemPrompt = BuildSystemPrompt(isArabic, recentTurns);
+        var mathSummary = ComputeMathSummaryFromTurns(recentTurns);
+        var systemPrompt = BuildSystemPrompt(isArabic, recentTurns, mathSummary);
         var request = new LlmRequest
         {
             SystemPrompt = systemPrompt,
@@ -89,7 +93,29 @@ public class PredictionService : IPredictionService
         }
     }
 
-    private static string BuildSystemPrompt(bool isArabic, List<ConversationTurn> recentTurns)
+    private PredictionMathSummary? ComputeMathSummaryFromTurns(List<ConversationTurn> recentTurns)
+    {
+        foreach (var turn in recentTurns)
+        {
+            if (string.IsNullOrWhiteSpace(turn.ResultSampleJson))
+            {
+                continue;
+            }
+
+            var summary = _mathService.AnalyzeFromJsonSample(turn.ResultSampleJson);
+            if (summary.Count > 0)
+            {
+                return summary;
+            }
+        }
+
+        return null;
+    }
+
+    private static string BuildSystemPrompt(
+        bool isArabic,
+        List<ConversationTurn> recentTurns,
+        PredictionMathSummary? mathSummary = null)
     {
         var sb = new StringBuilder();
 
@@ -197,6 +223,27 @@ public class PredictionService : IPredictionService
                   **Instructions:** Provide a logical general prediction based on the question (e.g., based on market nature or assuming steady rates).
                   Then mention in the Notes that the prediction would be more accurate with actual data.
                   """);
+        }
+
+        if (mathSummary != null && mathSummary.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("[VERIFIED_MATH_SUMMARY]");
+            sb.AppendLine($"Count={mathSummary.Count} | Mean={mathSummary.Mean} | Min={mathSummary.Min} | Max={mathSummary.Max}");
+            if (mathSummary.MovingAverage3.HasValue)
+                sb.AppendLine($"MovingAverage3={mathSummary.MovingAverage3.Value}");
+            if (mathSummary.LatestValue.HasValue)
+                sb.AppendLine($"LatestValue={mathSummary.LatestValue.Value}");
+            if (mathSummary.PreviousValue.HasValue)
+                sb.AppendLine($"PreviousValue={mathSummary.PreviousValue.Value}");
+            if (mathSummary.MomGrowthPercent.HasValue)
+                sb.AppendLine($"MomGrowthPercent={mathSummary.MomGrowthPercent.Value}%");
+            if (mathSummary.LinearRegressionSlope.HasValue)
+                sb.AppendLine($"LinearRegressionSlope={mathSummary.LinearRegressionSlope.Value}");
+            if (mathSummary.NextPeriodForecast.HasValue)
+                sb.AppendLine($"NextPeriodForecast={mathSummary.NextPeriodForecast.Value}");
+            sb.AppendLine($"TrendDirection={mathSummary.TrendDirection} | ConfidenceLevel={mathSummary.ConfidenceLevel}");
+            sb.AppendLine("Use these verified calculations directly in your prediction and explanation; do not contradict or recalculate them.");
         }
 
         return sb.ToString();

@@ -8,6 +8,7 @@ using DynamicAi.Application.Models;
 using DynamicAi.Application.Models.DirectIntegration;
 using DynamicAi.Application.Observability;
 using DynamicAi.Application.Prompts;
+using DynamicAi.Application.Services.SqlEngine;
 using DynamicAi.Domain.Entities;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
@@ -18,7 +19,8 @@ namespace DynamicAi.Application.Services.Handlers;
 
 /// <summary>
 /// Single unified LLM query handler for directed page integration.
-/// Orchestrates prompt rendering, LLM invocation, SQL self-healing, synonym capture, and SQL execution.
+/// Orchestrates prompt rendering, optional deterministic Query IR compilation/shadowing,
+/// LLM invocation, SQL self-healing, synonym capture, and SQL execution.
 /// </summary>
 public class UnifiedQueryHandler : IUnifiedQueryHandler
 {
@@ -32,9 +34,12 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
     private readonly IMemoryCache _memoryCache;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<UnifiedQueryHandler> _logger;
+    private readonly IQueryIrCompiler _irCompiler;
     private readonly JsonSerializerOptions _jsonOptions;
     private readonly bool _compactDirectedContext;
     private readonly bool _logSensitivePayloads;
+    private readonly bool _useQueryIrCompiler;
+    private readonly bool _queryIrShadowMode;
     private readonly string? _chatModel;
 
     public UnifiedQueryHandler(
@@ -48,7 +53,8 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         IMemoryCache memoryCache,
         IServiceScopeFactory scopeFactory,
         ILogger<UnifiedQueryHandler> logger,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IQueryIrCompiler? irCompiler = null)
     {
         _promptEngine = promptEngine;
         _llmClient = llmClient;
@@ -60,9 +66,12 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         _memoryCache = memoryCache;
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _irCompiler = irCompiler ?? new QueryIrCompiler();
         _jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         _compactDirectedContext = configuration.GetValue<bool>("Features:DirectedContextCompactEnabled", false);
         _logSensitivePayloads = configuration.GetValue<bool>(DynamicAiTelemetry.LogSensitivePayloadsConfigKey, false);
+        _useQueryIrCompiler = configuration.GetValue<bool>("Features:UseQueryIrCompiler", false);
+        _queryIrShadowMode = configuration.GetValue<bool>("Features:QueryIrShadowMode", false);
         var configuredModel = configuration["Gemini:ChatModel"];
         _chatModel = string.IsNullOrWhiteSpace(configuredModel) ? null : configuredModel;
     }
@@ -89,19 +98,273 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         // Phase 1: Parallel Schema Prefetch
         var schemaPrefetchTask = StartSchemaPrefetchIfApplicable(finalContext, context?.ConnectionString, cancellationToken);
 
-        // Phase 2: Load Synonyms & Render Master Prompt (static/cacheable per schema & context, excluding userQuestion)
-        string renderedPrompt;
+        // Phase 2: Load Synonyms
+        List<ColumnSynonym> approvedSynonyms;
         using (var schemaActivity = DynamicAiTelemetry.ActivitySource.StartActivity("schema.preprocess"))
         {
             schemaActivity?.SetTag("page.id", currentPageId);
-            var approvedSynonyms = await GetApprovedSynonymsAsync(currentPageId, cancellationToken);
-            int schemaChars;
-            (renderedPrompt, schemaChars) = await RenderMasterPromptAsync(
-                finalContext, context, companyId, currentPageId, approvedSynonyms);
-            schemaActivity?.SetTag("schema.chars", schemaChars);
+            approvedSynonyms = await GetApprovedSynonymsAsync(currentPageId, cancellationToken);
         }
 
-        // Phase 3 & 4: Call LLM, Track Usage & Parse Unified JSON locally
+        int priorInputTokens = 0;
+        int priorOutputTokens = 0;
+        int priorCachedTokens = 0;
+        decimal priorCostUsd = 0m;
+
+        if (_useQueryIrCompiler)
+        {
+            var irOutcome = await TryExecuteQueryIrAsync(
+                userQuestion,
+                tenantId,
+                companyId,
+                finalContext,
+                currentPageId,
+                context,
+                approvedSynonyms,
+                schemaPrefetchTask,
+                cancellationToken);
+
+            priorInputTokens = irOutcome.InputTokens;
+            priorOutputTokens = irOutcome.OutputTokens;
+            priorCachedTokens = irOutcome.CachedTokens;
+            priorCostUsd = irOutcome.CostUsd;
+
+            if (irOutcome.Result != null)
+            {
+                return irOutcome.Result;
+            }
+        }
+
+        var rawSqlResult = await ExecuteRawSqlFlowAsync(
+            userQuestion,
+            tenantId,
+            companyId,
+            finalContext,
+            currentPageId,
+            context,
+            approvedSynonyms,
+            schemaPrefetchTask,
+            priorInputTokens,
+            priorOutputTokens,
+            priorCachedTokens,
+            priorCostUsd,
+            cancellationToken);
+
+        if (!_useQueryIrCompiler && _queryIrShadowMode)
+        {
+            await EvaluateShadowIrAsync(
+                userQuestion,
+                tenantId,
+                companyId,
+                finalContext,
+                currentPageId,
+                context,
+                approvedSynonyms,
+                cancellationToken);
+        }
+
+        return rawSqlResult;
+    }
+
+    private readonly record struct IrExecutionOutcome(
+        QueryExecutionResult? Result,
+        int InputTokens,
+        int OutputTokens,
+        int CachedTokens,
+        decimal CostUsd);
+
+    private async Task<IrExecutionOutcome> TryExecuteQueryIrAsync(
+        string userQuestion,
+        string tenantId,
+        int? companyId,
+        ShippedPageContext finalContext,
+        int currentPageId,
+        IntentHandlerContext? context,
+        List<ColumnSynonym> approvedSynonyms,
+        Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask,
+        CancellationToken cancellationToken)
+    {
+        var (irPrompt, schemaChars) = await RenderPromptTemplateAsync(
+            "ir_planner",
+            finalContext,
+            context,
+            companyId,
+            currentPageId,
+            approvedSynonyms);
+
+        DynamicAiTelemetry.PromptChars.Record(
+            irPrompt.Length,
+            new KeyValuePair<string, object?>("llm.model", _chatModel ?? "default"));
+
+        var irRequest = new LlmRequest
+        {
+            SystemPrompt = irPrompt,
+            UserMessage = userQuestion,
+            Model = _chatModel,
+            Temperature = 0.0,
+            MaxOutputTokens = 2048,
+            UseQueryIrSchema = true,
+            ResponseMimeType = "application/json"
+        };
+
+        int inputTokens = 0;
+        int outputTokens = 0;
+        int cachedTokens = 0;
+        decimal costUsd = 0m;
+        QueryIrPlan? plan;
+
+        using (var llmActivity = DynamicAiTelemetry.ActivitySource.StartActivity("llm.generate.ir"))
+        {
+            var irCall = await InvokeLlmAndTrackAsync(
+                irRequest,
+                context,
+                tenantId,
+                companyId,
+                selfHealing: false,
+                cancellationToken);
+
+            inputTokens = irCall.InputTokens;
+            outputTokens = irCall.OutputTokens;
+            cachedTokens = irCall.CachedTokens;
+            costUsd = irCall.CostUsd;
+
+            plan = ExtractAndParseJson<QueryIrPlan>(irCall.RawResponse);
+
+            llmActivity?.SetTag("llm.model", irCall.ModelUsed);
+            llmActivity?.SetTag("llm.tokens.in", inputTokens);
+            llmActivity?.SetTag("llm.tokens.out", outputTokens);
+            llmActivity?.SetTag("llm.tokens.cached", cachedTokens);
+            llmActivity?.SetTag("llm.intent", plan?.Intent ?? "Unknown");
+            llmActivity?.SetTag("ir.requires_advanced_sql", plan?.RequiresAdvancedSql ?? false);
+        }
+
+        if (plan == null)
+        {
+            _logger.LogWarning("[UnifiedHandler] Failed to parse QueryIrPlan JSON; falling back to RawSql.");
+            return new IrExecutionOutcome(null, inputTokens, outputTokens, cachedTokens, costUsd);
+        }
+
+        if (plan.NeedsClarification && !string.IsNullOrWhiteSpace(plan.ClarificationQuestion))
+        {
+            return new IrExecutionOutcome(
+                new QueryExecutionResult
+                {
+                    ErrorMessage = $"CLARIFICATION_REQUIRED: {plan.ClarificationQuestion.Trim()}",
+                    QueryLogId = context?.QueryLogId,
+                    Intent = plan.Intent,
+                    PageId = currentPageId,
+                    SelfHealingUsed = false,
+                    InputTokens = inputTokens,
+                    OutputTokens = outputTokens,
+                    CachedTokens = cachedTokens,
+                    LlmCostUsd = costUsd
+                },
+                inputTokens, outputTokens, cachedTokens, costUsd);
+        }
+
+        if (plan.RequiresAdvancedSql)
+        {
+            _logger.LogInformation("[UnifiedHandler] QueryIrPlan flagged requires_advanced_sql; falling back to RawSql.");
+            return new IrExecutionOutcome(null, inputTokens, outputTokens, cachedTokens, costUsd);
+        }
+
+        bool isChat = plan.Intent.Equals("Chat", StringComparison.OrdinalIgnoreCase);
+        bool isDirectPrediction = plan.Intent.Equals("Prediction", StringComparison.OrdinalIgnoreCase) &&
+                                  plan.Select.Count == 0 &&
+                                  plan.Aggregations.Count == 0;
+
+        if (isChat || isDirectPrediction)
+        {
+            var resultType = isChat ? "Chat" : "Prediction";
+            return new IrExecutionOutcome(
+                new QueryExecutionResult
+                {
+                    Data = new[] { new { Message = plan.Message ?? string.Empty, Type = resultType, Explanation = plan.Explanation } },
+                    QueryLogId = context?.QueryLogId,
+                    IsCached = false,
+                    QueryInsights = new QueryInsightData { Reasoning = plan.Explanation },
+                    Intent = plan.Intent,
+                    PageId = currentPageId,
+                    SelfHealingUsed = false,
+                    InputTokens = inputTokens,
+                    OutputTokens = outputTokens,
+                    CachedTokens = cachedTokens,
+                    LlmCostUsd = costUsd
+                },
+                inputTokens, outputTokens, cachedTokens, costUsd);
+        }
+
+        CompiledIrSql compiled;
+        try
+        {
+            compiled = _irCompiler.Compile(plan, finalContext, companyId);
+        }
+        catch (QueryIrCompilationException ex)
+        {
+            _logger.LogWarning(ex, "[UnifiedHandler] QueryIR compilation failed; falling back to RawSql.");
+            return new IrExecutionOutcome(null, inputTokens, outputTokens, cachedTokens, costUsd);
+        }
+
+        try
+        {
+            var sqlResult = await _sqlPipeline.ExecuteAsync(
+                compiled.Sql,
+                tenantId,
+                companyId,
+                finalContext,
+                currentPageId,
+                context,
+                cancellationToken,
+                schemaPrefetchTask,
+                compiled.Parameters);
+
+            sqlResult.QueryInsights ??= new QueryInsightData { RetrievedContext = new List<string>() };
+            sqlResult.QueryInsights.RetrievedContext ??= new List<string>();
+            sqlResult.QueryInsights.RetrievedContext.Add("⚡ Compiled deterministically via QueryIR");
+            sqlResult.QueryInsights.Reasoning = compiled.Explanation;
+            sqlResult.Intent = plan.Intent;
+            sqlResult.SelfHealingUsed = false;
+            sqlResult.InputTokens = inputTokens;
+            sqlResult.OutputTokens = outputTokens;
+            sqlResult.CachedTokens = cachedTokens;
+            sqlResult.LlmCostUsd = costUsd;
+
+            return new IrExecutionOutcome(sqlResult, inputTokens, outputTokens, cachedTokens, costUsd);
+        }
+        catch (SqlSanitizationException ex)
+        {
+            _logger.LogWarning(ex, "[UnifiedHandler] QueryIR compiled SQL rejected by sanitizer; falling back to RawSql.");
+            return new IrExecutionOutcome(null, inputTokens, outputTokens, cachedTokens, costUsd);
+        }
+    }
+
+    private async Task<QueryExecutionResult> ExecuteRawSqlFlowAsync(
+        string userQuestion,
+        string tenantId,
+        int? companyId,
+        ShippedPageContext finalContext,
+        int currentPageId,
+        IntentHandlerContext? context,
+        List<ColumnSynonym> approvedSynonyms,
+        Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask,
+        int priorInputTokens,
+        int priorOutputTokens,
+        int priorCachedTokens,
+        decimal priorCostUsd,
+        CancellationToken cancellationToken)
+    {
+        // Render Master Prompt (static/cacheable per schema & context, excluding userQuestion)
+        var (renderedPrompt, schemaChars) = await RenderPromptTemplateAsync(
+            "unified_master",
+            finalContext,
+            context,
+            companyId,
+            currentPageId,
+            approvedSynonyms);
+
+        Activity.Current?.SetTag("schema.chars", schemaChars);
+
+        // Call LLM, Track Usage & Parse Unified JSON locally
         if (_logSensitivePayloads && _logger.IsEnabled(LogLevel.Debug))
         {
             _logger.LogDebug("[UnifiedHandler] FULL RENDERED PROMPT ({Chars} chars): {Prompt}",
@@ -123,10 +386,10 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
             ResponseMimeType = "application/json"
         };
 
-        int totalInputTokens;
-        int totalOutputTokens;
-        int totalCachedTokens;
-        decimal totalCostUsd;
+        int totalInputTokens = priorInputTokens;
+        int totalOutputTokens = priorOutputTokens;
+        int totalCachedTokens = priorCachedTokens;
+        decimal totalCostUsd = priorCostUsd;
         UnifiedLlmResponse? parsedResponse;
 
         using (var llmActivity = DynamicAiTelemetry.ActivitySource.StartActivity("llm.generate"))
@@ -139,12 +402,12 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
                 selfHealing: false,
                 cancellationToken);
 
-            totalInputTokens = initialCall.InputTokens;
-            totalOutputTokens = initialCall.OutputTokens;
-            totalCachedTokens = initialCall.CachedTokens;
-            totalCostUsd = initialCall.CostUsd;
+            totalInputTokens += initialCall.InputTokens;
+            totalOutputTokens += initialCall.OutputTokens;
+            totalCachedTokens += initialCall.CachedTokens;
+            totalCostUsd += initialCall.CostUsd;
 
-            parsedResponse = ExtractAndParseJson(initialCall.RawResponse);
+            parsedResponse = ExtractAndParseJson<UnifiedLlmResponse>(initialCall.RawResponse);
 
             llmActivity?.SetTag("llm.model", initialCall.ModelUsed);
             llmActivity?.SetTag("llm.tokens.in", totalInputTokens);
@@ -189,7 +452,7 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
 
         CaptureSchemaLinkingSynonyms(parsedResponse, finalContext, currentPageId);
 
-        // Phase 5: Execute Route
+        // Execute Route
         if (parsedResponse.IsSqlIntent)
         {
             return await ExecuteSqlWithSelfHealingAsync(
@@ -238,6 +501,76 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
             CachedTokens = totalCachedTokens,
             LlmCostUsd = totalCostUsd
         };
+    }
+
+    private async Task EvaluateShadowIrAsync(
+        string userQuestion,
+        string tenantId,
+        int? companyId,
+        ShippedPageContext finalContext,
+        int currentPageId,
+        IntentHandlerContext? context,
+        List<ColumnSynonym> approvedSynonyms,
+        CancellationToken cancellationToken)
+    {
+        using var shadowActivity = DynamicAiTelemetry.ActivitySource.StartActivity("ir.shadow");
+        var sw = Stopwatch.GetTimestamp();
+        bool shadowCompiled = false;
+        string shadowTables = string.Empty;
+
+        try
+        {
+            var (irPrompt, _) = await RenderPromptTemplateAsync(
+                "ir_planner",
+                finalContext,
+                context,
+                companyId,
+                currentPageId,
+                approvedSynonyms);
+
+            var irRequest = new LlmRequest
+            {
+                SystemPrompt = irPrompt,
+                UserMessage = userQuestion,
+                Model = _chatModel,
+                Temperature = 0.0,
+                MaxOutputTokens = 2048,
+                UseQueryIrSchema = true,
+                ResponseMimeType = "application/json"
+            };
+
+            var irCall = await InvokeLlmAndTrackAsync(
+                irRequest,
+                context,
+                tenantId,
+                companyId,
+                selfHealing: false,
+                cancellationToken);
+
+            var plan = ExtractAndParseJson<QueryIrPlan>(irCall.RawResponse);
+            if (plan != null && !plan.RequiresAdvancedSql && !plan.NeedsClarification &&
+                (plan.Select.Count > 0 || plan.Aggregations.Count > 0))
+            {
+                var compiled = _irCompiler.Compile(plan, finalContext, companyId);
+                shadowCompiled = true;
+                shadowTables = string.Join(",", compiled.ReferencedTables);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[UnifiedHandler] Shadow IR evaluation failed without impacting authoritative RawSql.");
+        }
+        finally
+        {
+            var shadowLatencyMs = Stopwatch.GetElapsedTime(sw).TotalMilliseconds;
+            shadowActivity?.SetTag("shadow.ir.compiled", shadowCompiled);
+            shadowActivity?.SetTag("shadow.ir.latency_ms", shadowLatencyMs);
+            shadowActivity?.SetTag("shadow.ir.tables", shadowTables);
+
+            _logger.LogInformation(
+                "[UnifiedHandler] Shadow IR evaluated: ShadowIrCompiled={ShadowIrCompiled}, ShadowIrLatencyMs={ShadowIrLatencyMs:F1}, ShadowIrTables={ShadowIrTables}",
+                shadowCompiled, shadowLatencyMs, shadowTables);
+        }
     }
 
     private async Task<QueryExecutionResult?> TryExecuteCachedSqlAsync(
@@ -340,7 +673,8 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         return synonyms;
     }
 
-    private async Task<(string Prompt, int SchemaChars)> RenderMasterPromptAsync(
+    private async Task<(string Prompt, int SchemaChars)> RenderPromptTemplateAsync(
+        string templateName,
         ShippedPageContext finalContext,
         IntentHandlerContext? context,
         int? companyId,
@@ -370,7 +704,7 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         var historyBlock = ConversationHistoryFormatter.BuildConversationHistoryBlock(context?.ConversationHistory, currentPageId, _logger);
         if (!string.IsNullOrEmpty(historyBlock)) variables["conversation_history"] = historyBlock;
 
-        var prompt = await _promptEngine.RenderAsync("unified_master", variables);
+        var prompt = await _promptEngine.RenderAsync(templateName, variables);
         return (prompt, schemaContent.Length);
     }
 
@@ -548,7 +882,7 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
                     totalCachedTokens += retryCall.CachedTokens;
                     totalCostUsd += retryCall.CostUsd;
 
-                    var retryParsed = ExtractAndParseJson(retryCall.RawResponse);
+                    var retryParsed = ExtractAndParseJson<UnifiedLlmResponse>(retryCall.RawResponse);
 
                     retryLlmActivity?.SetTag("llm.model", retryCall.ModelUsed);
                     retryLlmActivity?.SetTag("llm.tokens.in", retryCall.InputTokens);
@@ -637,7 +971,7 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         };
     }
 
-    private UnifiedLlmResponse? ExtractAndParseJson(string llmResponse)
+    private T? ExtractAndParseJson<T>(string llmResponse) where T : class
     {
         if (string.IsNullOrWhiteSpace(llmResponse))
             return null;
@@ -651,7 +985,7 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
 
         try
         {
-            return JsonSerializer.Deserialize<UnifiedLlmResponse>(jsonString, _jsonOptions);
+            return JsonSerializer.Deserialize<T>(jsonString, _jsonOptions);
         }
         catch (JsonException)
         {
@@ -663,7 +997,7 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
                 try
                 {
                     var sliced = jsonString[firstBrace..(lastBrace + 1)];
-                    return JsonSerializer.Deserialize<UnifiedLlmResponse>(sliced, _jsonOptions);
+                    return JsonSerializer.Deserialize<T>(sliced, _jsonOptions);
                 }
                 catch (Exception innerEx)
                 {

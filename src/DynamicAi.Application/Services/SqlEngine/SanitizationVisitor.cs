@@ -147,6 +147,13 @@ namespace DynamicAi.Application.Services.SqlEngine
 
         public override void Visit(ColumnReferenceExpression node)
         {
+            if (node.ColumnType == ColumnType.Wildcard ||
+                node.MultiPartIdentifier == null ||
+                node.MultiPartIdentifier.Identifiers.Count == 0)
+            {
+                return;
+            }
+
             // سابقاً كنا نتحقق فقط من جملة SELECT، ولكن إذا تُرك عمود خاطئ في WHERE أو GROUP BY 
             // سيفشل الاستعلام بأكمله في SQL Server. لذا يجب فحصه في كل مكان.
 

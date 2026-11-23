@@ -16,5 +16,6 @@ public interface ISqlExecutionPipeline
         int pageId,
         IntentHandlerContext? context,
         CancellationToken ct,
-        Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask = null);
+        Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask = null,
+        Dictionary<string, object?>? extraParameters = null);
 }
