@@ -1,0 +1,316 @@
+using DynamicAi.Application.Interfaces;
+using DynamicAi.Application.Models;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Qdrant.Client;
+using Qdrant.Client.Grpc;
+
+namespace DynamicAi.Infrastructure.Services;
+
+/// <summary>
+/// Service for caching SQL queries based on semantic similarity using Qdrant.
+/// Uses a separate collection to store question embeddings and their generated SQL.
+/// </summary>
+public class QueryCacheService : IQueryCacheService
+{
+    private readonly QdrantClient _qdrantClient;
+    private readonly ILogger<QueryCacheService> _logger;
+    private readonly string _collectionName;
+    private readonly float _similarityThreshold;
+    private readonly int _ttlDays;
+    private bool _collectionInitialized;
+
+    public QueryCacheService(
+        QdrantClient qdrantClient,
+        IConfiguration configuration,
+        ILogger<QueryCacheService> logger)
+    {
+        _qdrantClient = qdrantClient;
+        _logger = logger;
+        _collectionName = configuration["Caching:QueryCache:CollectionName"] ?? "query_cache";
+        _similarityThreshold = float.TryParse(configuration["Caching:QueryCache:SimilarityThreshold"], out var threshold) ? threshold : 0.92f;
+        _ttlDays = int.TryParse(configuration["Caching:QueryCache:TTLDays"], out var ttl) ? ttl : 7;
+    }
+
+    public async Task EnsureInitializedAsync(CancellationToken ct = default)
+    {
+        if (_collectionInitialized) return;
+
+        try
+        {
+            var collections = await _qdrantClient.ListCollectionsAsync(ct);
+            if (!collections.Any(c => c == _collectionName))
+            {
+                _logger.LogInformation("[QueryCache] Creating collection: {Collection}", _collectionName);
+
+                await _qdrantClient.CreateCollectionAsync(
+                    _collectionName,
+                    new VectorParams
+                    {
+                        Size = 3072,
+                        Distance = Distance.Cosine
+                    },
+                    cancellationToken: ct);
+
+                _logger.LogInformation("[QueryCache] ✓ Collection created successfully");
+            }
+
+            await EnsurePayloadIndexesAsync(ct);
+
+            try
+            {
+                await _qdrantClient.UpdateCollectionAsync(
+                    _collectionName,
+                    optimizersConfig: new OptimizersConfigDiff { IndexingThreshold = 100 },
+                    cancellationToken: ct);
+                _logger.LogInformation("[QueryCache] ✓ Collection optimized: Threshold set to 100");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[QueryCache] ⚠️ Could not optimize collection threshold. Continuing...");
+            }
+
+            _collectionInitialized = true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[QueryCache] Error ensuring collection exists");
+            throw;
+        }
+    }
+
+    private async Task EnsurePayloadIndexesAsync(CancellationToken ct)
+    {
+        var requiredIndexes = new Dictionary<string, PayloadSchemaType>
+        {
+            { "tenant_id", PayloadSchemaType.Keyword },
+            { "company_id", PayloadSchemaType.Integer },
+            { "page_id", PayloadSchemaType.Integer },
+            { "intent", PayloadSchemaType.Keyword }
+        };
+
+        foreach (var (fieldName, fieldType) in requiredIndexes)
+        {
+            try
+            {
+                await _qdrantClient.CreatePayloadIndexAsync(
+                    _collectionName,
+                    fieldName,
+                    fieldType,
+                    cancellationToken: ct);
+            }
+            catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument
+                && ex.Status.Detail.Contains("already exists"))
+            {
+                _logger.LogDebug("[QueryCache] Index '{Field}' already exists", fieldName);
+            }
+        }
+
+        _logger.LogInformation("[QueryCache] ✓ Payload indexes verified/created");
+    }
+
+    public async Task<CachedQueryResult?> TryGetCachedSqlAsync(
+        float[] questionEmbedding,
+        string tenantId,
+        int companyId,
+        int? pageId = null,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            await EnsureInitializedAsync(ct);
+
+            _logger.LogInformation("[QueryCache] Searching for similar cached queries...");
+
+            int isolatedPageId = pageId ?? 0;
+            _logger.LogInformation("🛡️ [QueryCache] Strict Scoping Applied: Enforcing PageID = {IsolatedPageId} (0 implies General Context)", isolatedPageId);
+            var filter = BuildScopedFilter(tenantId, companyId, isolatedPageId);
+
+            var searchResult = await _qdrantClient.SearchAsync(
+                _collectionName,
+                questionEmbedding,
+                filter: filter,
+                limit: 1,
+                scoreThreshold: _similarityThreshold,
+                cancellationToken: ct);
+
+            if (searchResult.Any())
+            {
+                var topResult = searchResult.First();
+                var payload = topResult.Payload;
+
+                var cachedResult = new CachedQueryResult
+                {
+                    CacheId = topResult.Id.Uuid,
+                    Sql = payload["generated_sql"].StringValue,
+                    Score = topResult.Score,
+                    PageId = payload.ContainsKey("page_id") ? (int)payload["page_id"].IntegerValue : 0,
+                    OriginalQuestion = payload["original_question"].StringValue,
+                    CreatedAt = DateTime.Parse(payload["created_at"].StringValue),
+                    Intent = payload.ContainsKey("intent") ? payload["intent"].StringValue : "DataRetrieval"
+                };
+
+                _logger.LogInformation("[QueryCache] ✓ Cache HIT! Score: {Score:F4}, Original: \"{OriginalQuestion}\"",
+                    topResult.Score,
+                    cachedResult.OriginalQuestion);
+
+                return cachedResult;
+            }
+
+            _logger.LogInformation("[QueryCache] ✗ Cache MISS (no result above {SimilarityThreshold} threshold)", _similarityThreshold);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[QueryCache] Error searching cache, continuing without cache");
+            return null;
+        }
+    }
+
+    public async Task<Guid> StoreCachedSqlAsync(
+        Guid id,
+        string question,
+        float[] embedding,
+        string sql,
+        int pageId,
+        string tenantId,
+        int companyId,
+        string intent = "DataRetrieval",
+        CancellationToken ct = default)
+    {
+        try
+        {
+            await EnsureInitializedAsync(ct);
+
+            var pointId = id;
+            var now = DateTime.UtcNow;
+
+            var point = new PointStruct
+            {
+                Id = new PointId { Uuid = pointId.ToString() },
+                Vectors = embedding,
+                Payload =
+                {
+                    ["tenant_id"] = tenantId,
+                    ["company_id"] = companyId,
+                    ["page_id"] = pageId,
+                    ["original_question"] = question,
+                    ["generated_sql"] = sql,
+                    ["created_at"] = now.ToString("o"),
+                    ["expires_at"] = now.AddDays(_ttlDays).ToString("o"),
+                    ["hit_count"] = 0,
+                    ["intent"] = intent
+                }
+            };
+
+            await _qdrantClient.UpsertAsync(_collectionName, new[] { point }, cancellationToken: ct);
+
+            _logger.LogInformation("[QueryCache] ✓ Stored new cache entry (ID: {PointId}). Question: \"{QuestionFragment}...\"",
+                pointId,
+                question.Substring(0, Math.Min(50, question.Length)));
+
+            return pointId;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[QueryCache] Failed to store cache entry");
+            return Guid.Empty;
+        }
+    }
+
+    public async Task<bool> DeleteCacheEntryAsync(string cacheId, CancellationToken ct = default)
+    {
+        try
+        {
+            await EnsureInitializedAsync(ct);
+
+            _logger.LogInformation("[QueryCache] Deleting cache entry: {CacheId}", cacheId);
+
+            await _qdrantClient.DeleteAsync(
+                _collectionName,
+                new PointId { Uuid = cacheId },
+                cancellationToken: ct);
+
+            _logger.LogInformation("[QueryCache] ✓ Cache entry deleted successfully");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[QueryCache] Failed to delete cache entry {CacheId}", cacheId);
+            return false;
+        }
+    }
+
+    public async Task<bool> DeleteSimilarCacheAsync(float[] embedding, string tenantId, int companyId, int? pageId = null, CancellationToken ct = default)
+    {
+        try
+        {
+            await EnsureInitializedAsync(ct);
+
+            _logger.LogInformation("[QueryCache] Searching for similar entries to delete...");
+
+            int isolatedPageId = pageId ?? 0;
+            _logger.LogInformation("🛡️ [QueryCache] Delete Scoping Applied: Enforcing PageID = {IsolatedPageId}", isolatedPageId);
+            var filter = BuildScopedFilter(tenantId, companyId, isolatedPageId);
+
+            var searchResult = await _qdrantClient.SearchAsync(
+                _collectionName,
+                embedding,
+                filter: filter,
+                limit: 5,
+                scoreThreshold: _similarityThreshold,
+                cancellationToken: ct);
+
+            if (!searchResult.Any())
+            {
+                _logger.LogInformation("[QueryCache] No similar entries found to delete");
+                return false;
+            }
+
+            var pointIds = searchResult.Select(r => new PointId { Uuid = r.Id.Uuid }).ToArray();
+
+            foreach (var pointId in pointIds)
+            {
+                await _qdrantClient.DeleteAsync(_collectionName, pointId, cancellationToken: ct);
+            }
+
+            _logger.LogInformation("[QueryCache] ✓ Deleted {Count} similar cache entries for PageID={PageId}", pointIds.Length, isolatedPageId);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[QueryCache] Failed to delete similar cache entries");
+            return false;
+        }
+    }
+
+    private static Filter BuildScopedFilter(string tenantId, int companyId, int pageId)
+    {
+        var filter = new Filter();
+        filter.Must.Add(new Condition
+        {
+            Field = new FieldCondition
+            {
+                Key = "tenant_id",
+                Match = new Match { Keyword = tenantId }
+            }
+        });
+        filter.Must.Add(new Condition
+        {
+            Field = new FieldCondition
+            {
+                Key = "company_id",
+                Match = new Match { Integer = companyId }
+            }
+        });
+        filter.Must.Add(new Condition
+        {
+            Field = new FieldCondition
+            {
+                Key = "page_id",
+                Match = new Match { Integer = pageId }
+            }
+        });
+        return filter;
+    }
+}

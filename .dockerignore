@@ -1,44 +1,44 @@
 # Git
-.git
+.git/
 .gitignore
 .gitattributes
 
-# IDE
-.vs
-.vscode
+# IDE / Environment
+.vs/
+.vscode/
+.venv/
 *.user
 *.suo
 
 # Build outputs
-**/bin
-**/obj
-**/out
+**/bin/
+**/obj/
+**/out/
 
 # Node.js
-**/node_modules
+**/node_modules/
 
 # Angular build output (we build inside Docker)
-DynamicAi.UI/dist
+frontend/DynamicAi.UI/dist/
 
 # Logs
-logs
-*.log
+logs/
+**/logs/
+**/*.log
 
 # Environment files (secrets)
 .env
 *.local
 
-# Documentation (not needed in container)
-Project_Description
-*.md
-!README.md
+# Documentation & private folders (not needed in container)
+Project_Description/
+docs/
+qdrant_snapshots/
 
-# Test projects (optional for production)
-DynamicAI.Tests
-
-# Schema tools (not needed in runtime)
-SchemaBootstrapper
-SchemaGenerator
+# Test projects & legacy tools (not needed in runtime)
+tests/
+tools/
+infra/
 
 # Misc
 *.tmp

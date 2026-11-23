@@ -362,21 +362,28 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
-# Secrets Guide
-SECRETS_GUIDE.md
 # Allow logs folder visibility but ignore content
 logs/*
 !logs/.gitkeep
+**/logs/
+**/temp_prompts/
+!**/temp_prompts/.gitkeep
+**/TestResults/
+**/*.log
+
 prompts/*
 !prompts/.gitkeep
-# Temporary prompts (for AI interaction context)
-DynamicAi/temp_prompts/*
-!DynamicAi/temp_prompts/.gitkeep   
 
 # Docker environment files (contains secrets!)
 .env
 !.env.example
-qdrant_snapshots/*
+
+# IDE / Python / Scratch / Private folders
+.vs/
+.venv/
+qdrant_snapshots/
+Project_Description/
+*.groovy
 
 # CV Assets
 FULL_RESUME_TEMPLATE.md
@@ -384,27 +391,4 @@ GENAI_INTERVIEW_QA_FROM_PROJECT.md
 CV_Assets_DynamicAI.md
 FINAL_OPTIMIZED_CV.md
 FINAL_COMBINED_CV.md
-devtunnelRuning.md
-clear the cache collection in your Qdr.md
-
-# Legacy Docker Files
-back_front_docker/
-# Backend Dockerfile
-deployment/
-
-# md fles & else
-*.md
-*.groovy
-*.txt
-*.json
-
-# private folders
-DynamicAi/temp_prompts
-Project_Description/
-testsprite_tests/
-temp_mini_rag/
-qdrant_snapshots/
-
-# Whitelist critical prompt templates
-!DynamicAi.Application/Prompts/**/*.md
 

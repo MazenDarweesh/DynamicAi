@@ -1,0 +1,1347 @@
+{
+  "question": "عايز بيانات العميل لولو ",
+  "sessionId": "sess_1777803222152_ijai1u94v",
+  "tenantId": "default",
+  "pageId": 244,
+  "explicitContext": {
+    "pageId": 244,
+    "pageName": "فواتير المبيعات",
+    "masterSetup": {
+      "listName": "SalestView",
+      "tableName": "ContractViewWithPaid",
+      "primaryKey": "ContractID",
+      "tailCondition": "(IsResale=0 or IsResale is null) and ( ContractType!=45 or ContractType!=51 or ContractType!=52 ) and  ((EInvoiceIsCredit =0 or EInvoiceIsCredit is null ) and (EInvoiceIsDepit =0 or EInvoiceIsDepit is null) )",
+      "columns": [
+        {
+          "searchName": "CreateBy",
+          "columnName": "CreateBy",
+          "insertType": "dropdown",
+          "droModel": "EmployeeView",
+          "droValue": "EmployeeID",
+          "droText": "EmployeeNameA",
+          "arColumnLabel": "ادخال بواسطة",
+          "enColumnLabel": "Inserted by "
+        },
+        {
+          "searchName": "CreateAt",
+          "columnName": "CreateAt",
+          "insertType": "date",
+          "arColumnLabel": "تاريخ الادخال",
+          "enColumnLabel": "Entry date"
+        },
+        {
+          "searchName": "ModifyBy",
+          "columnName": "ModifyBy",
+          "insertType": "dropdown",
+          "droModel": "EmployeeView",
+          "droValue": "EmployeeID",
+          "droText": "EmployeeNameA",
+          "arColumnLabel": "اخر تعديل بواسطة",
+          "enColumnLabel": "Last update"
+        },
+        {
+          "searchName": "ModifyAt",
+          "columnName": "ModifyAt",
+          "insertType": "date",
+          "arColumnLabel": "اخر تعديل في",
+          "enColumnLabel": "Last Edit In "
+        },
+        {
+          "searchName": "CustomerID",
+          "columnName": "CustomerAccountName",
+          "insertType": "dropdown",
+          "droModel": "CustomerAccountView",
+          "droValue": "CustomerAccountID",
+          "droText": "CustomerAccountName",
+          "arColumnLabel": "العميل",
+          "enColumnLabel": "Client"
+        },
+        {
+          "searchName": "ContractType",
+          "columnName": "ContractType",
+          "insertType": "dropdown",
+          "droModel": "ConType",
+          "droValue": "ContractTypeID",
+          "droText": "TypeName",
+          "arColumnLabel": "طريقة البيع",
+          "enColumnLabel": "Sale method "
+        },
+        {
+          "searchName": "ContractDate",
+          "columnName": "ContractDate",
+          "insertType": "date",
+          "droModel": "Store",
+          "droValue": "SID",
+          "droText": "SName",
+          "arColumnLabel": "التاريخ",
+          "enColumnLabel": "Date "
+        },
+        {
+          "searchName": "TotalOrder",
+          "columnName": "TotalOrder",
+          "insertType": "number",
+          "droModel": "ProductNonInventory",
+          "droValue": "ProID",
+          "droText": "ProName",
+          "arColumnLabel": "قيمة الفاتورة",
+          "enColumnLabel": "Invoice value "
+        },
+        {
+          "searchName": "Discount",
+          "columnName": "Discount",
+          "insertType": "number",
+          "droModel": "StoreView",
+          "droValue": "SID",
+          "droText": "SName",
+          "arColumnLabel": " الخصم",
+          "enColumnLabel": "Discount"
+        },
+        {
+          "searchName": "AutoNumber",
+          "columnName": "AutoNumber",
+          "insertType": "number",
+          "droModel": "ProductNonInventory",
+          "droValue": "ProID",
+          "droText": "ProName",
+          "arColumnLabel": "رقم الفاتورة",
+          "enColumnLabel": "Invoice number "
+        },
+        {
+          "searchName": "TypeAutoNumber",
+          "columnName": "TypeAutoNumber",
+          "insertType": "number",
+          "droModel": "ProductNonInventory",
+          "droValue": "ProID",
+          "droText": "ProName",
+          "arColumnLabel": "مسلسل للنوع التعاقد",
+          "enColumnLabel": "Contract number serial"
+        },
+        {
+          "searchName": "Note1",
+          "columnName": "Note1",
+          "insertType": "file",
+          "arColumnLabel": "مرفق",
+          "enColumnLabel": "Attachments"
+        },
+        {
+          "searchName": "POPaid",
+          "columnName": "POPaid",
+          "insertType": "number",
+          "droModel": "StoreView",
+          "droValue": "SID",
+          "droText": "SName",
+          "arColumnLabel": "المدفوع نقدا",
+          "enColumnLabel": "Paid in cash "
+        },
+        {
+          "searchName": "totalPaid",
+          "columnName": "totalPaid",
+          "insertType": "number",
+          "droModel": "StoreView",
+          "droValue": "SID",
+          "droText": "SName",
+          "arColumnLabel": "اجمالي المحصل",
+          "enColumnLabel": "Total Paid in cash "
+        },
+        {
+          "searchName": "IsRecivedMony",
+          "columnName": "IsRecivedMony",
+          "insertType": "checkbox",
+          "arColumnLabel": "تم التحصيل قيمة الفاتورة",
+          "enColumnLabel": "Collected "
+        },
+        {
+          "searchName": "TaxCurrancy",
+          "columnName": "TaxCurrancy",
+          "insertType": "number",
+          "droModel": "StoreView",
+          "droValue": "SID",
+          "droText": "SName",
+          "arColumnLabel": "ضريبة القيمة المضافة",
+          "enColumnLabel": "VAT"
+        },
+        {
+          "searchName": "totalbeforshippingPrice",
+          "columnName": "totalbeforshippingPrice",
+          "insertType": "number",
+          "droModel": "StoreView",
+          "droValue": "SID",
+          "droText": "SName",
+          "arColumnLabel": "الاجمالي بعد الخصم و قبل سعر الشحن",
+          "enColumnLabel": "Total after discount"
+        },
+        {
+          "searchName": "shippingPrice",
+          "columnName": "shippingPrice",
+          "insertType": "number",
+          "arColumnLabel": "سعر الشحن",
+          "enColumnLabel": "Shipping price "
+        },
+        {
+          "searchName": "remindpaid",
+          "columnName": "remindpaid",
+          "insertType": "number",
+          "droModel": "StoreView",
+          "droValue": "SID",
+          "droText": "SName",
+          "arColumnLabel": "المتبقي",
+          "enColumnLabel": "Remain"
+        },
+        {
+          "searchName": "AddTaxCurrancy",
+          "columnName": "AddTaxCurrancy",
+          "insertType": "number",
+          "droModel": "StoreView",
+          "droValue": "SID",
+          "droText": "SName",
+          "arColumnLabel": "ضريبة الخصم و الاضافة",
+          "enColumnLabel": "Tax on Deductions and Additions"
+        },
+        {
+          "searchName": "DiscountDetailTotal",
+          "columnName": "DiscountDetailTotal",
+          "insertType": "number",
+          "droModel": "StoreView",
+          "droValue": "SID",
+          "droText": "SName",
+          "arColumnLabel": "الخصم الجزئي",
+          "enColumnLabel": "Partial discount"
+        },
+        {
+          "searchName": "TotalAfterDiscount",
+          "columnName": "TotalAfterDiscount",
+          "insertType": "number",
+          "droModel": "StoreView",
+          "droValue": "SID",
+          "droText": "SName",
+          "arColumnLabel": "الاجمالي بعد الخصم",
+          "enColumnLabel": "Total after discount"
+        },
+        {
+          "searchName": "CustomerAccountAddress",
+          "columnName": "CustomerAccountAddress",
+          "insertType": "text",
+          "arColumnLabel": "عنوان العميل ",
+          "enColumnLabel": "Client Address "
+        },
+        {
+          "searchName": "finaltotal",
+          "columnName": "finaltotal",
+          "insertType": "number",
+          "arColumnLabel": "الاجمالي",
+          "enColumnLabel": "Total "
+        },
+        {
+          "searchName": "SalesManName",
+          "columnName": "SalesManName",
+          "insertType": "dropdown",
+          "droModel": "empView",
+          "droValue": "EmployeeNameA",
+          "droText": "EmployeeNameA",
+          "arColumnLabel": "مندوب الفاتورة",
+          "enColumnLabel": "Invoice Representative"
+        },
+        {
+          "searchName": "SalesNote2",
+          "columnName": "SalesNote2",
+          "insertType": "text",
+          "arColumnLabel": "ملاحظه 2",
+          "enColumnLabel": " Note 2 "
+        },
+        {
+          "searchName": "Note2",
+          "columnName": "Note2",
+          "insertType": "text",
+          "arColumnLabel": "ملاحظة2",
+          "enColumnLabel": "Note 2 "
+        },
+        {
+          "searchName": "Note3",
+          "columnName": "Note3",
+          "insertType": "text",
+          "arColumnLabel": "ملاحظة 3",
+          "enColumnLabel": "Note 3 "
+        },
+        {
+          "searchName": "Note5",
+          "columnName": "Note5",
+          "insertType": "text",
+          "arColumnLabel": "ملاحظة 5",
+          "enColumnLabel": "Note 5 "
+        },
+        {
+          "searchName": "Note7",
+          "columnName": "Note7",
+          "insertType": "checkbox",
+          "arColumnLabel": "ملاحظة 7",
+          "enColumnLabel": "Note 7 "
+        },
+        {
+          "searchName": "Note9",
+          "columnName": "Note9",
+          "insertType": "dropdown",
+          "droModel": "CustomDropdown1",
+          "droValue": "Id",
+          "droText": "Name",
+          "arColumnLabel": "ملاحظة 9",
+          "enColumnLabel": "Note 9 "
+        },
+        {
+          "searchName": "Note10",
+          "columnName": "Note10",
+          "insertType": "dropdown",
+          "droModel": "CustomDropdown2",
+          "droValue": "Id",
+          "droText": "Name",
+          "arColumnLabel": "ملاحظة 10",
+          "enColumnLabel": "Note 10 "
+        },
+        {
+          "searchName": "Code",
+          "columnName": "Code",
+          "insertType": "number",
+          "arColumnLabel": "كود العميل",
+          "enColumnLabel": "Customer Code "
+        },
+        {
+          "searchName": "ContractNote",
+          "columnName": "ContractNote",
+          "insertType": "text",
+          "arColumnLabel": "التوصيف",
+          "enColumnLabel": "Description "
+        },
+        {
+          "searchName": "Ordernumber",
+          "columnName": "Ordernumber",
+          "insertType": "text",
+          "arColumnLabel": "رقم السند",
+          "enColumnLabel": "Bond No "
+        },
+        {
+          "searchName": "Voucher",
+          "columnName": "Voucher",
+          "insertType": "number",
+          "arColumnLabel": "فواتشر",
+          "enColumnLabel": "Voucher"
+        },
+        {
+          "searchName": "CustomerAccountMobile1",
+          "columnName": "CustomerAccountMobile1",
+          "insertType": "text",
+          "arColumnLabel": "موبايل",
+          "enColumnLabel": "Mobile "
+        },
+        {
+          "searchName": "SalesNote1",
+          "columnName": "SalesNote1",
+          "insertType": "text",
+          "arColumnLabel": "ملاحظه 1",
+          "enColumnLabel": " Note 1 "
+        },
+        {
+          "searchName": "SalesNote3",
+          "columnName": "SalesNote3",
+          "insertType": "text",
+          "arColumnLabel": "ملاحظه 3",
+          "enColumnLabel": " Note 3 "
+        },
+        {
+          "searchName": "Note4",
+          "columnName": "Note4",
+          "insertType": "text",
+          "arColumnLabel": "ملاحظة 4",
+          "enColumnLabel": "Note 4 "
+        },
+        {
+          "searchName": "Note6",
+          "columnName": "Note6",
+          "insertType": "text",
+          "arColumnLabel": "ملاحظة 6",
+          "enColumnLabel": " Note 6 "
+        },
+        {
+          "searchName": "Note1",
+          "columnName": "Note8",
+          "insertType": "checkbox",
+          "arColumnLabel": "ملاحظة 8",
+          "enColumnLabel": "Note 8 "
+        },
+        {
+          "searchName": "TotalCurrancy",
+          "columnName": "TotalCurrancy",
+          "insertType": "number",
+          "droModel": "ProductNonInventory",
+          "droValue": "ProID",
+          "droText": "ProName",
+          "arColumnLabel": "قيمة اجنبي",
+          "enColumnLabel": "Foreign value "
+        },
+        {
+          "searchName": "TypeName",
+          "columnName": "TypeName",
+          "insertType": "text",
+          "arColumnLabel": "نوع التعاقد",
+          "enColumnLabel": "Type of contract"
+        },
+        {
+          "searchName": "CustomerSalsMan",
+          "columnName": "CustomerSalsMan",
+          "insertType": "text",
+          "arColumnLabel": "مندوب البيع",
+          "enColumnLabel": "Sales Representative"
+        },
+        {
+          "searchName": "SOMName",
+          "columnName": "SOMName",
+          "insertType": "number",
+          "arColumnLabel": "رقم امر البيع",
+          "enColumnLabel": "Sales order number"
+        },
+        {
+          "searchName": "IsPaid",
+          "columnName": "IsPaid",
+          "insertType": "checkbox",
+          "arColumnLabel": "تم التحصيل",
+          "enColumnLabel": "Collected "
+        },
+        {
+          "searchName": "ContractID",
+          "columnName": "ContractID",
+          "insertType": "number",
+          "droModel": "ProductNonInventory",
+          "droValue": "ProID",
+          "droText": "ProName",
+          "arColumnLabel": "",
+          "enColumnLabel": " Note 1 "
+        }
+      ]
+    },
+    "detailSetups": [
+      {
+        "listName": "SalesDetailView",
+        "tableName": "salessystemcontract",
+        "foreignKey": "ContractID",
+        "tailCondition": null,
+        "columns": [
+          {
+            "searchName": "ProductID",
+            "columnName": "ProductID",
+            "insertType": "dropdown",
+            "droModel": "ProductPurchase",
+            "droValue": "ProID",
+            "droText": "ProName",
+            "arColumnLabel": "اسم المنتج",
+            "enColumnLabel": "Product name"
+          },
+          {
+            "searchName": "Qty",
+            "columnName": "Qty",
+            "insertType": "number",
+            "arColumnLabel": "الكمية",
+            "enColumnLabel": "Quantity "
+          },
+          {
+            "searchName": "UnitFactor",
+            "columnName": "UnitFactor",
+            "insertType": "number",
+            "arColumnLabel": "معامل التحويل",
+            "enColumnLabel": "Unit Factor"
+          },
+          {
+            "searchName": "CurrancyID",
+            "columnName": "CurrancyID",
+            "insertType": "dropdown",
+            "droModel": "Currancy",
+            "droValue": "CID",
+            "droText": "CName",
+            "arColumnLabel": "عملة البيع",
+            "enColumnLabel": "selling currency"
+          },
+          {
+            "searchName": "CurrancyEX",
+            "columnName": "CurrancyEX",
+            "insertType": "number",
+            "arColumnLabel": "سعر الصرف",
+            "enColumnLabel": "ExchangePrice"
+          },
+          {
+            "searchName": "QuantityInBaseUnit",
+            "columnName": "QuantityInBaseUnit",
+            "insertType": "number",
+            "arColumnLabel": "اجمالي الوزن بمعامل التحويل",
+            "enColumnLabel": "QuantityInBaseUnit"
+          },
+          {
+            "searchName": "UnitID",
+            "columnName": "UnitID",
+            "insertType": "dropdown",
+            "droModel": "Units",
+            "droValue": "UID",
+            "droText": "UName",
+            "arColumnLabel": "الوحدة",
+            "enColumnLabel": "Unit"
+          },
+          {
+            "searchName": "PriceCurrancy",
+            "columnName": "PriceCurrancy",
+            "insertType": "number",
+            "arColumnLabel": "السعر",
+            "enColumnLabel": "Price"
+          },
+          {
+            "searchName": "systemDescription",
+            "columnName": "systemDescription",
+            "insertType": "text",
+            "arColumnLabel": "وصف",
+            "enColumnLabel": "Description"
+          },
+          {
+            "searchName": "TotalCostWithUnitFactor",
+            "columnName": "TotalCostWithUnitFactor",
+            "insertType": "number",
+            "arColumnLabel": "اجمالي التكلفة بمعامل التحويل",
+            "enColumnLabel": "TotalCostWithUnitFactor"
+          },
+          {
+            "searchName": "GuideWeight",
+            "columnName": "GuideWeight",
+            "insertType": "number",
+            "arColumnLabel": "اجمالي الوزن الهندسي",
+            "enColumnLabel": "Total Geometric Weight"
+          },
+          {
+            "searchName": "TaxDetailTotal",
+            "columnName": "TaxDetailTotal",
+            "insertType": "number",
+            "arColumnLabel": "اجمالي الضريبة الجزئي",
+            "enColumnLabel": "total Partial tax"
+          },
+          {
+            "searchName": "DiscountDetailTotal",
+            "columnName": "DiscountDetailTotal",
+            "insertType": "number",
+            "arColumnLabel": "اجمالي الخصم الجزئي",
+            "enColumnLabel": "Total Partial discount"
+          },
+          {
+            "searchName": "Ordernumber",
+            "columnName": "Ordernumber",
+            "insertType": "text",
+            "arColumnLabel": "ربط برقم سند خارجي",
+            "enColumnLabel": "Order number"
+          },
+          {
+            "searchName": "ContractType",
+            "columnName": "ContractType",
+            "insertType": "dropdown",
+            "droModel": "ConType",
+            "droValue": "ContractTypeID",
+            "droText": "TypeName",
+            "arColumnLabel": "طريقة البيع",
+            "enColumnLabel": "Sale method "
+          },
+          {
+            "searchName": "Note16",
+            "columnName": "Note16",
+            "insertType": "text",
+            "arColumnLabel": "اسم المندوب",
+            "enColumnLabel": "Representative name"
+          },
+          {
+            "searchName": "ColorID",
+            "columnName": "ColorID",
+            "insertType": "dropdown",
+            "droModel": "Color",
+            "droValue": "CID",
+            "droText": "CName",
+            "arColumnLabel": "اللون",
+            "enColumnLabel": "Color"
+          },
+          {
+            "searchName": "SizeID",
+            "columnName": "SizeID",
+            "insertType": "dropdown",
+            "droModel": "Sizes",
+            "droValue": "SID",
+            "droText": "SName",
+            "arColumnLabel": "المقاس",
+            "enColumnLabel": "Price "
+          },
+          {
+            "searchName": "systemCost",
+            "columnName": "systemCost",
+            "insertType": "number",
+            "arColumnLabel": "التكلفة",
+            "enColumnLabel": "Cost "
+          },
+          {
+            "searchName": "DiscountDetailPercent",
+            "columnName": "DiscountDetailPercent",
+            "insertType": "number",
+            "arColumnLabel": "نسبة الخصم",
+            "enColumnLabel": "Discount percentage"
+          },
+          {
+            "searchName": "DiscountDetailValue",
+            "columnName": "DiscountDetailValue",
+            "insertType": "number",
+            "arColumnLabel": "قيمة الخصم",
+            "enColumnLabel": "Discount value"
+          },
+          {
+            "searchName": "Total",
+            "columnName": "Total",
+            "insertType": "number",
+            "arColumnLabel": "الاجمالي",
+            "enColumnLabel": "Total "
+          },
+          {
+            "searchName": "NoSalesTax",
+            "columnName": "NoSalesTax",
+            "insertType": "checkbox",
+            "arColumnLabel": "بدون ضريبة",
+            "enColumnLabel": "No Tax"
+          },
+          {
+            "searchName": "Width",
+            "columnName": "Width",
+            "insertType": "number",
+            "arColumnLabel": "العرض",
+            "enColumnLabel": "Width"
+          },
+          {
+            "searchName": "length",
+            "columnName": "length",
+            "insertType": "number",
+            "arColumnLabel": "الطول",
+            "enColumnLabel": "Length"
+          },
+          {
+            "searchName": "bonus",
+            "columnName": "bonus",
+            "insertType": "number",
+            "arColumnLabel": "بونص",
+            "enColumnLabel": "Bonus"
+          },
+          {
+            "searchName": "TaxDetailPercent",
+            "columnName": "TaxDetailPercent",
+            "insertType": "number",
+            "arColumnLabel": "نسبة الضريبة",
+            "enColumnLabel": "Tax rate "
+          },
+          {
+            "searchName": "Note1",
+            "columnName": "Note1",
+            "insertType": "file",
+            "arColumnLabel": "مرفق",
+            "enColumnLabel": "Attachments"
+          },
+          {
+            "searchName": "SystemStore",
+            "columnName": "SystemStore",
+            "insertType": "dropdown",
+            "droModel": "StoreView",
+            "droValue": "SID",
+            "droText": "SName",
+            "arColumnLabel": "اسم المخزن",
+            "enColumnLabel": "Product name"
+          },
+          {
+            "searchName": "TaxDetailValue",
+            "columnName": "TaxDetailValue",
+            "insertType": "number",
+            "arColumnLabel": "قيمة الضريبة",
+            "enColumnLabel": "Tax Value"
+          },
+          {
+            "searchName": "ContractDate",
+            "columnName": "ContractDate",
+            "insertType": "date",
+            "droModel": "StoreView",
+            "droValue": "SID",
+            "droText": "SName",
+            "arColumnLabel": "التاريخ",
+            "enColumnLabel": "Date "
+          },
+          {
+            "searchName": "POPaid",
+            "columnName": "POPaid",
+            "insertType": "number",
+            "arColumnLabel": "المحصل نقدا",
+            "enColumnLabel": "Paid in cash "
+          },
+          {
+            "searchName": "ContractNote",
+            "columnName": "ContractNote",
+            "insertType": "text",
+            "arColumnLabel": "التوصيف",
+            "enColumnLabel": "Description"
+          },
+          {
+            "searchName": "CustomerAccountName",
+            "columnName": "CustomerAccountName",
+            "insertType": "text",
+            "arColumnLabel": "اسم العميل",
+            "enColumnLabel": "Client name"
+          },
+          {
+            "searchName": "CustomerAccountAddress",
+            "columnName": "CustomerAccountAddress",
+            "insertType": "text",
+            "arColumnLabel": "عنوان العميل",
+            "enColumnLabel": "Client Address"
+          },
+          {
+            "searchName": "Gov",
+            "columnName": "Gov",
+            "insertType": "dropdown",
+            "droModel": "GovView",
+            "droValue": "GOVID",
+            "droText": "GovName",
+            "arColumnLabel": "الحي",
+            "enColumnLabel": "Gov"
+          },
+          {
+            "searchName": "CustomerAccountMobile1",
+            "columnName": "CustomerAccountMobile1",
+            "insertType": "text",
+            "arColumnLabel": "الموبايل",
+            "enColumnLabel": "Mobile"
+          },
+          {
+            "searchName": "VisitPriceInInsurance",
+            "columnName": "VisitPriceInInsurance",
+            "insertType": "number",
+            "arColumnLabel": "سعر الزيارة في الضمان",
+            "enColumnLabel": "Visit price in warranty"
+          },
+          {
+            "searchName": "VisitPriceOutInsurance",
+            "columnName": "VisitPriceOutInsurance",
+            "insertType": "number",
+            "arColumnLabel": "سعر الزيارة خارج الضمان",
+            "enColumnLabel": "Visit price outside the warranty "
+          },
+          {
+            "searchName": "TransportionPriceInsuranse",
+            "columnName": "TransportionPriceInsuranse",
+            "insertType": "number",
+            "arColumnLabel": "النقل داخل الضمان",
+            "enColumnLabel": "Transportation in of the warranty"
+          },
+          {
+            "searchName": "TransportionPriceOutInsuranse",
+            "columnName": "TransportionPriceOutInsuranse",
+            "insertType": "number",
+            "arColumnLabel": "النقل خارج الضمان",
+            "enColumnLabel": "Transportation out of warranty"
+          },
+          {
+            "searchName": "InsuranceStartDate",
+            "columnName": "InsuranceStartDate",
+            "insertType": "date",
+            "arColumnLabel": "بداية الضمان",
+            "enColumnLabel": "Beginning of the warranty"
+          },
+          {
+            "searchName": "InsuranceEndDate",
+            "columnName": "InsuranceEndDate",
+            "insertType": "date",
+            "arColumnLabel": "نهايةالضمان",
+            "enColumnLabel": "Warranty end "
+          },
+          {
+            "searchName": "InsuranceLimit",
+            "columnName": "InsuranceLimit",
+            "insertType": "number",
+            "arColumnLabel": "ضمان عداد",
+            "enColumnLabel": "Insurance Limit"
+          },
+          {
+            "searchName": "EndVisitsDate",
+            "columnName": "EndVisitsDate",
+            "insertType": "date",
+            "arColumnLabel": "نهاية تاريخ الزيارات",
+            "enColumnLabel": "Visits end date"
+          },
+          {
+            "searchName": "UsedFromInsurance",
+            "columnName": "UsedFromInsurance",
+            "insertType": "number",
+            "arColumnLabel": "استخدام عداد",
+            "enColumnLabel": "Use a counter"
+          },
+          {
+            "searchName": "ISID",
+            "columnName": "ISID",
+            "insertType": "text",
+            "arColumnLabel": "",
+            "enColumnLabel": "District "
+          },
+          {
+            "searchName": "ISName",
+            "columnName": "ISName",
+            "insertType": "text",
+            "arColumnLabel": "اسم القسط",
+            "enColumnLabel": "Installment value"
+          },
+          {
+            "searchName": "ISNumber",
+            "columnName": "ISNumber",
+            "insertType": "number",
+            "arColumnLabel": "عدد الاقساط",
+            "enColumnLabel": "Number of installments"
+          },
+          {
+            "searchName": "ISStartDate",
+            "columnName": "ISStartDate",
+            "insertType": "date",
+            "arColumnLabel": "تاريخ اول قسط",
+            "enColumnLabel": "First installment date "
+          },
+          {
+            "searchName": "ISmony",
+            "columnName": "ISmony",
+            "insertType": "number",
+            "arColumnLabel": "قيمة القسط",
+            "enColumnLabel": "Installment Months"
+          },
+          {
+            "searchName": "ISNote",
+            "columnName": "ISNote",
+            "insertType": "text",
+            "arColumnLabel": "ملاحظة",
+            "enColumnLabel": "Note "
+          },
+          {
+            "searchName": "ISMonth",
+            "columnName": "ISMonth",
+            "insertType": "number",
+            "arColumnLabel": "شهور القسط",
+            "enColumnLabel": "Installment Months"
+          },
+          {
+            "searchName": "IsSystemResale",
+            "columnName": "IsSystemResale",
+            "insertType": "checkbox",
+            "arColumnLabel": "مرتجع",
+            "enColumnLabel": "Return"
+          },
+          {
+            "searchName": "ContractID",
+            "columnName": "ContractID",
+            "insertType": "number",
+            "arColumnLabel": "",
+            "enColumnLabel": "Beginning of the counter"
+          },
+          {
+            "searchName": "CurrentQTY",
+            "columnName": "CurrentQTY",
+            "insertType": "text",
+            "arColumnLabel": "الكمية المتاحة",
+            "enColumnLabel": "Quantity available"
+          },
+          {
+            "searchName": "DeliveryDate",
+            "columnName": "DeliveryDate",
+            "insertType": "date",
+            "arColumnLabel": "تاريخ التسليم",
+            "enColumnLabel": "Delivery date "
+          },
+          {
+            "searchName": "SystemID",
+            "columnName": "SystemID",
+            "insertType": "number",
+            "arColumnLabel": "",
+            "enColumnLabel": " counter warranty"
+          },
+          {
+            "searchName": "IsShipable",
+            "columnName": "IsShipable",
+            "insertType": "checkbox",
+            "arColumnLabel": "يشحن",
+            "enColumnLabel": "Is Shippable"
+          },
+          {
+            "searchName": "CostCenterID",
+            "columnName": "CostCenterID",
+            "insertType": "dropdown",
+            "droModel": "CostItems",
+            "droValue": "CIID",
+            "droText": "CIName",
+            "arColumnLabel": "مركز التكلفه",
+            "enColumnLabel": "Cost Center "
+          },
+          {
+            "searchName": "lastDate",
+            "columnName": "lastDate",
+            "insertType": "date",
+            "arColumnLabel": "أخر تاريخ",
+            "enColumnLabel": "last Date"
+          },
+          {
+            "searchName": "lastPrice",
+            "columnName": "lastPrice",
+            "insertType": "number",
+            "arColumnLabel": "أخر سعر",
+            "enColumnLabel": "Last Price"
+          },
+          {
+            "searchName": "HasInstallationVisit",
+            "columnName": "HasInstallationVisit",
+            "insertType": "checkbox",
+            "arColumnLabel": "زيارة تركيب",
+            "enColumnLabel": "Installation visit"
+          },
+          {
+            "searchName": "IsGenerated",
+            "columnName": "IsGenerated",
+            "insertType": "checkbox",
+            "arColumnLabel": "عقد مجدد",
+            "enColumnLabel": "Renewed Contract "
+          },
+          {
+            "searchName": "Note4",
+            "columnName": "Note4",
+            "insertType": "text",
+            "arColumnLabel": "اسم مسئول المشتريات",
+            "enColumnLabel": "Name of Purchasing Manager"
+          },
+          {
+            "searchName": "Note2",
+            "columnName": "Note2",
+            "insertType": "text",
+            "arColumnLabel": "ملاحظة2",
+            "enColumnLabel": "Note 2 "
+          },
+          {
+            "searchName": "Note3",
+            "columnName": "Note3",
+            "insertType": "text",
+            "arColumnLabel": "ملاحظة 3",
+            "enColumnLabel": "Note 3 "
+          },
+          {
+            "searchName": "Note5",
+            "columnName": "Note5",
+            "insertType": "text",
+            "arColumnLabel": "ملاحظة 5",
+            "enColumnLabel": " Note 5 "
+          },
+          {
+            "searchName": "Note7",
+            "columnName": "Note7",
+            "insertType": "checkbox",
+            "arColumnLabel": "ملاحظة 7",
+            "enColumnLabel": "Note 7 "
+          },
+          {
+            "searchName": "Note11",
+            "columnName": "Note11",
+            "insertType": "text",
+            "arColumnLabel": "ملاحظة 11",
+            "enColumnLabel": "Note 11 "
+          },
+          {
+            "searchName": "Note12",
+            "columnName": "Note12",
+            "insertType": "text",
+            "arColumnLabel": "ملاحظة 12",
+            "enColumnLabel": "Note 12 "
+          },
+          {
+            "searchName": "Note13",
+            "columnName": "Note13",
+            "insertType": "text",
+            "arColumnLabel": "ملاحظة 13",
+            "enColumnLabel": "Note 13 "
+          },
+          {
+            "searchName": "Note14",
+            "columnName": "Note14",
+            "insertType": "text",
+            "arColumnLabel": "ملاحظة 14",
+            "enColumnLabel": "Note 14 "
+          },
+          {
+            "searchName": "Note15",
+            "columnName": "Note15",
+            "insertType": "text",
+            "arColumnLabel": "ملاحظة 15",
+            "enColumnLabel": "Note 15 "
+          },
+          {
+            "searchName": "Note17",
+            "columnName": "Note17",
+            "insertType": "text",
+            "arColumnLabel": "ملاحظة 17",
+            "enColumnLabel": "Note 17 "
+          },
+          {
+            "searchName": "Note19",
+            "columnName": "Note19",
+            "insertType": "text",
+            "arColumnLabel": "ملاحظة 19",
+            "enColumnLabel": "Note 19 "
+          },
+          {
+            "searchName": "Note20",
+            "columnName": "Note20",
+            "insertType": "text",
+            "arColumnLabel": "ملاحظة 20",
+            "enColumnLabel": "Note 20 "
+          },
+          {
+            "searchName": "CostItemId",
+            "columnName": "CostItemId",
+            "insertType": "dropdown",
+            "droModel": "CostItemsWithParentNameView",
+            "droValue": "CIID",
+            "droText": "fullname",
+            "arColumnLabel": "مركز التكلفة",
+            "enColumnLabel": "Cost Center "
+          },
+          {
+            "searchName": "Note6",
+            "columnName": "Note6",
+            "insertType": "text",
+            "arColumnLabel": "ملاحظة السداد",
+            "enColumnLabel": "Payment note"
+          },
+          {
+            "searchName": "Note9",
+            "columnName": "Note9",
+            "insertType": "dropdown",
+            "droModel": "CustomDropdown1",
+            "droValue": "Id",
+            "droText": "Name",
+            "arColumnLabel": "مكان التسليم",
+            "enColumnLabel": "Delivery place"
+          },
+          {
+            "searchName": "Note10",
+            "columnName": "Note10",
+            "insertType": "dropdown",
+            "droModel": "CustomDropdown2",
+            "droValue": "Id",
+            "droText": "Name",
+            "arColumnLabel": "طريقة السداد",
+            "enColumnLabel": "Payment methods"
+          },
+          {
+            "searchName": "CustomerID",
+            "columnName": "CustomerID",
+            "insertType": "dropdown",
+            "droModel": "CustomerAccountView",
+            "droValue": "CustomerAccountID",
+            "droText": "CustomerAccountName",
+            "arColumnLabel": "اسم العميل",
+            "enColumnLabel": "Client name"
+          },
+          {
+            "searchName": "DifQty",
+            "columnName": "DifQty",
+            "insertType": "number",
+            "arColumnLabel": "فرق الوزن الهندسي",
+            "enColumnLabel": "Engineering weight difference"
+          },
+          {
+            "searchName": "SecUnit",
+            "columnName": "SecUnit",
+            "insertType": "dropdown",
+            "droModel": "Units",
+            "droValue": "UID",
+            "droText": "UName",
+            "arColumnLabel": "وحدة العدد",
+            "enColumnLabel": "Number unit"
+          },
+          {
+            "searchName": "Expirdate",
+            "columnName": "Expirdate",
+            "insertType": "date",
+            "arColumnLabel": "تاريخ الصلاحية",
+            "enColumnLabel": "Expiration date"
+          },
+          {
+            "searchName": "EngWeight",
+            "columnName": "EngWeight",
+            "insertType": "number",
+            "arColumnLabel": "الوزن الهندسى",
+            "enColumnLabel": "Geometric weight"
+          },
+          {
+            "searchName": "GuidePrice",
+            "columnName": "GuidePrice",
+            "insertType": "number",
+            "arColumnLabel": "السعر الاسترشادى",
+            "enColumnLabel": "Guidance price"
+          },
+          {
+            "searchName": "Hight",
+            "columnName": "Hight",
+            "insertType": "number",
+            "arColumnLabel": "الارتفاع",
+            "enColumnLabel": " Height "
+          },
+          {
+            "searchName": "Density",
+            "columnName": "Density",
+            "insertType": "number",
+            "arColumnLabel": "الكثافة",
+            "enColumnLabel": "Density "
+          },
+          {
+            "searchName": "SafeAccount",
+            "columnName": "SafeAccount",
+            "insertType": "dropdown",
+            "droModel": "MonyAccount",
+            "droValue": "AcID",
+            "droText": "FullName",
+            "arColumnLabel": "الخزينة",
+            "enColumnLabel": "cash "
+          },
+          {
+            "searchName": "NonActiveSystem",
+            "columnName": "NonActiveSystem",
+            "insertType": "checkbox",
+            "arColumnLabel": "غير فعال",
+            "enColumnLabel": "Inactive "
+          },
+          {
+            "searchName": "PPIID",
+            "columnName": "PPIID",
+            "insertType": "number",
+            "arColumnLabel": "اذن الصرف",
+            "enColumnLabel": "exchange request"
+          },
+          {
+            "searchName": "IsPaid",
+            "columnName": "IsPaid",
+            "insertType": "checkbox",
+            "arColumnLabel": "تم التحصيل",
+            "enColumnLabel": "Collected "
+          },
+          {
+            "searchName": "DimantionID",
+            "columnName": "DimantionID",
+            "insertType": "dropdown",
+            "droModel": "Dimantion",
+            "droValue": "DID",
+            "droText": "DName",
+            "arColumnLabel": "الخدمة",
+            "enColumnLabel": "Service"
+          },
+          {
+            "searchName": "supplyerOrderId",
+            "columnName": "supplyerOrderId",
+            "insertType": "dropdown",
+            "droModel": "SupplyOrderNotContractedreviewd",
+            "droValue": "SupplyOrderID",
+            "droText": "SupplyOrderName",
+            "arColumnLabel": "امر بيع",
+            "enColumnLabel": "Sales order"
+          },
+          {
+            "searchName": "UnitePrice",
+            "columnName": "UnitePrice",
+            "insertType": "number",
+            "arColumnLabel": "السعر محلي",
+            "enColumnLabel": "Local Price "
+          },
+          {
+            "searchName": "SecQuntity",
+            "columnName": "SecQuntity",
+            "insertType": "number",
+            "arColumnLabel": "الكمية الاخرى",
+            "enColumnLabel": "Other Quantity "
+          },
+          {
+            "searchName": "Tax",
+            "columnName": "Tax",
+            "insertType": "number",
+            "arColumnLabel": "ضريبة القيمة المضافة",
+            "enColumnLabel": "VAT"
+          },
+          {
+            "searchName": "AddTaxCurrancy",
+            "columnName": "AddTaxCurrancy",
+            "insertType": "number",
+            "arColumnLabel": "ضريبة الخصم والاضافة",
+            "enColumnLabel": "Tax on Deductions and Additions"
+          },
+          {
+            "searchName": "shippingPrice",
+            "columnName": "shippingPrice",
+            "insertType": "number",
+            "arColumnLabel": "مصاريف الشحن",
+            "enColumnLabel": "shipping Price"
+          },
+          {
+            "searchName": "CurrancyEX",
+            "columnName": "CurrancyEX",
+            "insertType": "number",
+            "arColumnLabel": "سعر الصرف",
+            "enColumnLabel": "ExchangePrice"
+          },
+          {
+            "searchName": "CategoryID",
+            "columnName": "CategoryID",
+            "insertType": "dropdown",
+            "droModel": "CustomerCategory",
+            "droValue": "CCID",
+            "droText": "CCName",
+            "arColumnLabel": "تصنيف العميل ",
+            "enColumnLabel": "Customer classification"
+          },
+          {
+            "searchName": "AddTax",
+            "columnName": "AddTax",
+            "insertType": "number",
+            "arColumnLabel": "ضريبة خصم منبع",
+            "enColumnLabel": "Additional tax "
+          },
+          {
+            "searchName": "TotalOrderBefor",
+            "columnName": "TotalOrderBefor",
+            "insertType": "number",
+            "arColumnLabel": "اجمالي بعد الضرائب",
+            "enColumnLabel": "Total after tax"
+          },
+          {
+            "searchName": "TaxCurrancy",
+            "columnName": "TaxCurrancy",
+            "insertType": "number",
+            "arColumnLabel": "ضريبة القيمة المضافة",
+            "enColumnLabel": "VAT"
+          },
+          {
+            "searchName": "TotalOrderBeforCurrancy",
+            "columnName": "TotalOrderBeforCurrancy",
+            "insertType": "number",
+            "arColumnLabel": "اجمالي بعد الضرائب",
+            "enColumnLabel": "Total after tax"
+          },
+          {
+            "searchName": "CurrancyID",
+            "columnName": "CurrancyID",
+            "insertType": "dropdown",
+            "droModel": "Currancy",
+            "droValue": "CID",
+            "droText": "CName",
+            "arColumnLabel": "عملة البيع",
+            "enColumnLabel": "Selling currency"
+          },
+          {
+            "searchName": "TotalOrder",
+            "columnName": "TotalOrder",
+            "insertType": "number",
+            "arColumnLabel": "اجمالي",
+            "enColumnLabel": "Total "
+          },
+          {
+            "searchName": "SalesMan",
+            "columnName": "SalesMan",
+            "insertType": "dropdown",
+            "droModel": "SalesmenView",
+            "droValue": "EmployeeID",
+            "droText": "EmployeeNameA",
+            "arColumnLabel": "رجل المبيعات",
+            "enColumnLabel": "Sales Man"
+          },
+          {
+            "searchName": "SalesTupeID",
+            "columnName": "SalesTupeID",
+            "insertType": "dropdown",
+            "droModel": "SalesTupe",
+            "droValue": "STID",
+            "droText": "STName",
+            "arColumnLabel": "قناة البيع",
+            "enColumnLabel": "Sales channel "
+          },
+          {
+            "searchName": "StoreID",
+            "columnName": "StoreID",
+            "insertType": "dropdown",
+            "droModel": "StoreView",
+            "droValue": "SID",
+            "droText": "SName",
+            "arColumnLabel": "المخزن",
+            "enColumnLabel": "Inventory"
+          },
+          {
+            "searchName": "Discount",
+            "columnName": "Discount",
+            "insertType": "number",
+            "arColumnLabel": "خصم",
+            "enColumnLabel": "Discount"
+          },
+          {
+            "searchName": "POPaidCurrancy",
+            "columnName": "POPaidCurrancy",
+            "insertType": "number",
+            "arColumnLabel": "محصل اجنبي",
+            "enColumnLabel": "Foreign collected"
+          },
+          {
+            "searchName": "remind",
+            "columnName": "remind",
+            "insertType": "number",
+            "arColumnLabel": "الاجل على العميل",
+            "enColumnLabel": "Due on client "
+          },
+          {
+            "searchName": "TotalCurrancy",
+            "columnName": "TotalCurrancy",
+            "insertType": "number",
+            "arColumnLabel": "اجمالي اجنبي",
+            "enColumnLabel": "Total foreign "
+          },
+          {
+            "searchName": "DiscountCurrancy",
+            "columnName": "DiscountCurrancy",
+            "insertType": "number",
+            "arColumnLabel": "خصم مسموح به",
+            "enColumnLabel": "Allowed discount"
+          },
+          {
+            "searchName": "remindCurrancy",
+            "columnName": "remindCurrancy",
+            "insertType": "number",
+            "arColumnLabel": "الاجل الاجنبي",
+            "enColumnLabel": "Foreign due "
+          },
+          {
+            "searchName": "Code",
+            "columnName": "Code",
+            "insertType": "number",
+            "arColumnLabel": "رقم الصرف",
+            "enColumnLabel": "Exchange number"
+          },
+          {
+            "searchName": "ProductID",
+            "columnName": "ProductID",
+            "insertType": "dropdown",
+            "droModel": "ProductView",
+            "droValue": "ProID",
+            "droText": "PIndex",
+            "arColumnLabel": "الكود",
+            "enColumnLabel": "Code "
+          },
+          {
+            "searchName": "ContractProjectID",
+            "columnName": "ContractProjectID",
+            "insertType": "dropdown",
+            "droModel": "ProductNonInventory",
+            "droValue": "ProID",
+            "droText": "ProName",
+            "arColumnLabel": "المشروع",
+            "enColumnLabel": "Project"
+          }
+        ]
+      }
+    ]
+  },
+  "previousQuestion": "عايز العميل لولو",
+  "previousSql": null
+}

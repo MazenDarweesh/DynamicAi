@@ -1,0 +1,43 @@
+# ============================================================================
+# DynamicAI - Deployment Dockerfile (Backend Only)
+# ============================================================================
+
+# Stage 1: Build Backend
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS builder
+WORKDIR /src
+
+# Copy Solution & Projects
+COPY DynamicAi.sln .
+COPY src/DynamicAi.Api/DynamicAi.Api.csproj ./src/DynamicAi.Api/
+COPY src/DynamicAi.Application/DynamicAi.Application.csproj ./src/DynamicAi.Application/
+COPY src/DynamicAi.Domain/DynamicAi.Domain.csproj ./src/DynamicAi.Domain/
+COPY src/DynamicAi.Infrastructure/DynamicAi.Infrastructure.csproj ./src/DynamicAi.Infrastructure/
+
+# Restore
+RUN dotnet restore src/DynamicAi.Api/DynamicAi.Api.csproj
+
+# Copy Source
+COPY src/DynamicAi.Api/ ./src/DynamicAi.Api/
+COPY src/DynamicAi.Application/ ./src/DynamicAi.Application/
+COPY src/DynamicAi.Domain/ ./src/DynamicAi.Domain/
+COPY src/DynamicAi.Infrastructure/ ./src/DynamicAi.Infrastructure/
+
+# Publish
+WORKDIR /src/src/DynamicAi.Api
+RUN dotnet publish -c Release -o /app/publish --no-restore
+
+# Stage 2: Final Runtime
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+WORKDIR /app
+
+# Non-root user
+RUN adduser --disabled-password --gecos "" appuser
+COPY --from=builder /app/publish .
+RUN chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8080
+ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_ENVIRONMENT=Production
+
+ENTRYPOINT ["dotnet", "DynamicAi.Api.dll"]

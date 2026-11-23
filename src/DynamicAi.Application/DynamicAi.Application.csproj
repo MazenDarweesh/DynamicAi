@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
+    <PackageReference Include="Microsoft.SemanticKernel" Version="1.67.1" />
+    <PackageReference Include="Microsoft.SemanticKernel.Connectors.Google" Version="1.66.0-alpha" />
+    <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="170.128.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DynamicAi.Domain\DynamicAi.Domain.csproj" />
+  </ItemGroup>
+
+  <!-- Prompt Template files — copied to output for runtime loading -->
+  <ItemGroup>
+    <None Include="Prompts\Templates\**\*.md" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Prompts\Templates\**\*.prompt.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
