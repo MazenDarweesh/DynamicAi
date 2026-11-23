@@ -30,24 +30,16 @@ namespace DynamicAi.Application.Services
             IEnumerable<TailConditionEntry>? tailConditions = null,
             CancellationToken ct = default)
         {
-            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-            _logger.LogInformation("║             [Layer 4.8: SQL REWRITER] - HARDENING                      ║");
-            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
-
             var entries = tailConditions?.ToList() ?? new List<TailConditionEntry>();
+            _logger.LogInformation("[SqlRewriter] Hardening SQL ({Count} TailCondition entries)", entries.Count);
 
             if (entries.Any())
             {
-                _logger.LogInformation("[SqlRewriter] 🛡️ TailCondition entries to verify ({Count}):", entries.Count);
                 foreach (var e in entries)
                 {
-                    _logger.LogInformation("[SqlRewriter]   • View={ViewName} | Alias={Alias} | Condition={Condition}",
+                    _logger.LogDebug("[SqlRewriter] TailCondition: View={ViewName} | Alias={Alias} | Condition={Condition}",
                         e.ViewName, e.SqlAlias, e.Condition);
                 }
-            }
-            else
-            {
-                _logger.LogInformation("[SqlRewriter] ℹ️ No TailCondition entries provided.");
             }
 
             // 1. Parse SQL

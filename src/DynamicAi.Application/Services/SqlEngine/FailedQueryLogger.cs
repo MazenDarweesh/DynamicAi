@@ -57,14 +57,9 @@ ERROR/REASON:
 
             await File.AppendAllTextAsync(_logFilePath, entry);
 
-            // Enhanced console logging
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine($"\n[FailedQueryLogger] ✓ Logged failed query to: {_logFilePath}");
-            Console.WriteLine($"[FailedQueryLogger] SQL Preview (first 200 chars): {(sql.Length > 200 ? sql.Substring(0, 200) + "..." : sql)}");
-            Console.ResetColor();
-
             _logger.LogWarning(
-                "[FailedQueryLogger] Failed query logged: Question='{Question}', Tenant={TenantId}, Company={CompanyId}",
+                "[FailedQueryLogger] Failed query logged to {LogPath}: Question='{Question}', Tenant={TenantId}, Company={CompanyId}",
+                _logFilePath,
                 question.Length > 50 ? question.Substring(0, 50) + "..." : question,
                 tenantId,
                 companyId);
@@ -72,9 +67,6 @@ ERROR/REASON:
         catch (Exception ex)
         {
             _logger.LogError(ex, "[FailedQueryLogger] Failed to log query");
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"[FailedQueryLogger] ⚠ Failed to log: {ex.Message}");
-            Console.ResetColor();
         }
         finally
         {

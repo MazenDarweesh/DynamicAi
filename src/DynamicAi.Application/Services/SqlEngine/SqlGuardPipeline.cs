@@ -1,7 +1,10 @@
+using System.Diagnostics;
+using System.Security;
 using DynamicAi.Application.Exceptions;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Models.DirectIntegration;
+using DynamicAi.Application.Observability;
 using DynamicAi.Application.Security;
 using Microsoft.Extensions.Logging;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
@@ -37,63 +40,104 @@ public class SqlGuardPipeline : ISqlGuardPipeline
         Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask = null,
         string? connectionString = null)
     {
-        // 1. Single Parse
-        var parser = new TSql160Parser(false);
-        IList<ParseError> errors;
-        TSqlFragment fragment;
+        using var guardActivity = DynamicAiTelemetry.ActivitySource.StartActivity("sql.guard");
+        bool securityOk = false;
+        bool sanitizedOk = false;
 
-        using (var reader = new StringReader(rawSql))
+        try
         {
-            fragment = parser.Parse(reader, out errors);
-        }
+            // 1. Single Parse
+            var parser = new TSql160Parser(false);
+            IList<ParseError> errors;
+            TSqlFragment fragment;
 
-        if (errors.Any())
-        {
-            foreach (var error in errors)
+            using (var reader = new StringReader(rawSql))
             {
-                _logger.LogError("  - SQL Syntax Error at Line {Line}, Column {Column}: {Message}", error.Line, error.Column, error.Message);
+                fragment = parser.Parse(reader, out errors);
             }
-            throw new InvalidDataException($"SQL Syntax Error: {errors.First().Message}");
+
+            if (errors.Any())
+            {
+                foreach (var error in errors)
+                {
+                    _logger.LogError("SQL Syntax Error at Line {Line}, Column {Column}: {Message}", error.Line, error.Column, error.Message);
+                }
+                throw new InvalidDataException($"SQL Syntax Error: {errors.First().Message}");
+            }
+
+            // 2. Validation (TOP + OFFSET and SecurityVisitor)
+            var topOffsetChecker = new TopOffsetChecker();
+            fragment.Accept(topOffsetChecker);
+
+            if (topOffsetChecker.HasTopAndOffset)
+            {
+                throw new InvalidDataException(
+                    "SQL Validation Failed: The query contains both TOP and OFFSET clauses. " +
+                    "T-SQL does not allow combining TOP with OFFSET (even in nested queries). " +
+                    "Please use OFFSET/FETCH ONLY for paging.");
+            }
+
+            SecurityVisitor.ValidateReadOnlyScript(fragment);
+            securityOk = true;
+            guardActivity?.SetTag("sql.security_ok", true);
+
+            // 3. Extract referenced tables & Schema Sanitization
+            var tableExtractor = new TableNameExtractor();
+            fragment.Accept(tableExtractor);
+            var allReferencedTables = tableExtractor.TableNames.ToList();
+            guardActivity?.SetTag("sql.tables_count", allReferencedTables.Count);
+
+            await ValidateSchemaAsync(fragment, allReferencedTables, schemaPrefetchTask, connectionString, ct);
+            sanitizedOk = true;
+            guardActivity?.SetTag("sql.sanitized_ok", true);
+
+            // 4. Hardening
+            var entries = tailConditions?.ToList() ?? new List<TailConditionEntry>();
+            var parameters = new Dictionary<string, object>();
+
+            if (companyId.HasValue && rawSql.Contains("@CurrentCompanyId", StringComparison.OrdinalIgnoreCase))
+            {
+                parameters["@CurrentCompanyId"] = companyId.Value;
+            }
+
+            var hardeningVisitor = new SqlHardeningVisitor(parameters, tenantId, MaxRowsLimit, entries);
+            fragment.AcceptChildren(hardeningVisitor);
+
+            var sqlGenerator = new Sql160ScriptGenerator();
+            sqlGenerator.GenerateScript(fragment, out string rewrittenSql);
+
+            _logger.LogInformation("[SqlGuardPipeline] Single-pass guard & hardening complete. Tables={TablesCount}, OutputChars={Len}",
+                allReferencedTables.Count, rewrittenSql.Length);
+            return new RewrittenSqlResult(rewrittenSql, hardeningVisitor.Parameters);
         }
-
-        // 2. Validation (TOP + OFFSET and SecurityVisitor)
-        var topOffsetChecker = new TopOffsetChecker();
-        fragment.Accept(topOffsetChecker);
-
-        if (topOffsetChecker.HasTopAndOffset)
+        catch (SecurityException ex)
         {
-            throw new InvalidDataException(
-                "SQL Validation Failed: The query contains both TOP and OFFSET clauses. " +
-                "T-SQL does not allow combining TOP with OFFSET (even in nested queries). " +
-                "Please use OFFSET/FETCH ONLY for paging.");
+            guardActivity?.SetTag("sql.security_ok", false);
+            guardActivity?.SetTag("sql.sanitized_ok", sanitizedOk);
+            guardActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            DynamicAiTelemetry.SecurityBlocked.Add(1,
+                new KeyValuePair<string, object?>("reason", "security_exception"));
+            throw;
         }
-
-        SecurityVisitor.ValidateReadOnlyScript(fragment);
-
-        // 3. Schema Sanitization
-        await ValidateSchemaAsync(fragment, schemaPrefetchTask, connectionString, ct);
-
-        // 4. Hardening
-        var entries = tailConditions?.ToList() ?? new List<TailConditionEntry>();
-        var parameters = new Dictionary<string, object>();
-
-        if (companyId.HasValue && rawSql.Contains("@CurrentCompanyId", StringComparison.OrdinalIgnoreCase))
+        catch (SqlSanitizationException ex)
         {
-            parameters["@CurrentCompanyId"] = companyId.Value;
+            guardActivity?.SetTag("sql.security_ok", securityOk);
+            guardActivity?.SetTag("sql.sanitized_ok", false);
+            guardActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
         }
-
-        var hardeningVisitor = new SqlHardeningVisitor(parameters, tenantId, MaxRowsLimit, entries);
-        fragment.AcceptChildren(hardeningVisitor);
-
-        var sqlGenerator = new Sql160ScriptGenerator();
-        sqlGenerator.GenerateScript(fragment, out string rewrittenSql);
-
-        _logger.LogInformation("[SqlGuardPipeline] Single-pass guard & hardening complete. Output length: {Len} chars", rewrittenSql.Length);
-        return new RewrittenSqlResult(rewrittenSql, hardeningVisitor.Parameters);
+        catch (Exception ex)
+        {
+            guardActivity?.SetTag("sql.security_ok", securityOk);
+            guardActivity?.SetTag("sql.sanitized_ok", sanitizedOk);
+            guardActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
+        }
     }
 
     private async Task ValidateSchemaAsync(
         TSqlFragment fragment,
+        List<string> allReferencedTables,
         Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask,
         string? connectionString,
         CancellationToken ct)
@@ -116,10 +160,6 @@ public class SqlGuardPipeline : ISqlGuardPipeline
             _logger.LogWarning("[SqlGuardPipeline] Schema map is empty. Skipping sanitization (Fail-Open).");
             return;
         }
-
-        var tableExtractor = new TableNameExtractor();
-        fragment.Accept(tableExtractor);
-        var allReferencedTables = tableExtractor.TableNames.ToList();
 
         if (!string.IsNullOrEmpty(connectionString))
         {

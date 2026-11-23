@@ -1,5 +1,6 @@
 ﻿using Microsoft.SqlServer.TransactSql.ScriptDom;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Security;
 
 namespace DynamicAi.Application.Security
@@ -124,10 +125,7 @@ namespace DynamicAi.Application.Security
                 // التحقق من القائمة السوداء فقط
                 if (_blacklistedTables.Contains(tableName))
                 {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"[SecurityVisitor] ⛔ Blocked Table: '{tableName}' (Blacklisted)");
-                    Console.ResetColor();
-
+                    Activity.Current?.SetTag("security.blocked_table", tableName);
                     throw new SecurityException($"Security Validation Failed: Access to table '{tableName}' is explicitly forbidden.");
                 }
             }
@@ -143,10 +141,7 @@ namespace DynamicAi.Application.Security
             {
                 if (_blacklistedFunctions.Contains(node.FunctionName.Value))
                 {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"[SecurityVisitor] ⛔ Blocked Function: '{node.FunctionName.Value}'");
-                    Console.ResetColor();
-
+                    Activity.Current?.SetTag("security.blocked_function", node.FunctionName.Value);
                     throw new SecurityException($"Security Validation Failed: Use of function '{node.FunctionName.Value}' is not allowed.");
                 }
             }

@@ -28,32 +28,11 @@ namespace DynamicAi.Application.Services
         /// </summary>
         public Task ValidateSqlAsync(string rawSql, string tenantId, CancellationToken ct = default)
         {
-            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-            _logger.LogInformation("║              [Layer 4: SQL VALIDATOR] - STARTING VALIDATION            ║");
-            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+            _logger.LogInformation("[SqlValidator] Starting validation for TenantId={TenantId}, SqlChars={SqlLength}", tenantId, rawSql.Length);
+            _logger.LogDebug("[SqlValidator] Raw SQL: {RawSql}", rawSql);
 
-            _logger.LogInformation("[SqlValidator] TenantId: {TenantId}", tenantId);
-            _logger.LogInformation("[SqlValidator] SQL Length: {SqlLength} characters", rawSql.Length);
-
-            // DEBUG: Print full SQL for debugging TOP+OFFSET issue
-            _logger.LogDebug("[SqlValidator] ═══════════════════════ FULL SQL START ═══════════════════════");
-            _logger.LogDebug("[SqlValidator] {RawSql}", rawSql);
-            _logger.LogDebug("[SqlValidator] ═══════════════════════ FULL SQL END ═══════════════════════");
-
-            // ============================================================================
-            // STEP 1: تحديد المحلل (Parser)
-            // ============================================================================
-            _logger.LogInformation("[SqlValidator] STEP 1: Initializing TSql160Parser (SQL Server 2022)...");
-
+            // STEP 1: Parse SQL (Syntax Validation)
             TSqlParser parser = new TSql160Parser(false);
-
-            _logger.LogInformation("[SqlValidator] ✓ Parser initialized successfully.");
-
-            // ============================================================================
-            // STEP 2: التحقق من بناء الجملة (Syntax Validation)
-            // ============================================================================
-            _logger.LogInformation("[SqlValidator] STEP 2: Parsing SQL for syntax validation...");
-
             IList<ParseError> errors;
             TSqlFragment fragment;
 
@@ -62,90 +41,42 @@ namespace DynamicAi.Application.Services
                 fragment = parser.Parse(reader, out errors);
             }
 
-            // عرض نتيجة التحليل
             if (errors.Any())
             {
-                _logger.LogError("[SqlValidator] ✗ SYNTAX VALIDATION FAILED!");
-                _logger.LogError("[SqlValidator] Found {ErrorCount} syntax error(s):", errors.Count);
-
                 foreach (var error in errors)
                 {
-                    _logger.LogError("  - Error at Line {Line}, Column {Column}: {Message}", error.Line, error.Column, error.Message);
+                    _logger.LogError("[SqlValidator] Syntax error at Line {Line}, Column {Column}: {Message}", error.Line, error.Column, error.Message);
                 }
 
-                _logger.LogError("[SqlValidator] 🚨 BROKEN SQL CONTENT: \n{RawSql}", rawSql);
-
-                _logger.LogError("╔════════════════════════════════════════════════════════════════════════╗");
-                _logger.LogError("║              [Layer 4: SQL VALIDATOR] - VALIDATION FAILED             ║");
-                _logger.LogError("╚════════════════════════════════════════════════════════════════════════╝");
-
+                _logger.LogError("[SqlValidator] Validation failed with {ErrorCount} syntax error(s)", errors.Count);
                 throw new InvalidDataException($"SQL Syntax Error: {errors.First().Message}");
             }
 
-            _logger.LogInformation("[SqlValidator] ✓ Syntax validation passed. SQL is well-formed.");
-
-            // ============================================================================
-            // STEP 2.5: التحقق من TOP + OFFSET (Tree-Wide)
-            // SQL Server Error 10741: Cannot combine TOP with OFFSET in same query/subquery
-            // ============================================================================
-            _logger.LogInformation("[SqlValidator] STEP 2.5: Checking for illegal TOP + OFFSET combination...");
-
+            // STEP 2.5: TOP + OFFSET Check (Tree-Wide, SQL Server Error 10741)
             var topOffsetChecker = new TopOffsetChecker();
             fragment.Accept(topOffsetChecker);
 
             if (topOffsetChecker.HasTopAndOffset)
             {
-                _logger.LogError("[SqlValidator] ✗ TOP + OFFSET VALIDATION FAILED!");
-                _logger.LogError("[SqlValidator] SQL contains both TOP and OFFSET clauses (possibly in nested queries).");
-                _logger.LogError("[SqlValidator] This combination is illegal in T-SQL (Error 10741).");
-
-                _logger.LogError("╔════════════════════════════════════════════════════════════════════════╗");
-                _logger.LogError("║           [Layer 4: SQL VALIDATOR] - TOP+OFFSET VIOLATION             ║");
-                _logger.LogError("╚════════════════════════════════════════════════════════════════════════╝");
-
+                _logger.LogError("[SqlValidator] Validation failed: illegal TOP + OFFSET combination detected");
                 throw new InvalidDataException(
                     "SQL Validation Failed: The query contains both TOP and OFFSET clauses. " +
                     "T-SQL does not allow combining TOP with OFFSET (even in nested queries). " +
                     "Please use OFFSET/FETCH ONLY for paging.");
             }
 
-            _logger.LogInformation("[SqlValidator] ✓ TOP + OFFSET check passed.");
-
-            // ============================================================================
-            // STEP 3: التحقق الأمني (Security Validation) - ENABLED!
-            // ============================================================================
-            _logger.LogInformation("[SqlValidator] STEP 3: Performing security validation (Blacklist-Only)...");
-
-            // إنشاء الزائر الأمني (بدون Whitelist)
-            _logger.LogInformation("[SqlValidator] Initiating SecurityVisitor to traverse SQL AST...");
-            _logger.LogInformation("[SqlValidator] Checking for: single SELECT only, no SELECT INTO, no DDL/DML/EXEC/WAITFOR/OPENROWSET.");
-
+            // STEP 3: Security Validation (Blacklist-Only AST Traversal)
             try
             {
-                // التجول في شجرة بناء الجملة (AST)
                 SecurityVisitor.ValidateReadOnlyScript(fragment);
-
-                _logger.LogInformation("[SqlValidator] ✓ Security validation passed. No forbidden statements detected.");
             }
             catch (Exception secEx)
             {
-                _logger.LogError("[SqlValidator] ✗ SECURITY VALIDATION FAILED!");
-                _logger.LogError("[SqlValidator] Security violation detected: {Message}", secEx.Message);
-
-                _logger.LogError("╔════════════════════════════════════════════════════════════════════════╗");
-                _logger.LogError("║              [Layer 4: SQL VALIDATOR] - SECURITY VIOLATION            ║");
-                _logger.LogError("╚════════════════════════════════════════════════════════════════════════╝");
-
+                _logger.LogError("[SqlValidator] Security validation failed: {Message}", secEx.Message);
                 throw;
             }
 
-            // ============================================================================
-            // STEP 4: النجاح - الخروج
-            // ============================================================================
-            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-            _logger.LogInformation("║           [Layer 4: SQL VALIDATOR] - VALIDATION SUCCESSFUL            ║");
-            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
-
+            _logger.LogInformation("[SqlValidator] Validation passed for TenantId={TenantId}", tenantId);
             return Task.CompletedTask;
         }
     }

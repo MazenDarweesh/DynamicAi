@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Models.DirectIntegration;
+using DynamicAi.Application.Observability;
 using DynamicAi.Application.Services.Handlers;
 using Microsoft.Extensions.Logging;
 
@@ -59,12 +61,43 @@ public class SqlExecutionPipeline : ISqlExecutionPipeline
 
         var finalSql = rewrittenResult.RewrittenSql;
 
-        _logger.LogInformation("[SqlExecutionPipeline] Executing final SQL...");
-        var executionResult = await _executionService.ExecuteSqlAsync(
-            finalSql,
-            rewrittenResult.Parameters,
-            context?.ConnectionString,
-            ct);
+        _logger.LogInformation("[SqlExecutionPipeline] Executing hardened SQL (PageId={PageId})", pageId);
+        IEnumerable<dynamic> executionResult;
+
+        using (var execActivity = DynamicAiTelemetry.ActivitySource.StartActivity("sql.execute"))
+        {
+            execActivity?.SetTag("page.id", pageId);
+            var sqlStart = Stopwatch.GetTimestamp();
+            try
+            {
+                executionResult = await _executionService.ExecuteSqlAsync(
+                    finalSql,
+                    rewrittenResult.Parameters,
+                    context?.ConnectionString,
+                    ct);
+
+                var sqlDurationMs = Stopwatch.GetElapsedTime(sqlStart).TotalMilliseconds;
+                var rowsList = executionResult as ICollection<dynamic> ?? executionResult.ToList();
+                executionResult = rowsList;
+                var rowCount = rowsList.Count;
+
+                execActivity?.SetTag("db.rows", rowCount);
+                execActivity?.SetTag("db.duration_ms", sqlDurationMs);
+                DynamicAiTelemetry.SqlDurationMs.Record(sqlDurationMs,
+                    new KeyValuePair<string, object?>("success", true));
+            }
+            catch (Exception ex)
+            {
+                var sqlDurationMs = Stopwatch.GetElapsedTime(sqlStart).TotalMilliseconds;
+                execActivity?.SetTag("db.duration_ms", sqlDurationMs);
+                execActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                DynamicAiTelemetry.SqlDurationMs.Record(sqlDurationMs,
+                    new KeyValuePair<string, object?>("success", false));
+                DynamicAiTelemetry.SqlErrors.Add(1,
+                    new KeyValuePair<string, object?>("error.type", ex.GetType().Name));
+                throw;
+            }
+        }
 
         var queryInsights = new List<string>();
         if (structuredContext != null)

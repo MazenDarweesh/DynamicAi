@@ -1,10 +1,12 @@
 using System.Data.Common;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DynamicAi.Application.Exceptions;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Models.DirectIntegration;
+using DynamicAi.Application.Observability;
 using DynamicAi.Application.Prompts;
 using DynamicAi.Domain.Entities;
 using Microsoft.Extensions.Caching.Memory;
@@ -33,6 +35,9 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
     private readonly ILogger<UnifiedQueryHandler> _logger;
     private readonly JsonSerializerOptions _jsonOptions;
     private readonly bool _compactDirectedContext;
+    private readonly bool _logSensitivePayloads;
+    private readonly string _chatModel;
+    private readonly LlmProviderPricingConfig? _pricingConfig;
 
     public UnifiedQueryHandler(
         IPromptTemplateEngine promptEngine,
@@ -59,6 +64,9 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         _logger = logger;
         _jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         _compactDirectedContext = configuration.GetValue<bool>("Features:DirectedContextCompactEnabled", false);
+        _logSensitivePayloads = configuration.GetValue<bool>(DynamicAiTelemetry.LogSensitivePayloadsConfigKey, false);
+        _chatModel = configuration["Gemini:ChatModel"] ?? "unknown";
+        _pricingConfig = configuration.GetSection("LlmProviderPricing").Get<LlmProviderPricingConfig>();
     }
 
     public async Task<QueryExecutionResult> HandleAsync(
@@ -84,30 +92,72 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         var schemaPrefetchTask = StartSchemaPrefetchIfApplicable(finalContext, context?.ConnectionString, cancellationToken);
 
         // Phase 2: Load Synonyms & Render Master Prompt
-        var approvedSynonyms = await GetApprovedSynonymsAsync(currentPageId, cancellationToken);
-        var renderedPrompt = await RenderMasterPromptAsync(userQuestion, finalContext, context, companyId, currentPageId, approvedSynonyms);
+        string renderedPrompt;
+        using (var schemaActivity = DynamicAiTelemetry.ActivitySource.StartActivity("schema.preprocess"))
+        {
+            schemaActivity?.SetTag("page.id", currentPageId);
+            var approvedSynonyms = await GetApprovedSynonymsAsync(currentPageId, cancellationToken);
+            int schemaChars;
+            (renderedPrompt, schemaChars) = await RenderMasterPromptAsync(
+                userQuestion, finalContext, context, companyId, currentPageId, approvedSynonyms);
+            schemaActivity?.SetTag("schema.chars", schemaChars);
+        }
 
-        // Phase 3: Call LLM & Track Usage
+        // Phase 3 & 4: Call LLM, Track Usage & Parse Unified JSON (with JSON self-healing retry)
         var chatHistory = new ChatHistory();
         chatHistory.AddSystemMessage(renderedPrompt);
         chatHistory.AddUserMessage(userQuestion);
 
-        var llmStart = DateTime.UtcNow;
-        var response = await _chatService.GetChatMessageContentAsync(chatHistory, cancellationToken: cancellationToken);
-        var rawResponse = response.Content ?? string.Empty;
-        _logger.LogInformation("[UnifiedHandler] ✓ LLM Responded in {Duration:F0}ms", (DateTime.UtcNow - llmStart).TotalMilliseconds);
-
-        await TrackUsageAsync(renderedPrompt, userQuestion, rawResponse, context, tenantId, companyId, cancellationToken);
-
-        // Phase 4: Parse Unified JSON (with JSON self-healing retry)
-        bool selfHealingUsed = false;
-        var parsedResponse = ExtractAndParseJson(rawResponse);
-        if (parsedResponse == null)
+        if (_logSensitivePayloads && _logger.IsEnabled(LogLevel.Debug))
         {
-            selfHealingUsed = true;
-            (parsedResponse, rawResponse) = await RetryJsonFixAsync(chatHistory, rawResponse, cancellationToken);
+            _logger.LogDebug("[UnifiedHandler] FULL RENDERED PROMPT ({Chars} chars): {Prompt}",
+                renderedPrompt.Length, renderedPrompt);
+        }
+
+        DynamicAiTelemetry.PromptChars.Record(
+            renderedPrompt.Length,
+            new KeyValuePair<string, object?>("llm.model", _chatModel));
+
+        bool selfHealingUsed = false;
+        string rawResponse;
+        UnifiedLlmResponse? parsedResponse;
+
+        using (var llmActivity = DynamicAiTelemetry.ActivitySource.StartActivity("llm.generate"))
+        {
+            var initialCall = await InvokeLlmAndTrackAsync(
+                chatHistory,
+                promptCharCount: renderedPrompt.Length + userQuestion.Length,
+                context,
+                tenantId,
+                companyId,
+                selfHealing: false,
+                cancellationToken);
+
+            rawResponse = initialCall.RawResponse;
+            int totalInputTokens = initialCall.InputTokens;
+            int totalOutputTokens = initialCall.OutputTokens;
+            string modelName = initialCall.ModelName;
+
+            parsedResponse = ExtractAndParseJson(rawResponse);
             if (parsedResponse == null)
             {
+                selfHealingUsed = true;
+                var retryCall = await RetryJsonFixAsync(chatHistory, rawResponse, context, tenantId, companyId, cancellationToken);
+                parsedResponse = retryCall.Parsed;
+                rawResponse = retryCall.RawResponse;
+                totalInputTokens += retryCall.InputTokens;
+                totalOutputTokens += retryCall.OutputTokens;
+            }
+
+            llmActivity?.SetTag("llm.model", modelName);
+            llmActivity?.SetTag("llm.tokens.in", totalInputTokens);
+            llmActivity?.SetTag("llm.tokens.out", totalOutputTokens);
+            llmActivity?.SetTag("llm.intent", parsedResponse?.Intent ?? "Unknown");
+            llmActivity?.SetTag("llm.self_healing", selfHealingUsed);
+
+            if (parsedResponse == null)
+            {
+                llmActivity?.SetStatus(ActivityStatusCode.Error, "Failed to parse JSON from LLM");
                 return new QueryExecutionResult
                 {
                     Data = new[] { new { Message = "عذراً، لم أتمكن من صياغة الإجابة بالشكل الصحيح.", Type = "Error" } },
@@ -239,7 +289,7 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         return synonyms;
     }
 
-    private async Task<string> RenderMasterPromptAsync(
+    private async Task<(string Prompt, int SchemaChars)> RenderMasterPromptAsync(
         string userQuestion,
         ShippedPageContext finalContext,
         IntentHandlerContext? context,
@@ -271,44 +321,94 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         var historyBlock = ConversationHistoryFormatter.BuildConversationHistoryBlock(context?.ConversationHistory, currentPageId, _logger);
         if (!string.IsNullOrEmpty(historyBlock)) variables["conversation_history"] = historyBlock;
 
-        return await _promptEngine.RenderAsync("unified_master", variables);
+        var prompt = await _promptEngine.RenderAsync("unified_master", variables);
+        return (prompt, schemaContent.Length);
     }
 
-    private async Task TrackUsageAsync(
-        string renderedPrompt,
-        string userQuestion,
+    private async Task<(string RawResponse, int InputTokens, int OutputTokens, string ModelName)> InvokeLlmAndTrackAsync(
+        ChatHistory chatHistory,
+        int promptCharCount,
+        IntentHandlerContext? context,
+        string tenantId,
+        int? companyId,
+        bool selfHealing,
+        CancellationToken ct)
+    {
+        var llmStart = Stopwatch.GetTimestamp();
+        var response = await _chatService.GetChatMessageContentAsync(chatHistory, cancellationToken: ct);
+        var durationMs = Stopwatch.GetElapsedTime(llmStart).TotalMilliseconds;
+        var rawResponse = response.Content ?? string.Empty;
+        var modelName = !string.IsNullOrWhiteSpace(response.ModelId) ? response.ModelId : _chatModel;
+
+        _logger.LogInformation("[UnifiedHandler] LLM responded in {Duration:F0}ms (SelfHealing={SelfHealing})",
+            durationMs, selfHealing);
+
+        if (_logSensitivePayloads && _logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug("[UnifiedHandler] RAW LLM RESPONSE ({Chars} chars): {Response}",
+                rawResponse.Length, rawResponse);
+        }
+
+        int inputTokens = Math.Max(0, promptCharCount / 4);
+        int outputTokens = Math.Max(0, rawResponse.Length / 4);
+
+        var costBefore = _usageTracker.GetSessionSummary().TotalCostUsd;
+        await _usageTracker.TrackLlmCallAsync(
+            LlmOperationType.SqlGeneration,
+            requestId: context?.QueryLogId?.ToString() ?? Guid.NewGuid().ToString(),
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            cachedTokens: 0,
+            tenantId: tenantId,
+            companyId: companyId,
+            cancellationToken: ct);
+
+        var pricing = _pricingConfig?.GetActiveModelPricing(modelName);
+        double callCostUsd = pricing != null
+            ? (double)pricing.CalculateCost(inputTokens, outputTokens, 0)
+            : Math.Max(0d, _usageTracker.GetSessionSummary().TotalCostUsd - costBefore);
+
+        DynamicAiTelemetry.LlmDurationMs.Record(durationMs,
+            new KeyValuePair<string, object?>("llm.model", modelName),
+            new KeyValuePair<string, object?>("llm.self_healing", selfHealing));
+        DynamicAiTelemetry.LlmTokens.Add(inputTokens,
+            new KeyValuePair<string, object?>("llm.model", modelName),
+            new KeyValuePair<string, object?>("token.type", "input"));
+        DynamicAiTelemetry.LlmTokens.Add(outputTokens,
+            new KeyValuePair<string, object?>("llm.model", modelName),
+            new KeyValuePair<string, object?>("token.type", "output"));
+        DynamicAiTelemetry.LlmCostUsd.Add(callCostUsd,
+            new KeyValuePair<string, object?>("llm.model", modelName));
+
+        return (rawResponse, inputTokens, outputTokens, modelName);
+    }
+
+    private async Task<(UnifiedLlmResponse? Parsed, string RawResponse, int InputTokens, int OutputTokens)> RetryJsonFixAsync(
+        ChatHistory chatHistory,
         string rawResponse,
         IntentHandlerContext? context,
         string tenantId,
         int? companyId,
         CancellationToken ct)
     {
-        await _usageTracker.TrackLlmCallAsync(
-            LlmOperationType.SqlGeneration,
-            requestId: context?.QueryLogId?.ToString() ?? Guid.NewGuid().ToString(),
-            inputTokens: (renderedPrompt.Length + userQuestion.Length) / 4,
-            outputTokens: rawResponse.Length / 4,
-            cachedTokens: 0,
-            tenantId: tenantId,
-            companyId: companyId,
-            cancellationToken: ct);
-    }
-
-    private async Task<(UnifiedLlmResponse? Parsed, string RawResponse)> RetryJsonFixAsync(
-        ChatHistory chatHistory,
-        string rawResponse,
-        CancellationToken ct)
-    {
-        _logger.LogWarning("[UnifiedHandler] 🔄 JSON Parse failed. Asking LLM to fix syntax...");
+        _logger.LogWarning("[UnifiedHandler] JSON parse failed. Asking LLM to fix syntax");
         chatHistory.AddAssistantMessage(rawResponse);
-        chatHistory.AddUserMessage(
+        const string fixInstruction =
             "Your previous response contained invalid JSON (likely due to unescaped quotation marks inside string values like 'explanation' or 'sql', or other syntax errors). " +
             "Please FIX the JSON and return EXACTLY the same content but properly escaped. " +
-            "Do NOT include any markdown formatting, only raw valid JSON.");
+            "Do NOT include any markdown formatting, only raw valid JSON.";
+        chatHistory.AddUserMessage(fixInstruction);
 
-        var retryResponse = await _chatService.GetChatMessageContentAsync(chatHistory, cancellationToken: ct);
-        var retryRaw = retryResponse.Content ?? string.Empty;
-        return (ExtractAndParseJson(retryRaw), retryRaw);
+        var retryCall = await InvokeLlmAndTrackAsync(
+            chatHistory,
+            promptCharCount: rawResponse.Length + fixInstruction.Length,
+            context,
+            tenantId,
+            companyId,
+            selfHealing: true,
+            ct);
+
+        return (ExtractAndParseJson(retryCall.RawResponse), retryCall.RawResponse, retryCall.InputTokens, retryCall.OutputTokens);
     }
 
     private void CaptureSchemaLinkingSynonyms(UnifiedLlmResponse parsedResponse, ShippedPageContext finalContext, int currentPageId)
@@ -375,22 +475,38 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
                 if (attempt > 0)
                 {
                     selfHealingUsed = true;
-                    _logger.LogWarning("[UnifiedHandler] 🔄 Self-Healing Attempt {Attempt}/{Max}: {Error}", attempt, maxRetries, lastError);
+                    _logger.LogWarning("[UnifiedHandler] Self-healing attempt {Attempt}/{Max}: {Error}", attempt, maxRetries, lastError);
 
                     chatHistory.AddAssistantMessage(rawResponse);
-                    chatHistory.AddUserMessage(
+                    var healPrompt =
                         $"The SQL query you generated failed with the following error:\n" +
                         $"{lastError}\n\n" +
                         $"Please FIX the SQL query. Return your response in the exact same JSON format as before. " +
-                        $"Do NOT use columns or tables that don't exist in the schema.");
+                        $"Do NOT use columns or tables that don't exist in the schema.";
+                    chatHistory.AddUserMessage(healPrompt);
 
-                    var retryResponse = await _chatService.GetChatMessageContentAsync(chatHistory, cancellationToken: ct);
-                    rawResponse = retryResponse.Content ?? string.Empty;
+                    using var retryLlmActivity = DynamicAiTelemetry.ActivitySource.StartActivity("llm.generate");
+                    var retryCall = await InvokeLlmAndTrackAsync(
+                        chatHistory,
+                        promptCharCount: rawResponse.Length + healPrompt.Length,
+                        context,
+                        tenantId,
+                        companyId,
+                        selfHealing: true,
+                        ct);
 
+                    rawResponse = retryCall.RawResponse;
                     var retryParsed = ExtractAndParseJson(rawResponse);
+
+                    retryLlmActivity?.SetTag("llm.model", retryCall.ModelName);
+                    retryLlmActivity?.SetTag("llm.tokens.in", retryCall.InputTokens);
+                    retryLlmActivity?.SetTag("llm.tokens.out", retryCall.OutputTokens);
+                    retryLlmActivity?.SetTag("llm.intent", retryParsed?.Intent ?? "Unknown");
+                    retryLlmActivity?.SetTag("llm.self_healing", true);
+
                     if (retryParsed == null || !retryParsed.IsSqlIntent || string.IsNullOrWhiteSpace(retryParsed.Content?.Sql))
                     {
-                        _logger.LogWarning("[UnifiedHandler] ❌ LLM retry did not produce valid SQL. Giving up.");
+                        _logger.LogWarning("[UnifiedHandler] LLM retry did not produce valid SQL. Giving up.");
                         break;
                     }
                     currentSql = retryParsed.Content.Sql;

@@ -26,9 +26,7 @@ namespace DynamicAi.Application.Services.SqlEngine
 
         public async Task<SanitizationResult> SanitizeAsync(string rawSql, string tenantId, CancellationToken ct = default)
         {
-            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-            _logger.LogInformation("║             [Layer 4.5: SQL SANITIZER] - SCHEMA CHECK                  ║");
-            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+            _logger.LogInformation("[SqlSanitizer] Starting schema check for TenantId={TenantId}", tenantId);
 
             var result = new SanitizationResult { SafeSql = rawSql, WasModified = false };
 
@@ -90,9 +88,7 @@ namespace DynamicAi.Application.Services.SqlEngine
                 return result;
             }
 
-            // ══════════════════════════════════════════════════════════════════════
-            // 🔍 STEP: Discover extra tables the LLM added (e.g. lookup JOINs)
-            // ══════════════════════════════════════════════════════════════════════
+            // STEP: Discover extra tables the LLM added (e.g. lookup JOINs)
             var tableExtractor = new TableNameExtractor();
             fragment.Accept(tableExtractor);
             var allReferencedTables = tableExtractor.TableNames.ToList();
@@ -177,9 +173,7 @@ namespace DynamicAi.Application.Services.SqlEngine
             CancellationToken ct = default,
             string? connectionString = null)
         {
-            _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-            _logger.LogInformation("║         [Layer 4.5: SQL SANITIZER] - TARGETED SCHEMA CHECK             ║");
-            _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+            _logger.LogInformation("[SqlSanitizer] Starting targeted schema check for TenantId={TenantId}", tenantId);
 
             var result = new SanitizationResult { SafeSql = rawSql, WasModified = false };
 
@@ -214,11 +208,9 @@ namespace DynamicAi.Application.Services.SqlEngine
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // TableNameExtractor — extracts all real table/view names from AST.
+    // TableNameExtractor extracts all real table/view names from AST.
     // Used to discover extra tables the LLM joined (e.g. lookup tables).
     // Only collects NamedTableReference nodes (FROM / JOIN targets).
-    // ══════════════════════════════════════════════════════════════════════
     internal class TableNameExtractor : TSqlFragmentVisitor
     {
         public HashSet<string> TableNames { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

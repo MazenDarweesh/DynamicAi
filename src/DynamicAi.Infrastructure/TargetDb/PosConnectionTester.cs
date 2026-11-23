@@ -20,7 +20,8 @@ namespace DynamicAi.Infrastructure.TargetDb
 
                 // اختبار قراءة الـ VIEW التي أنشأناها
                 await using var command = new SqlCommand("SELECT COUNT(*) FROM dbo.v_ai_Contract", connection);
-                var count = (int)await command.ExecuteScalarAsync();
+                var scalar = await command.ExecuteScalarAsync();
+                var count = Convert.ToInt32(scalar ?? 0);
 
                 return (true, $"Successfully connected. Found {count} sessions in view.");
             }

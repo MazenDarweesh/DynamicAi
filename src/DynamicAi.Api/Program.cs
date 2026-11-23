@@ -11,10 +11,7 @@ var configuration = new ConfigurationBuilder()
     .Build();
 
 Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(configuration)
-    .Enrich.FromLogContext()
-    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
-    .WriteTo.File("logs/log-.txt", rollingInterval: RollingInterval.Day)
+    .ConfigureDynamicAiSerilog(configuration)
     .CreateLogger();
 
 try
@@ -23,17 +20,15 @@ try
 
     var builder = WebApplication.CreateBuilder(args);
 
-    builder.Host.UseSerilog((context, services, serilogConfig) => serilogConfig
-        .ReadFrom.Configuration(context.Configuration)
-        .ReadFrom.Services(services)
-        .Enrich.FromLogContext()
-        .WriteTo.Console()
-        .WriteTo.File("logs/log-.txt", rollingInterval: RollingInterval.Day));
+    builder.Host.UseSerilog((context, services, serilogConfig) =>
+        serilogConfig.ConfigureDynamicAiSerilog(context.Configuration, services));
 
     builder.Services.AddDynamicAiServices(builder.Configuration);
+    builder.Services.AddDynamicAiObservability(builder.Configuration);
 
     var app = builder.Build();
 
+    app.UseMiddleware<CorrelationIdMiddleware>();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
     app.UseMiddleware<RequestMetricsMiddleware>();
     app.UseMiddleware<LlmBudgetLimitMiddleware>();

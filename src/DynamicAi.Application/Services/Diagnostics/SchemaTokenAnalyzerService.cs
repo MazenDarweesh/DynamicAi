@@ -39,16 +39,12 @@ public class SchemaTokenAnalyzerService : ISchemaTokenAnalyzerService
     public async Task<SchemaTokenAnalysisResult> AnalyzeFullSchemaTokensAsync(
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-        _logger.LogInformation("║        [Schema Token Analyzer] STARTING FULL ANALYSIS                 ║");
-        _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+        _logger.LogInformation("[SchemaTokenAnalyzer] Starting full schema token analysis");
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var result = new SchemaTokenAnalysisResult();
 
-        // ═══════════════════════════════════════════════════
         // STEP 1: Pull ALL data from Qdrant by table_name
-        // ═══════════════════════════════════════════════════
         var tablesToScan = new[]
         {
             DbTables.Pages,
@@ -121,9 +117,7 @@ public class SchemaTokenAnalyzerService : ISchemaTokenAnalyzerService
         _logger.LogInformation("[SchemaTokenAnalyzer] ✓ SchemaScripts: {Count} records",
             schemaTexts.Count);
 
-        // ═══════════════════════════════════════════════════
         // STEP 2: Assemble the Global Cache text blob
-        // ═══════════════════════════════════════════════════
         _logger.LogInformation("[SchemaTokenAnalyzer] 🔨 Assembling global cache text blob...");
 
         var globalBlob = new StringBuilder();
@@ -157,9 +151,7 @@ public class SchemaTokenAnalyzerService : ISchemaTokenAnalyzerService
         _logger.LogInformation("[SchemaTokenAnalyzer] 📏 Total assembled text: {Chars} characters",
             result.TotalCharacters);
 
-        // ═══════════════════════════════════════════════════
         // STEP 3: Count tokens via Gemini API
-        // ═══════════════════════════════════════════════════
         _logger.LogInformation("[SchemaTokenAnalyzer] 🔢 Counting tokens via Gemini API...");
 
         // 3a. Static Rules tokens
@@ -216,27 +208,14 @@ public class SchemaTokenAnalyzerService : ISchemaTokenAnalyzerService
 
         stopwatch.Stop();
 
-        // ═══════════════════════════════════════════════════
         // STEP 4: Log the final report
-        // ═══════════════════════════════════════════════════
-        _logger.LogInformation("╔════════════════════════════════════════════════════════════════════════╗");
-        _logger.LogInformation("║        [Schema Token Analyzer] ANALYSIS COMPLETE ✓                    ║");
-        _logger.LogInformation("╠════════════════════════════════════════════════════════════════════════╣");
-        _logger.LogInformation("║ Total Tokens:      {Total,10}                                        ║",
-            result.TotalTokens);
-        _logger.LogInformation("║ Gemini Limit:      {Limit,10}                                        ║",
-            result.GeminiContextLimit);
-        _logger.LogInformation("║ Usage:             {Usage,9}%                                        ║",
-            result.UsagePercentage);
-        _logger.LogInformation("║ Fits in Cache:     {Fits,10}                                        ║",
-            result.FitsInSingleCache ? "✅ YES" : "❌ NO");
-        _logger.LogInformation("║ Analysis Time:     {Time,8}ms                                        ║",
-            stopwatch.ElapsedMilliseconds);
-        _logger.LogInformation("╚════════════════════════════════════════════════════════════════════════╝");
+        _logger.LogInformation(
+            "[SchemaTokenAnalyzer] Analysis complete in {DurationMs}ms: TotalTokens={TotalTokens}, GeminiLimit={Limit}, UsagePct={UsagePct}%, FitsInCache={FitsInCache}",
+            stopwatch.ElapsedMilliseconds, result.TotalTokens, result.GeminiContextLimit, result.UsagePercentage, result.FitsInSingleCache);
 
         foreach (var (table, tokens) in result.Breakdown.OrderByDescending(x => x.Value))
         {
-            _logger.LogInformation("  📊 {Table,-20} {Tokens,8} tokens ({Records} records)",
+            _logger.LogDebug("[SchemaTokenAnalyzer] Breakdown: Table={Table}, Tokens={Tokens}, Records={Records}",
                 table, tokens, result.RecordCounts.GetValueOrDefault(table));
         }
 

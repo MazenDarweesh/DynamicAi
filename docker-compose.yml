@@ -31,6 +31,8 @@ services:
       - Qdrant__ApiKey=${QDRANT_API_KEY}
       - Qdrant__CollectionName=${QDRANT_COLLECTION_NAME:-erp_knowledge_base_v3_indexed}
       - Database__Name=${PRODUCTION_DB_NAME:-QualityControl}
+      - Observability__OtlpEnabled=${Observability__OtlpEnabled:-false}
+      - Observability__OtlpEndpoint=${Observability__OtlpEndpoint:-http://aspire-dashboard:18889}
 
     depends_on:
       sqlserver:
@@ -74,6 +76,22 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
       - qdrant_snapshots:/qdrant/snapshots
+    networks:
+      - dynamicai-network
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # .NET Aspire Dashboard (Local OpenTelemetry UI: Traces, Metrics, Logs)
+  # --------------------------------------------------------------------------
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
+    container_name: dynamicai-aspire-dashboard
+    profiles: ["observability"]
+    ports:
+      - "18888:18888"
+      - "4317:18889"
+    environment:
+      - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
     networks:
       - dynamicai-network
     restart: unless-stopped

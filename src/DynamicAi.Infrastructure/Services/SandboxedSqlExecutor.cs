@@ -21,6 +21,7 @@ public class SandboxedSqlExecutor : ISandboxedSqlExecutor
 {
     private readonly string _readOnlyConnectionString;
     private readonly ILogger<SandboxedSqlExecutor> _logger;
+    private readonly bool _logSensitivePayloads;
     private const int QUERY_TIMEOUT_SECONDS = 8;
 
     private static readonly ResiliencePropertyKey<ILogger<SandboxedSqlExecutor>> LoggerPropertyKey = new("Logger");
@@ -54,6 +55,7 @@ public class SandboxedSqlExecutor : ISandboxedSqlExecutor
         _readOnlyConnectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("DefaultConnection string is not configured.");
         _logger = logger;
+        _logSensitivePayloads = configuration.GetValue<bool>("Observability:LogSensitivePayloads", false);
     }
 
     /// <summary>
@@ -144,23 +146,19 @@ public class SandboxedSqlExecutor : ISandboxedSqlExecutor
         string? connectionString = null,
         CancellationToken ct = default)
     {
-        _logger.LogWarning("╔════════════════════════════════════════════════════════════════════════╗");
-        _logger.LogWarning("║              [Layer 5: SQL EXECUTOR] - FINAL QUERY                    ║");
-        _logger.LogWarning("╚════════════════════════════════════════════════════════════════════════╝");
-        _logger.LogWarning("\n[SQL Query] Characters: {Length}", rewrittenSql.Length);
-        _logger.LogWarning("\n[SQL Parameters] Count: {Count}", parameters.Count);
+        _logger.LogInformation(
+            "Executing sandboxed SQL query ({Length} chars, {ParameterCount} parameters)",
+            rewrittenSql.Length,
+            parameters.Count);
 
-        if (parameters.Any())
+        if (_logSensitivePayloads && _logger.IsEnabled(LogLevel.Debug))
         {
-            _logger.LogWarning("\n[Parameters]:");
-            foreach (var param in parameters)
+            _logger.LogDebug("[Full SQL Query]: {Sql}", rewrittenSql);
+            if (parameters.Any())
             {
-                _logger.LogWarning("  - @{Key} = {Value}", param.Key, param.Value);
+                _logger.LogDebug("[SQL Parameters]: {@Parameters}", parameters);
             }
         }
-
-        _logger.LogWarning("\n[Full SQL Query]:\n{Sql}\n", rewrittenSql);
-        _logger.LogWarning("╚════════════════════════════════════════════════════════════════════════╝");
 
         // Strict tenant isolation: never fall back to _readOnlyConnectionString when a connectionString is provided.
         string activeConnectionString = !string.IsNullOrWhiteSpace(connectionString)

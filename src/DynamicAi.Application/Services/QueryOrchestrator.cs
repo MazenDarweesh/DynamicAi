@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using DynamicAi.Application.Exceptions;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Models.DirectIntegration;
+using DynamicAi.Application.Observability;
 using DynamicAi.Domain.Entities;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
@@ -55,9 +57,14 @@ public class QueryOrchestrator : IQueryOrchestrator
         _logger.LogInformation("[Orchestrator] Directed Question: \"{Question}\" | Page: {PageName} (ID: {PageId})",
             request.Question, request.ExplicitContext.PageName, request.PageId);
 
-        var startTime = DateTime.UtcNow;
+        var startTimestamp = Stopwatch.GetTimestamp();
         var queryLogId = Guid.NewGuid();
         var sessionId = request.SessionId ?? "direct-integration";
+
+        using var requestActivity = DynamicAiTelemetry.ActivitySource.StartActivity("query.orchestrate");
+        requestActivity?.SetTag("page.id", request.PageId);
+        requestActivity?.SetTag("tenant.id", request.TenantId);
+        requestActivity?.SetTag("query.log_id", queryLogId.ToString());
 
         var recentTurns = await _contextService.GetRecentContextAsync(sessionId, 3, request.PageId, ct);
 
@@ -67,6 +74,10 @@ public class QueryOrchestrator : IQueryOrchestrator
         CachedQueryResult? cachedResult = null;
         if (_queryCacheEnabled)
         {
+            using var cacheActivity = DynamicAiTelemetry.ActivitySource.StartActivity("cache.lookup");
+            cacheActivity?.SetTag("cache.mode", "semantic_legacy");
+            cacheActivity?.SetTag("page.id", request.PageId);
+
             cachedResult = await _queryCacheService.TryGetCachedSqlAsync(
                 sharedVector,
                 request.TenantId,
@@ -74,9 +85,15 @@ public class QueryOrchestrator : IQueryOrchestrator
                 request.PageId,
                 ct);
 
+            bool cacheHit = cachedResult != null;
+            cacheActivity?.SetTag("cache.hit", cacheHit);
+            DynamicAiTelemetry.CacheRequests.Add(1,
+                new KeyValuePair<string, object?>("cache.hit", cacheHit),
+                new KeyValuePair<string, object?>("cache.mode", "semantic_legacy"));
+
             if (cachedResult != null)
             {
-                _logger.LogInformation("[Orchestrator] ⚡ Directed Cache HIT! CacheId: {CacheId}", cachedResult.CacheId);
+                _logger.LogInformation("[Orchestrator] Directed Cache HIT. CacheId: {CacheId}", cachedResult.CacheId);
             }
         }
 
@@ -100,6 +117,7 @@ public class QueryOrchestrator : IQueryOrchestrator
         };
 
         QueryExecutionResult? result = null;
+        bool completedSuccessfully = false;
 
         try
         {
@@ -115,7 +133,7 @@ public class QueryOrchestrator : IQueryOrchestrator
                 await HandleFailureResultAsync(result, sessionId, "DirectedIntegration", queryLogId, ct);
             }
 
-            var totalDurationMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds;
+            var totalDurationMs = (int)Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
 
             if (result.IsSuccess && !result.IsCached)
             {
@@ -131,6 +149,7 @@ public class QueryOrchestrator : IQueryOrchestrator
                 result.Intent = nameof(IntentType.DataRetrieval);
             }
 
+            completedSuccessfully = result.IsSuccess;
             _logger.LogInformation("[Orchestrator] Directed Pipeline Completed in {Duration}ms", totalDurationMs);
             return result;
         }
@@ -140,10 +159,31 @@ public class QueryOrchestrator : IQueryOrchestrator
         }
         catch (Exception ex)
         {
-            var latencyMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds;
+            var latencyMs = (int)Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
+            requestActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             _logger.LogError(ex, "[Orchestrator] Pipeline Failed after {Duration}ms", latencyMs);
             PersistErrorInBackground(request, ex.Message, queryLogId, latencyMs, result?.Intent ?? "DirectedIntegration");
             throw;
+        }
+        finally
+        {
+            var elapsedMs = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
+            var intentTag = result?.Intent ?? "Unknown";
+            var cachedTag = result?.IsCached ?? false;
+
+            requestActivity?.SetTag("query.intent", intentTag);
+            requestActivity?.SetTag("cache.hit", cachedTag);
+            requestActivity?.SetTag("query.success", completedSuccessfully);
+
+            DynamicAiTelemetry.RequestDurationMs.Record(elapsedMs,
+                new KeyValuePair<string, object?>("intent", intentTag),
+                new KeyValuePair<string, object?>("cache.hit", cachedTag),
+                new KeyValuePair<string, object?>("success", completedSuccessfully));
+
+            DynamicAiTelemetry.RequestsTotal.Add(1,
+                new KeyValuePair<string, object?>("intent", intentTag),
+                new KeyValuePair<string, object?>("cache.hit", cachedTag),
+                new KeyValuePair<string, object?>("success", completedSuccessfully));
         }
     }
 
@@ -215,9 +255,19 @@ public class QueryOrchestrator : IQueryOrchestrator
     {
         var summary = _usageTracker.GetSessionSummary();
         var finalHandlerType = "DirectedIntegration_" + (result.Intent ?? "DataRetrieval");
+        var parentCtx = Activity.Current?.Context ?? default;
 
         _ = Task.Run(async () =>
         {
+            Activity.Current = null;
+            using var bgActivity = DynamicAiTelemetry.ActivitySource.StartActivity(
+                "bg.persist_telemetry",
+                ActivityKind.Internal,
+                parentContext: default,
+                links: parentCtx != default ? new[] { new ActivityLink(parentCtx) } : null);
+            bgActivity?.SetTag("query.log_id", queryLogId.ToString());
+            bgActivity?.SetTag("bg.outcome", "success");
+
             try
             {
                 using var scope = _scopeFactory.CreateScope();
@@ -282,8 +332,19 @@ public class QueryOrchestrator : IQueryOrchestrator
         Guid queryLogId,
         int latencyMs)
     {
+        var parentCtx = Activity.Current?.Context ?? default;
+
         _ = Task.Run(async () =>
         {
+            Activity.Current = null;
+            using var bgActivity = DynamicAiTelemetry.ActivitySource.StartActivity(
+                "bg.persist_telemetry",
+                ActivityKind.Internal,
+                parentContext: default,
+                links: parentCtx != default ? new[] { new ActivityLink(parentCtx) } : null);
+            bgActivity?.SetTag("query.log_id", queryLogId.ToString());
+            bgActivity?.SetTag("bg.outcome", "cache_hit");
+
             try
             {
                 using var scope = _scopeFactory.CreateScope();
@@ -322,8 +383,19 @@ public class QueryOrchestrator : IQueryOrchestrator
         int latencyMs,
         string handlerType)
     {
+        var parentCtx = Activity.Current?.Context ?? default;
+
         _ = Task.Run(async () =>
         {
+            Activity.Current = null;
+            using var bgActivity = DynamicAiTelemetry.ActivitySource.StartActivity(
+                "bg.persist_telemetry",
+                ActivityKind.Internal,
+                parentContext: default,
+                links: parentCtx != default ? new[] { new ActivityLink(parentCtx) } : null);
+            bgActivity?.SetTag("query.log_id", queryLogId.ToString());
+            bgActivity?.SetTag("bg.outcome", "error");
+
             try
             {
                 using var scope = _scopeFactory.CreateScope();
