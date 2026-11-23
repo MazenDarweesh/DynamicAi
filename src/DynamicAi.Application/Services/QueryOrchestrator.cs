@@ -5,7 +5,6 @@ using DynamicAi.Application.Models;
 using DynamicAi.Application.Models.DirectIntegration;
 using DynamicAi.Application.Observability;
 using DynamicAi.Domain.Entities;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -13,7 +12,7 @@ using Microsoft.Extensions.Logging;
 namespace DynamicAi.Application.Services;
 
 /// <summary>
-/// Orchestrates directed page query execution: isolated history, semantic cache lookup,
+/// Orchestrates directed page query execution: isolated history, exact query cache lookup,
 /// unified LLM handler execution, optional prediction pass, and background observability logging.
 /// </summary>
 public class QueryOrchestrator : IQueryOrchestrator
@@ -23,7 +22,6 @@ public class QueryOrchestrator : IQueryOrchestrator
     private readonly IQueryCacheService _queryCacheService;
     private readonly IConversationContextService _contextService;
     private readonly ILlmUsageTracker _usageTracker;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
     private readonly ILogger<QueryOrchestrator> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly bool _queryCacheEnabled;
@@ -34,7 +32,6 @@ public class QueryOrchestrator : IQueryOrchestrator
         IQueryCacheService queryCacheService,
         IConversationContextService contextService,
         ILlmUsageTracker usageTracker,
-        IEmbeddingGenerator<string, Embedding<float>> embeddingService,
         ILogger<QueryOrchestrator> logger,
         IConfiguration configuration,
         IServiceScopeFactory scopeFactory)
@@ -44,7 +41,6 @@ public class QueryOrchestrator : IQueryOrchestrator
         _queryCacheService = queryCacheService;
         _contextService = contextService;
         _usageTracker = usageTracker;
-        _embeddingService = embeddingService;
         _logger = logger;
         _scopeFactory = scopeFactory;
         _queryCacheEnabled = !bool.TryParse(configuration["Caching:QueryCache:Enabled"], out var enabled) || enabled;
@@ -67,28 +63,17 @@ public class QueryOrchestrator : IQueryOrchestrator
         requestActivity?.SetTag("query.log_id", queryLogId.ToString());
 
         var recentTurns = await _contextService.GetRecentContextAsync(sessionId, 3, request.PageId, ct);
-
-        var sharedEmbedding = await _embeddingService.GenerateAsync(request.Question, cancellationToken: ct);
-        float[] sharedVector = sharedEmbedding.Vector.ToArray();
-
-        var embeddingTokenCount = Math.Max(1, request.Question.Length / 4);
-        var embeddingCostUsd = await _usageTracker.TrackEmbeddingCallAsync(
-            LlmOperationType.Embedding,
-            requestId: queryLogId.ToString(),
-            tokenCount: embeddingTokenCount,
-            tenantId: request.TenantId,
-            companyId: request.ComID,
-            cancellationToken: ct);
+        bool hasActiveHistory = recentTurns.Count > 0;
 
         CachedQueryResult? cachedResult = null;
-        if (_queryCacheEnabled)
+        if (_queryCacheEnabled && !hasActiveHistory)
         {
             using var cacheActivity = DynamicAiTelemetry.ActivitySource.StartActivity("cache.lookup");
-            cacheActivity?.SetTag("cache.mode", "semantic_legacy");
+            cacheActivity?.SetTag("cache.mode", "exact_memory");
             cacheActivity?.SetTag("page.id", request.PageId);
 
             cachedResult = await _queryCacheService.TryGetCachedSqlAsync(
-                sharedVector,
+                request.Question,
                 request.TenantId,
                 request.ComID ?? 0,
                 request.PageId,
@@ -98,12 +83,16 @@ public class QueryOrchestrator : IQueryOrchestrator
             cacheActivity?.SetTag("cache.hit", cacheHit);
             DynamicAiTelemetry.CacheRequests.Add(1,
                 new KeyValuePair<string, object?>("cache.hit", cacheHit),
-                new KeyValuePair<string, object?>("cache.mode", "semantic_legacy"));
+                new KeyValuePair<string, object?>("cache.mode", "exact_memory"));
 
             if (cachedResult != null)
             {
                 _logger.LogInformation("[Orchestrator] Directed Cache HIT. CacheId: {CacheId}", cachedResult.CacheId);
             }
+        }
+        else if (_queryCacheEnabled && hasActiveHistory)
+        {
+            _logger.LogDebug("[Orchestrator] Exact cache lookup skipped due to active conversation history ({TurnCount} turns).", recentTurns.Count);
         }
 
         var context = new IntentHandlerContext
@@ -115,7 +104,6 @@ public class QueryOrchestrator : IQueryOrchestrator
             CompanyId = request.ComID,
             SessionId = request.SessionId,
             ConversationHistory = recentTurns,
-            PrecomputedEmbedding = sharedVector,
             ExplicitPageId = request.PageId,
             InjectedContext = request.ExplicitContext,
             CachedSql = cachedResult?.Sql,
@@ -131,7 +119,6 @@ public class QueryOrchestrator : IQueryOrchestrator
         try
         {
             result = await _unifiedHandler.HandleAsync(request.Question, context, ct);
-            result.LlmCostUsd += embeddingCostUsd;
 
             if (result.IsSuccess && result.Intent == "PredictionWithDataRetrieval")
             {
@@ -147,7 +134,7 @@ public class QueryOrchestrator : IQueryOrchestrator
 
             if (result.IsSuccess && !result.IsCached)
             {
-                PersistSuccessInBackground(request, result, sharedVector, sessionId, queryLogId, totalDurationMs);
+                PersistSuccessInBackground(request, result, hasActiveHistory, sessionId, queryLogId, totalDurationMs);
             }
             else if (result.IsSuccess && result.IsCached)
             {
@@ -258,7 +245,7 @@ public class QueryOrchestrator : IQueryOrchestrator
     private void PersistSuccessInBackground(
         DirectedPageAskRequest request,
         QueryExecutionResult result,
-        float[] sharedVector,
+        bool hasActiveHistory,
         string sessionId,
         Guid queryLogId,
         int latencyMs)
@@ -307,12 +294,11 @@ public class QueryOrchestrator : IQueryOrchestrator
 
                 await feedbackService.AutoCaptureExampleAsync(queryLogId, request.ComID);
 
-                if (_queryCacheEnabled && !string.IsNullOrWhiteSpace(result.RewrittenSql))
+                if (_queryCacheEnabled && !hasActiveHistory && !string.IsNullOrWhiteSpace(result.RewrittenSql))
                 {
                     await queryCacheService.StoreCachedSqlAsync(
                         queryLogId,
                         request.Question,
-                        sharedVector,
                         result.RewrittenSql,
                         request.PageId,
                         request.TenantId,

@@ -33,7 +33,7 @@ namespace DynamicAi.Domain.Entities
         /// <summary>تكلفة استدعاء Gemini API</summary>
         public decimal? GeminiCost { get; set; }
 
-        /// <summary>هل تم استخدام LLM بدلاً من Qdrant؟</summary>
+        /// <summary>هل تم استخدام LLM بدلاً من Cache؟</summary>
         public bool WasFallback { get; set; } = false;
 
         /// <summary>هل تم استخدام Self-Healing (إعادة محاولة JSON) في هذا الطلب؟</summary>

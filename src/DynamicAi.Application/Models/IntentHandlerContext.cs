@@ -16,7 +16,6 @@ public class IntentHandlerContext
     public int? CompanyId { get; init; }
     public string? SessionId { get; init; }
     public List<ConversationTurn>? ConversationHistory { get; init; }
-    public float[]? PrecomputedEmbedding { get; init; }
     public int? ExplicitPageId { get; init; }
     public string? CachedSql { get; init; }
     public int? CachedPageId { get; init; }

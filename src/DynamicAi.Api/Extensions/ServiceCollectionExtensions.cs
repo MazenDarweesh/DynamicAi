@@ -1,9 +1,7 @@
-using DynamicAi.Api.Services;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Prompts;
 using DynamicAi.Application.Services;
-using DynamicAi.Application.Services.Diagnostics;
 using DynamicAi.Application.Services.Handlers;
 using DynamicAi.Application.Services.LLM;
 using DynamicAi.Application.Services.SqlEngine;
@@ -12,9 +10,6 @@ using DynamicAi.Infrastructure.Repositories;
 using DynamicAi.Infrastructure.Services;
 using Google.GenAI;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.AI;
-using Qdrant.Client;
-using Serilog;
 
 namespace DynamicAi.Api.Extensions;
 
@@ -55,7 +50,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IMetricsService, MetricsService>();
         services.AddTransient<IDailyBudgetLimitService, DailyBudgetLimitService>();
         services.AddSingleton<IFailedQueryLogger, FailedQueryLogger>();
-        services.AddTransient<ISchemaTokenAnalyzerService, SchemaTokenAnalyzerService>();
 
         return services;
     }
@@ -77,53 +71,15 @@ public static class ServiceCollectionExtensions
         services.AddMemoryCache();
         services.AddSingleton<IDbSchemaProvider, DbSchemaProvider>();
         services.AddTransient<ISandboxedSqlExecutor, SandboxedSqlExecutor>();
-        services.AddSingleton<IQueryCacheService, QueryCacheService>();
+        services.AddSingleton<IQueryCacheService, ExactQueryCacheService>();
         services.AddSingleton<ITokenCounter, GeminiTokenCounter>();
 
         services.Configure<LlmProviderPricingConfig>(configuration.GetSection("LlmProviderPricing"));
         services.AddSingleton<ILlmUsageTracker, LlmUsageTracker>();
 
-        // Qdrant Vector DB (retained for QueryCache until Phase 4)
-        services.AddQdrant(configuration);
-
-        // Gemini LLM & Resilient HTTP Clients
+        // Gemini LLM Clients
         services.AddGeminiClients(configuration);
 
-        // Background Warmers (retained for QueryCache until Phase 4)
-        services.AddHostedService<QueryCacheWarmerService>();
-
-        return services;
-    }
-
-    private static IServiceCollection AddQdrant(this IServiceCollection services, IConfiguration configuration)
-    {
-        var qdrantHost = configuration["Qdrant:Host"] ?? "localhost";
-        var qdrantApiKey = configuration["Qdrant:ApiKey"];
-        if (!int.TryParse(configuration["Qdrant:Port"], out var qdrantPort) || qdrantPort == 0)
-        {
-            qdrantPort = 6334;
-        }
-
-        var isLocalQdrant = qdrantHost.Equals("localhost", StringComparison.OrdinalIgnoreCase)
-                         || qdrantHost.Contains("127.0.0.1")
-                         || qdrantHost.Contains("qdrant_local");
-        var useHttps = !isLocalQdrant;
-        var effectiveApiKey = isLocalQdrant ? null : qdrantApiKey;
-
-        Log.Information("[Qdrant] Connecting to {Host}:{Port} (HTTPS={Https}, Local={IsLocal})",
-            qdrantHost, qdrantPort, useHttps, isLocalQdrant);
-
-        services.AddSingleton(_ =>
-        {
-            var hostName = isLocalQdrant ? qdrantHost : new Uri(qdrantHost).Host;
-            return new QdrantClient(
-                host: hostName,
-                port: qdrantPort,
-                https: useHttps,
-                apiKey: effectiveApiKey);
-        });
-
-        services.AddSingleton<IAppVectorDbService, QdrantDbService>();
         return services;
     }
 
@@ -135,7 +91,6 @@ public static class ServiceCollectionExtensions
             apiKey: string.IsNullOrWhiteSpace(googleApiKey) ? null : googleApiKey));
 
         services.AddSingleton<ILlmClient, GoogleGenAiClient>();
-        services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, GoogleGenAiEmbeddingGenerator>();
 
         return services;
     }

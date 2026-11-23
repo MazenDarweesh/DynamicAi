@@ -6,7 +6,7 @@ namespace DynamicAi.Application.Models;
 public class CachedQueryResult
 {
     /// <summary>
-    /// The Qdrant point UUID for this cache entry (used for deletion).
+    /// The unique cache entry identifier (used for deletion).
     /// </summary>
     public string? CacheId { get; set; }
 
@@ -16,7 +16,7 @@ public class CachedQueryResult
     public required string Sql { get; set; }
 
     /// <summary>
-    /// The similarity score (0.0 to 1.0) with the original question.
+    /// The match confidence score (0.0 to 1.0) with the original question.
     /// </summary>
     public float Score { get; set; }
 

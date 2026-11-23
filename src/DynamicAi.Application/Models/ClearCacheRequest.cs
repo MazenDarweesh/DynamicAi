@@ -1,7 +1,7 @@
 namespace DynamicAi.Application.Models;
 
 /// <summary>
-/// Request model for clearing cached SQL entries by question similarity.
+/// Request model for clearing cached SQL entries by question or page scope.
 /// </summary>
 public class ClearCacheRequest
 {
@@ -19,4 +19,9 @@ public class ClearCacheRequest
     /// Optional company identifier (defaults to 0 if not specified).
     /// </summary>
     public int? CompanyId { get; set; }
+
+    /// <summary>
+    /// Optional page identifier for scoped cache clearing.
+    /// </summary>
+    public int? PageId { get; set; }
 }

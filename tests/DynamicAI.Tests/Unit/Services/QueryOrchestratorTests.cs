@@ -6,7 +6,6 @@ using DynamicAi.Application.Services;
 using DynamicAi.Domain.Entities;
 using FakeItEasy;
 using FluentAssertions;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -20,7 +19,6 @@ public class QueryOrchestratorTests
     private readonly IQueryCacheService _queryCacheService;
     private readonly IConversationContextService _contextService;
     private readonly ILlmUsageTracker _usageTracker;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
     private readonly ILogger<QueryOrchestrator> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
 
@@ -31,7 +29,6 @@ public class QueryOrchestratorTests
         _queryCacheService = A.Fake<IQueryCacheService>();
         _contextService = A.Fake<IConversationContextService>();
         _usageTracker = A.Fake<ILlmUsageTracker>();
-        _embeddingService = A.Fake<IEmbeddingGenerator<string, Embedding<float>>>();
         _logger = A.Fake<ILogger<QueryOrchestrator>>();
         _scopeFactory = A.Fake<IServiceScopeFactory>();
 
@@ -51,9 +48,6 @@ public class QueryOrchestratorTests
 
         A.CallTo(() => _contextService.GetRecentContextAsync(A<string>._, A<int>._, A<int?>._, A<CancellationToken>._))
             .Returns(Task.FromResult(new List<ConversationTurn>()));
-
-        A.CallTo(() => _embeddingService.GenerateAsync(A<IEnumerable<string>>._, A<EmbeddingGenerationOptions?>._, A<CancellationToken>._))
-            .Returns(Task.FromResult(new GeneratedEmbeddings<Embedding<float>>(new[] { new Embedding<float>(new float[3072]) })));
     }
 
     private QueryOrchestrator CreateSut(bool queryCacheEnabled = true)
@@ -71,7 +65,6 @@ public class QueryOrchestratorTests
             _queryCacheService,
             _contextService,
             _usageTracker,
-            _embeddingService,
             _logger,
             config,
             _scopeFactory);
@@ -109,7 +102,7 @@ public class QueryOrchestratorTests
             PageId = 244
         };
 
-        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>._, "default", 5, 244, A<CancellationToken>._))
+        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(request.Question, "default", 5, 244, A<CancellationToken>._))
             .Returns(Task.FromResult<CachedQueryResult?>(null));
 
         A.CallTo(() => _unifiedHandler.HandleAsync(request.Question, A<IntentHandlerContext>._, A<CancellationToken>._))
@@ -124,8 +117,7 @@ public class QueryOrchestratorTests
                     c.TenantId == "default"
                     && c.CompanyId == 5
                     && c.ExplicitPageId == 244
-                    && c.InjectedContext == request.ExplicitContext
-                    && c.PrecomputedEmbedding != null),
+                    && c.InjectedContext == request.ExplicitContext),
                 A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
     }
@@ -136,13 +128,14 @@ public class QueryOrchestratorTests
         var sut = CreateSut(queryCacheEnabled: true);
         var request = CreateSampleRequest(244);
 
-        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>._, "default", 5, 244, A<CancellationToken>._))
+        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(request.Question, "default", 5, 244, A<CancellationToken>._))
             .Returns(Task.FromResult<CachedQueryResult?>(new CachedQueryResult
             {
                 CacheId = "cache-123",
                 Sql = "SELECT TOP 10 * FROM ContractViewWithPaid",
                 OriginalQuestion = request.Question,
                 PageId = 244,
+                Score = 1.0f,
                 Intent = "DataRetrieval"
             }));
 
@@ -179,8 +172,64 @@ public class QueryOrchestratorTests
 
         await sut.HandleDirectedPageQueryAsync(request);
 
-        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>._, A<string>._, A<int>._, A<int?>._, A<CancellationToken>._))
+        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<string>._, A<string>._, A<int>._, A<int?>._, A<CancellationToken>._))
             .MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task HandleDirectedPageQueryAsync_ShouldSkipCacheLookupAndStore_WhenConversationHistoryIsNonEmpty()
+    {
+        var sut = CreateSut(queryCacheEnabled: true);
+        var request = CreateSampleRequest(244);
+        var saveTurnDone = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        A.CallTo(() => _contextService.GetRecentContextAsync("sess_1", 3, 244, A<CancellationToken>._))
+            .Returns(Task.FromResult(new List<ConversationTurn>
+            {
+                new()
+                {
+                    Id = Guid.NewGuid(),
+                    SessionId = "sess_1",
+                    Question = "فواتير العميل أحمد",
+                    Intent = "DirectedIntegration_DataRetrieval",
+                    SqlExecuted = "SELECT TOP 1000 TM.ContractID FROM ContractViewWithPaid TM",
+                    PageId = 244
+                }
+            }));
+
+        A.CallTo(() => _contextService.SaveTurnAsync(
+                A<string>._, A<string>._, A<string>._, A<string?>._, A<IEnumerable<dynamic>?>._, A<int?>._, A<CancellationToken>._))
+            .Invokes(() => saveTurnDone.TrySetResult(true))
+            .Returns(Task.CompletedTask);
+
+        A.CallTo(() => _unifiedHandler.HandleAsync(request.Question, A<IntentHandlerContext>._, A<CancellationToken>._))
+            .Returns(Task.FromResult(new QueryExecutionResult
+            {
+                Data = new List<dynamic> { new { ContractID = 1 } },
+                RewrittenSql = "SELECT TOP 1000 TM.ContractID FROM ContractViewWithPaid TM",
+                Intent = "DataRetrieval",
+                PageId = 244
+            }));
+
+        var result = await sut.HandleDirectedPageQueryAsync(request);
+
+        result.IsCached.Should().BeFalse();
+
+        var completed = await Task.WhenAny(saveTurnDone.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        completed.Should().Be(saveTurnDone.Task);
+
+        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<string>._, A<string>._, A<int>._, A<int?>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+
+        A.CallTo(() => _queryCacheService.StoreCachedSqlAsync(
+                A<Guid>._, A<string>._, A<string>._, A<int>._, A<string>._, A<int>._, A<string>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+
+        A.CallTo(() => _unifiedHandler.HandleAsync(
+                request.Question,
+                A<IntentHandlerContext>.That.Matches(c => c.ConversationHistory != null && c.ConversationHistory.Count == 1),
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
     }
 
     [Fact]
@@ -196,7 +245,7 @@ public class QueryOrchestratorTests
             PageId = 244
         };
 
-        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>._, A<string>._, A<int>._, A<int?>._, A<CancellationToken>._))
+        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<string>._, A<string>._, A<int>._, A<int?>._, A<CancellationToken>._))
             .Returns(Task.FromResult<CachedQueryResult?>(null));
 
         A.CallTo(() => _unifiedHandler.HandleAsync(request.Question, A<IntentHandlerContext>._, A<CancellationToken>._))
@@ -226,7 +275,7 @@ public class QueryOrchestratorTests
         var sut = CreateSut();
         var request = CreateSampleRequest(244);
 
-        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>._, A<string>._, A<int>._, A<int?>._, A<CancellationToken>._))
+        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<string>._, A<string>._, A<int>._, A<int?>._, A<CancellationToken>._))
             .Returns(Task.FromResult<CachedQueryResult?>(null));
 
         A.CallTo(() => _unifiedHandler.HandleAsync(request.Question, A<IntentHandlerContext>._, A<CancellationToken>._))
@@ -252,7 +301,7 @@ public class QueryOrchestratorTests
 
         var storeDone = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>._, "default", 0, 244, A<CancellationToken>._))
+        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(request.Question, "default", 0, 244, A<CancellationToken>._))
             .Returns(Task.FromResult<CachedQueryResult?>(null));
 
         A.CallTo(() => _unifiedHandler.HandleAsync(request.Question, A<IntentHandlerContext>._, A<CancellationToken>._))
@@ -265,13 +314,13 @@ public class QueryOrchestratorTests
             }));
 
         A.CallTo(() => _queryCacheService.StoreCachedSqlAsync(
-                A<Guid>._, A<string>._, A<float[]>._, A<string>._, 244, "default", 0, A<string>._, A<CancellationToken>._))
-            .Invokes(call => storeDone.TrySetResult(call.GetArgument<int>(6)))
-            .Returns(Task.FromResult(Guid.NewGuid()));
+                A<Guid>._, A<string>._, A<string>._, 244, "default", 0, A<string>._, A<CancellationToken>._))
+            .Invokes(call => storeDone.TrySetResult(call.GetArgument<int>(5)))
+            .Returns(Task.FromResult(Guid.NewGuid().ToString()));
 
         await sut.HandleDirectedPageQueryAsync(request);
 
-        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>._, "default", 0, 244, A<CancellationToken>._))
+        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(request.Question, "default", 0, 244, A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
 
         var completedTask = await Task.WhenAny(storeDone.Task, Task.Delay(TimeSpan.FromSeconds(5)));

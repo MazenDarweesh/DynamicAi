@@ -1,7 +1,6 @@
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Domain.Entities;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using System.Text;
 using System.Text.Json;
@@ -17,7 +16,6 @@ public class FeedbackService : IFeedbackService
     private readonly IQueryLogRepository _queryLogRepo;
     private readonly IColumnSynonymRepository _synonymRepo;
     private readonly IQueryCacheService _queryCacheService;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embedder;
     private readonly IConversationContextService _contextService;
     private readonly ILogger<FeedbackService> _logger;
 
@@ -26,7 +24,6 @@ public class FeedbackService : IFeedbackService
         IQueryLogRepository queryLogRepo,
         IColumnSynonymRepository synonymRepo,
         IQueryCacheService queryCacheService,
-        IEmbeddingGenerator<string, Embedding<float>> embedder,
         IConversationContextService contextService,
         ILogger<FeedbackService> logger)
     {
@@ -34,7 +31,6 @@ public class FeedbackService : IFeedbackService
         _queryLogRepo = queryLogRepo;
         _synonymRepo = synonymRepo;
         _queryCacheService = queryCacheService;
-        _embedder = embedder;
         _contextService = contextService;
         _logger = logger;
     }
@@ -131,9 +127,8 @@ public class FeedbackService : IFeedbackService
             }
             else if (!string.IsNullOrEmpty(request.Question))
             {
-                var embedding = await _embedder.GenerateAsync(request.Question, cancellationToken: cancellationToken);
-                cacheDeleted = await _queryCacheService.DeleteSimilarCacheAsync(
-                    embedding.Vector.ToArray(),
+                cacheDeleted = await _queryCacheService.DeleteByQuestionAsync(
+                    request.Question,
                     request.TenantId,
                     request.CompanyId,
                     request.PageId,

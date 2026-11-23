@@ -78,7 +78,7 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         int currentPageId = finalContext?.PageId ?? context?.ExplicitPageId ?? 0;
 
         // Phase 0: Cache Bypass
-        var cachedResult = await TryExecuteCachedSqlAsync(context, tenantId, companyId, finalContext, currentPageId, cancellationToken);
+        var cachedResult = await TryExecuteCachedSqlAsync(userQuestion, context, tenantId, companyId, finalContext, currentPageId, cancellationToken);
         if (cachedResult != null) return cachedResult;
 
         if (finalContext == null)
@@ -241,6 +241,7 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
     }
 
     private async Task<QueryExecutionResult?> TryExecuteCachedSqlAsync(
+        string userQuestion,
         IntentHandlerContext? context,
         string tenantId,
         int? companyId,
@@ -274,16 +275,28 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         catch (Exception cacheEx)
         {
             _logger.LogWarning(cacheEx, "[UnifiedHandler] ⚠️ CACHE FALLBACK: Cached SQL failed ({Error}). Invalidating cache.", cacheEx.Message);
+            var cacheIdToDelete = context.CachedCacheId;
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    if (context.PrecomputedEmbedding != null)
+                    if (!string.IsNullOrWhiteSpace(cacheIdToDelete))
                     {
-                        await _queryCacheService.DeleteSimilarCacheAsync(context.PrecomputedEmbedding, tenantId, companyId ?? 0, currentPageId > 0 ? currentPageId : null);
+                        await _queryCacheService.DeleteCacheEntryAsync(cacheIdToDelete);
+                    }
+                    else
+                    {
+                        await _queryCacheService.DeleteByQuestionAsync(
+                            userQuestion,
+                            tenantId,
+                            companyId ?? 0,
+                            currentPageId > 0 ? currentPageId : null);
                     }
                 }
-                catch { /* Non-blocking cache cleanup */ }
+                catch (Exception cleanupEx)
+                {
+                    _logger.LogWarning(cleanupEx, "[UnifiedHandler] Failed to invalidate broken cache entry {CacheId}.", cacheIdToDelete);
+                }
             });
             return null;
         }

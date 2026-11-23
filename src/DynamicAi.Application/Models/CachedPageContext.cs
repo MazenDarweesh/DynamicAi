@@ -3,8 +3,8 @@ using DynamicAi.Application.Models.DirectIntegration;
 namespace DynamicAi.Application.Models;
 
 /// <summary>
-/// Cached version of page context retrieved from Qdrant.
-/// Used by RAG Context Cache (Layer 2) to avoid repeated Qdrant searches for the same page.
+/// Cached version of page context for fast repeated lookups.
+/// Used to avoid repeated context building for the same page.
 /// </summary>
 public class CachedPageContext
 {

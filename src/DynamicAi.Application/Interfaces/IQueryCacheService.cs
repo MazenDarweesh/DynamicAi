@@ -3,25 +3,21 @@ using DynamicAi.Application.Models;
 namespace DynamicAi.Application.Interfaces;
 
 /// <summary>
-/// Service for caching SQL queries based on semantic similarity.
+/// Service for caching generated SQL queries in memory using exact normalized question matching.
 /// </summary>
 public interface IQueryCacheService
 {
     /// <summary>
-    /// Ensures the query_cache collection and payload indexes exist in Qdrant.
-    /// Called at application startup by QueryCacheWarmerService to eliminate cold start penalty.
+    /// Attempts to retrieve a cached SQL result based on normalized question, tenant, company, and optional page scope.
     /// </summary>
-    Task EnsureInitializedAsync(CancellationToken ct = default);
-    /// <summary>
-    /// Attempts to retrieve a cached SQL result based on question embedding similarity.
-    /// </summary>
-    /// <param name="questionEmbedding">The embedding vector of the user's question.</param>
+    /// <param name="question">The user's question text.</param>
     /// <param name="tenantId">The tenant identifier.</param>
     /// <param name="companyId">The company identifier.</param>
     /// <param name="pageId">Optional page identifier for strict cache scoping.</param>
-    /// <returns>The cached result if found with similarity >= threshold, otherwise null.</returns>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The cached result if found, otherwise null.</returns>
     Task<CachedQueryResult?> TryGetCachedSqlAsync(
-        float[] questionEmbedding,
+        string question,
         string tenantId,
         int companyId,
         int? pageId = null,
@@ -30,17 +26,18 @@ public interface IQueryCacheService
     /// <summary>
     /// Stores a successful SQL generation result in the cache.
     /// </summary>
+    /// <param name="id">Unique identifier for the cache entry (e.g., query log ID).</param>
     /// <param name="question">The original user question.</param>
-    /// <param name="embedding">The question embedding vector.</param>
     /// <param name="sql">The generated SQL query.</param>
     /// <param name="pageId">The page ID used for context.</param>
     /// <param name="tenantId">The tenant identifier.</param>
     /// <param name="companyId">The company identifier.</param>
-    /// <param name="intent">The intent classified by the LLM (default to DataRetrieval).</param>
-    Task<Guid> StoreCachedSqlAsync(
+    /// <param name="intent">The intent classified by the LLM (defaults to DataRetrieval).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The cache entry identifier.</returns>
+    Task<string> StoreCachedSqlAsync(
         Guid id,
         string question,
-        float[] embedding,
         string sql,
         int pageId,
         string tenantId,
@@ -49,19 +46,40 @@ public interface IQueryCacheService
         CancellationToken ct = default);
 
     /// <summary>
-    /// Deletes a cached query by its Qdrant point ID.
+    /// Deletes a cached query by its cache entry identifier.
     /// </summary>
-    /// <param name="cacheId">The Qdrant point UUID.</param>
+    /// <param name="cacheId">The cache entry identifier.</param>
+    /// <param name="ct">Cancellation token.</param>
     /// <returns>True if deletion was successful.</returns>
     Task<bool> DeleteCacheEntryAsync(string cacheId, CancellationToken ct = default);
 
     /// <summary>
-    /// Finds and deletes cache entries similar to the given embedding.
+    /// Deletes a cached query matching the given question and scope.
     /// </summary>
-    /// <param name="embedding">The question embedding to match.</param>
+    /// <param name="question">The user question to match.</param>
     /// <param name="tenantId">The tenant identifier.</param>
     /// <param name="companyId">The company identifier.</param>
-    /// <param name="pageId">Optional page identifier for strict deletion scoping. If null, targets PageId=0 (General).</param>
-    /// <returns>True if any entries were deleted.</returns>
-    Task<bool> DeleteSimilarCacheAsync(float[] embedding, string tenantId, int companyId, int? pageId = null, CancellationToken ct = default);
+    /// <param name="pageId">Optional page identifier for strict deletion scoping.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>True if a matching entry was deleted.</returns>
+    Task<bool> DeleteByQuestionAsync(
+        string question,
+        string tenantId,
+        int companyId,
+        int? pageId = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Clears all cached entries associated with the specified page (optionally scoped by tenant and company).
+    /// </summary>
+    /// <param name="pageId">The page identifier to clear.</param>
+    /// <param name="tenantId">Optional tenant identifier filter.</param>
+    /// <param name="companyId">Optional company identifier filter.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The number of removed cache entries.</returns>
+    Task<int> ClearByPageAsync(
+        int pageId,
+        string? tenantId = null,
+        int? companyId = null,
+        CancellationToken ct = default);
 }

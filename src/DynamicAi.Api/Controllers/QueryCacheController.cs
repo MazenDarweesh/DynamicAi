@@ -1,9 +1,6 @@
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
-using DynamicAi.Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Configuration;
 
 namespace DynamicAi.Api.Controllers;
 
@@ -20,9 +17,6 @@ public class QueryCacheController : ControllerBase
     #region Fields
 
     private readonly IQueryCacheService _cacheService;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
-    private readonly ILlmUsageTracker _usageTracker;
-    private readonly IConfiguration _configuration;
     private readonly ILogger<QueryCacheController> _logger;
 
     #endregion
@@ -31,15 +25,9 @@ public class QueryCacheController : ControllerBase
 
     public QueryCacheController(
         IQueryCacheService cacheService,
-        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
-        ILlmUsageTracker usageTracker, // Injected
-        IConfiguration configuration,
         ILogger<QueryCacheController> logger)
     {
         _cacheService = cacheService;
-        _embeddingGenerator = embeddingGenerator;
-        _usageTracker = usageTracker;
-        _configuration = configuration;
         _logger = logger;
     }
 
@@ -48,10 +36,10 @@ public class QueryCacheController : ControllerBase
     #region Endpoints
 
     /// <summary>
-    /// Clears cached SQL entries similar to the given question.
+    /// Clears a cached SQL entry matching the given normalized question and scope.
     /// Use this when you need to invalidate poisoned or stale cache.
     /// </summary>
-    /// <param name="request">The question to match and clear from cache.</param>
+    /// <param name="request">The question and scope to match and clear from cache.</param>
     [HttpPost("clear-by-question")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -61,38 +49,19 @@ public class QueryCacheController : ControllerBase
 
         try
         {
-            // Generate embedding for the question
-            var embedding = await _embeddingGenerator.GenerateAsync(request.Question);
-            var embeddingModel = _configuration["Gemini:EmbeddingModel"] ?? "gemini-embedding-001";
-
-            // Track Usage (Embedding)
-            var embedTokens = request.Question.Length / 4;
-            await _usageTracker.TrackEmbeddingCallAsync(
-                LlmOperationType.Embedding, // Or SqlGeneration/Retrieval
-                Guid.NewGuid().ToString(),
-                embedTokens,
-                request.TenantId,
-                request.CompanyId,
-                modelName: embeddingModel
-            );
-
-            var vector = embedding.Vector.ToArray();
-
-            // Delete similar cache entries
-            var deleted = await _cacheService.DeleteSimilarCacheAsync(
-                vector,
+            var deleted = await _cacheService.DeleteByQuestionAsync(
+                request.Question,
                 request.TenantId ?? "ALL",
-                request.CompanyId ?? 0);
+                request.CompanyId ?? 0,
+                request.PageId);
 
             if (deleted)
             {
                 _logger.LogInformation("✓ [QueryCache] Successfully cleared cache for question");
                 return Ok(new { Message = "Cache entries cleared successfully", Question = request.Question });
             }
-            else
-            {
-                return Ok(new { Message = "No matching cache entries found", Question = request.Question });
-            }
+
+            return Ok(new { Message = "No matching cache entries found", Question = request.Question });
         }
         catch (Exception ex)
         {
@@ -123,6 +92,45 @@ public class QueryCacheController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to clear cache entry");
+            return StatusCode(500, new { Error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Clears all cached entries for a specific page (optionally scoped by tenant and company).
+    /// </summary>
+    /// <param name="pageId">The page ID whose cached entries should be cleared.</param>
+    /// <param name="tenantId">Optional tenant filter.</param>
+    /// <param name="companyId">Optional company filter.</param>
+    [HttpDelete("page/{pageId:int}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> ClearByPage(
+        int pageId,
+        [FromQuery] string? tenantId = null,
+        [FromQuery] int? companyId = null)
+    {
+        _logger.LogInformation(
+            "🧹 [QueryCache] Clearing cache for PageId={PageId}, TenantId={TenantId}, CompanyId={CompanyId}",
+            pageId,
+            tenantId ?? "*",
+            companyId?.ToString() ?? "*");
+
+        try
+        {
+            var count = await _cacheService.ClearByPageAsync(pageId, tenantId, companyId);
+            return Ok(new
+            {
+                Message = count > 0
+                    ? $"Cleared {count} cache entries for page {pageId}"
+                    : $"No cache entries found for page {pageId}",
+                PageId = pageId,
+                DeletedCount = count
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear cache for page {PageId}", pageId);
             return StatusCode(500, new { Error = ex.Message });
         }
     }

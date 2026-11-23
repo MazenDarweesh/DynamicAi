@@ -26,7 +26,7 @@ public class DislikeRequest
     public string? SessionId { get; set; }
 
     /// <summary>
-    /// The Qdrant cache entry ID (if from cache). [Legacy - for backward compatibility]
+    /// The exact query cache entry ID (if from cache). [Legacy - for backward compatibility]
     /// </summary>
     public string? CacheId { get; set; }
 
