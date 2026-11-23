@@ -91,5 +91,60 @@ namespace DynamicAI.Tests.Unit.Services
             context.Should().HaveCount(1);
             context.First().Question.Should().Be("Get Data");
         }
+
+        [Fact]
+        public async Task GetRecentContextAsync_MutatingReturnedList_DoesNotCorruptCachedHistory()
+        {
+            // Arrange
+            var sessionId = "snapshot-isolation-session";
+            await _sut.SaveTurnAsync(sessionId, "Q1", "SQL");
+            await _sut.SaveTurnAsync(sessionId, "Q2", "SQL");
+
+            // Act: mutate the returned list
+            var firstRead = await _sut.GetRecentContextAsync(sessionId, limit: 5);
+            firstRead.Clear();
+
+            // Assert: cached turns remain intact
+            var secondRead = await _sut.GetRecentContextAsync(sessionId, limit: 5);
+            secondRead.Should().HaveCount(2);
+            secondRead.Select(t => t.Question).Should().ContainInOrder("Q1", "Q2");
+        }
+
+        [Fact]
+        public async Task ConcurrentReadsWritesAndRemovals_SameSession_DoNotThrowCollectionModified()
+        {
+            // Arrange
+            var sessionId = "concurrent-session-1";
+
+            // Act
+            var tasks = Enumerable.Range(0, 45).Select(async i =>
+            {
+                switch (i % 4)
+                {
+                    case 0:
+                    case 1:
+                        await _sut.SaveTurnAsync(sessionId, $"Question-{i}", "SQL", sqlExecuted: $"SELECT {i}", pageId: 1);
+                        break;
+                    case 2:
+                        var recent = await _sut.GetRecentContextAsync(sessionId, limit: 5, pageId: 1);
+                        // Mutate snapshot to verify no shared list reference leaks
+                        recent.Clear();
+                        break;
+                    case 3:
+                        if (i % 8 == 3)
+                            await _sut.RemoveLastRelevantTurnAsync(sessionId, pageId: 1);
+                        else
+                            await _sut.RemoveTurnByQuestionAsync(sessionId, $"Question-{i - 2}", pageId: 1);
+                        break;
+                }
+            });
+
+            var act = async () => await Task.WhenAll(tasks);
+
+            // Assert
+            await act.Should().NotThrowAsync();
+            var finalContext = await _sut.GetRecentContextAsync(sessionId, limit: 10, pageId: 1);
+            finalContext.Count.Should().BeLessThanOrEqualTo(5);
+        }
     }
 }

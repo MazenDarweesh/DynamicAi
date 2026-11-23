@@ -39,6 +39,64 @@ namespace DynamicAi.Application.Security
             // Constructor بسيط - لا نحتاج Whitelist
         }
 
+        /// <summary>
+        /// Validates that a parsed T-SQL AST is a single-batch, single-statement read-only SELECT
+        /// (no SELECT ... INTO, no multi-statement batches, and no forbidden statements/table references).
+        /// </summary>
+        public static void ValidateReadOnlyScript(TSqlFragment fragment)
+        {
+            if (fragment is not TSqlScript)
+            {
+                throw new SecurityException("Security Validation Failed: Expected a valid T-SQL script.");
+            }
+
+            var visitor = new SecurityVisitor();
+            fragment.Accept(visitor);
+        }
+
+        // ============================================================================
+        // Strict Read-Only Root Guard (Single Batch, Single SELECT, No INTO)
+        // ============================================================================
+        public override void ExplicitVisit(TSqlScript node)
+        {
+            // Visit child nodes first so specific statement overrides throw descriptive SecurityExceptions.
+            node.AcceptChildren(this);
+
+            if (node.Batches.Count != 1)
+            {
+                throw new SecurityException(
+                    $"Security Validation Failed: Exactly one SQL batch is allowed (found {node.Batches.Count}).");
+            }
+
+            var batch = node.Batches[0];
+            if (batch.Statements.Count != 1)
+            {
+                throw new SecurityException(
+                    $"Security Validation Failed: Multi-statement batches are not allowed; only a single SELECT statement is permitted (found {batch.Statements.Count} statements).");
+            }
+
+            if (batch.Statements[0] is not SelectStatement selectStatement)
+            {
+                throw new SecurityException(
+                    $"Security Validation Failed: Only SELECT statements are allowed (found {batch.Statements[0].GetType().Name}).");
+            }
+
+            if (selectStatement.Into != null)
+            {
+                throw new SecurityException("Security Validation Failed: SELECT ... INTO statements are not allowed.");
+            }
+        }
+
+        public override void Visit(SelectStatement node)
+        {
+            if (node.Into != null)
+            {
+                throw new SecurityException("Security Validation Failed: SELECT ... INTO statements are not allowed.");
+            }
+
+            base.Visit(node);
+        }
+
         // ============================================================================
         // CTE Handling - COMMENTED OUT (CTEs are forbidden in prompt)
         // ============================================================================
@@ -279,6 +337,85 @@ namespace DynamicAi.Application.Security
         public override void Visit(RestoreStatement node)
         {
             throw new SecurityException("Security Validation Failed: RESTORE statements are not allowed.");
+        }
+
+        // ============================================================================
+        // Strict Read-Only Hardening (Execution, Exfiltration, Delay, Variables, Admin)
+        // ============================================================================
+
+        public override void Visit(ExecuteStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: EXEC / EXECUTE statements are not allowed.");
+        }
+
+        public override void Visit(WaitForStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: WAITFOR statements are not allowed.");
+        }
+
+        public override void Visit(OpenRowsetTableReference node)
+        {
+            throw new SecurityException("Security Validation Failed: OPENROWSET table references are not allowed.");
+        }
+
+        public override void Visit(OpenQueryTableReference node)
+        {
+            throw new SecurityException("Security Validation Failed: OPENQUERY table references are not allowed.");
+        }
+
+        public override void Visit(BulkOpenRowset node)
+        {
+            throw new SecurityException("Security Validation Failed: OPENROWSET(BULK) table references are not allowed.");
+        }
+
+        public override void Visit(InternalOpenRowset node)
+        {
+            throw new SecurityException("Security Validation Failed: Internal OPENROWSET references are not allowed.");
+        }
+
+        public override void Visit(OpenRowsetCosmos node)
+        {
+            throw new SecurityException("Security Validation Failed: OPENROWSET references are not allowed.");
+        }
+
+        public override void Visit(DbccStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: DBCC statements are not allowed.");
+        }
+
+        public override void Visit(BulkInsertStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: BULK INSERT statements are not allowed.");
+        }
+
+        public override void Visit(SetVariableStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: SET variable statements are not allowed.");
+        }
+
+        public override void Visit(DeclareVariableStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: DECLARE variable statements are not allowed.");
+        }
+
+        public override void Visit(DeclareTableVariableStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: DECLARE table variable statements are not allowed.");
+        }
+
+        public override void Visit(SelectSetVariable node)
+        {
+            throw new SecurityException("Security Validation Failed: Variable assignment inside SELECT is not allowed.");
+        }
+
+        public override void Visit(ShutdownStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: SHUTDOWN statements are not allowed.");
+        }
+
+        public override void Visit(KillStatement node)
+        {
+            throw new SecurityException("Security Validation Failed: KILL statements are not allowed.");
         }
     }
 }

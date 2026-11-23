@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text.Json;
 using DynamicAi.Application.Interfaces;
@@ -10,6 +11,9 @@ namespace DynamicAi.Infrastructure.Services;
 
 public class ConversationContextService : IConversationContextService
 {
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks =
+        new(StringComparer.Ordinal);
+
     private readonly IMemoryCache _cache;
     private readonly ILogger<ConversationContextService> _logger;
     private readonly int _maxHistoryTurns;
@@ -34,7 +38,7 @@ public class ConversationContextService : IConversationContextService
             _enabled, _ttlMinutes, _maxHistoryTurns);
     }
 
-    public Task SaveTurnAsync(
+    public async Task SaveTurnAsync(
         string sessionId,
         string question,
         string intent,
@@ -43,7 +47,7 @@ public class ConversationContextService : IConversationContextService
         int? pageId = null,
         CancellationToken cancellationToken = default)
     {
-        if (!_enabled) return Task.CompletedTask;
+        if (!_enabled) return;
 
         try
         {
@@ -95,30 +99,38 @@ public class ConversationContextService : IConversationContextService
                 CreatedAt = DateTime.UtcNow
             };
 
-            // ⚡ Pure Memory Logic
+            // ⚡ Thread-safe memory cache update
             var cacheKey = $"context-{sessionId}";
+            var sessionLock = _sessionLocks.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
+            int totalTurns;
 
-            // Get existing history or create new
-            var history = _cache.GetOrCreate(cacheKey, entry =>
+            await sessionLock.WaitAsync(cancellationToken);
+            try
             {
-                entry.SlidingExpiration = TimeSpan.FromMinutes(_ttlMinutes);
-                return new List<ConversationTurn>();
-            }) ?? new List<ConversationTurn>();
+                var existing = _cache.Get<List<ConversationTurn>>(cacheKey);
+                var history = existing != null ? new List<ConversationTurn>(existing) : new List<ConversationTurn>();
 
-            // Add new turn
-            history.Add(turn);
+                history.Add(turn);
 
-            // Limit size to prevent memory bloat
-            if (history.Count > _maxHistoryTurns)
-            {
-                history = history.OrderByDescending(x => x.CreatedAt).Take(_maxHistoryTurns).OrderBy(x => x.CreatedAt).ToList();
+                if (history.Count > _maxHistoryTurns)
+                {
+                    history = history
+                        .OrderByDescending(x => x.CreatedAt)
+                        .Take(_maxHistoryTurns)
+                        .OrderBy(x => x.CreatedAt)
+                        .ToList();
+                }
+
+                _cache.Set(cacheKey, history, new MemoryCacheEntryOptions
+                {
+                    SlidingExpiration = TimeSpan.FromMinutes(_ttlMinutes)
+                });
+                totalTurns = history.Count;
             }
-
-            // Update cache
-            _cache.Set(cacheKey, history, new MemoryCacheEntryOptions
+            finally
             {
-                SlidingExpiration = TimeSpan.FromMinutes(_ttlMinutes)
-            });
+                sessionLock.Release();
+            }
 
             // ✅ Enhanced Logging: Show what was stored
             _logger.LogInformation(
@@ -141,37 +153,50 @@ public class ConversationContextService : IConversationContextService
                 _logger.LogInformation("[Context] 👁️ Sample Preview: {Preview}", preview);
             }
 
-            _logger.LogInformation("[Context] 📚 Total Turns in Session: {Count}", history.Count);
-
-            return Task.CompletedTask;
+            _logger.LogInformation("[Context] 📚 Total Turns in Session: {Count}", totalTurns);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save conversation turn to memory");
-            return Task.CompletedTask;
         }
     }
 
-    public Task<List<ConversationTurn>> GetRecentContextAsync(
+    public async Task<List<ConversationTurn>> GetRecentContextAsync(
         string sessionId,
         int limit = 3,
         int? pageId = null,
         CancellationToken cancellationToken = default)
     {
-        if (!_enabled) return Task.FromResult(new List<ConversationTurn>());
+        if (!_enabled) return new List<ConversationTurn>();
 
         var cacheKey = $"context-{sessionId}";
-        if (_cache.TryGetValue<List<ConversationTurn>>(cacheKey, out var history))
-        {
-            if (history == null) return Task.FromResult(new List<ConversationTurn>()); // Defensive Null Check
-            // Filter and take random/last N? Logic says "Recent Context" -> Last N
-            var relevant = history!
-                .Where(x => x.IsRelevantForContext && (!pageId.HasValue || x.PageId == pageId.Value))
-                .OrderByDescending(x => x.CreatedAt)
-                .Take(limit)
-                .OrderBy(x => x.CreatedAt)
-                .ToList();
+        var sessionLock = _sessionLocks.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
+        List<ConversationTurn>? relevant = null;
 
+        await sessionLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_cache.TryGetValue<List<ConversationTurn>>(cacheKey, out var history) && history != null)
+            {
+                relevant = history
+                    .Where(x => x.IsRelevantForContext && (!pageId.HasValue || x.PageId == pageId.Value))
+                    .OrderByDescending(x => x.CreatedAt)
+                    .Take(limit)
+                    .OrderBy(x => x.CreatedAt)
+                    .ToList();
+            }
+        }
+        finally
+        {
+            sessionLock.Release();
+        }
+
+        if (relevant != null)
+        {
             // ✅ Enhanced Logging: Show what context is being retrieved
             if (relevant.Count > 0)
             {
@@ -198,86 +223,122 @@ public class ConversationContextService : IConversationContextService
                 _logger.LogInformation("[Context] ⚠️ No relevant context found for session: {SessionId}", sessionId);
             }
 
-            return Task.FromResult(relevant);
+            return relevant.ToList();
         }
 
         _logger.LogInformation("[Context] ⚠️ No context cache exists for session: {SessionId}", sessionId);
-        return Task.FromResult(new List<ConversationTurn>());
+        return new List<ConversationTurn>();
     }
 
-    public Task RemoveLastRelevantTurnAsync(string sessionId, int? pageId = null, CancellationToken cancellationToken = default)
+    public async Task RemoveLastRelevantTurnAsync(string sessionId, int? pageId = null, CancellationToken cancellationToken = default)
     {
-        if (!_enabled) return Task.CompletedTask;
+        if (!_enabled) return;
 
         var cacheKey = $"context-{sessionId}";
-        if (_cache.TryGetValue<List<ConversationTurn>>(cacheKey, out var history) && history != null && history.Count > 0)
+        var sessionLock = _sessionLocks.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
+        ConversationTurn? removedTurn = null;
+
+        await sessionLock.WaitAsync(cancellationToken);
+        try
         {
-            var lastRelevant = history
-                .Where(x => x.IsRelevantForContext && (!pageId.HasValue || x.PageId == pageId.Value))
-                .OrderByDescending(x => x.CreatedAt)
-                .FirstOrDefault();
-            if (lastRelevant != null)
+            if (_cache.TryGetValue<List<ConversationTurn>>(cacheKey, out var existing) && existing != null && existing.Count > 0)
             {
-                history.Remove(lastRelevant);
-                _cache.Set(cacheKey, history, new MemoryCacheEntryOptions
-                {
-                    SlidingExpiration = TimeSpan.FromMinutes(_ttlMinutes)
-                });
-                _logger.LogInformation("[Context] 🗑️ Removed last relevant turn from session: {SessionId} (Question: {Question})", sessionId, lastRelevant.Question);
-            }
-        }
-        return Task.CompletedTask;
-    }
-
-    public Task RemoveTurnByQuestionAsync(string sessionId, string question, int? pageId = null, CancellationToken cancellationToken = default)
-    {
-        if (!_enabled) return Task.CompletedTask;
-
-        var cacheKey = $"context-{sessionId}";
-        if (_cache.TryGetValue<List<ConversationTurn>>(cacheKey, out var history) && history != null && history.Count > 0)
-        {
-            var cleanQuestion = question.Trim();
-            // Try exact match first (case-insensitive)
-            var turnToRemove = history
-                .Where(x => (!pageId.HasValue || x.PageId == pageId.Value) && 
-                            x.Question.Trim().Equals(cleanQuestion, StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(x => x.CreatedAt)
-                .FirstOrDefault();
-
-            // Fallback 1: Substring/contained match
-            if (turnToRemove == null)
-            {
-                turnToRemove = history
-                    .Where(x => (!pageId.HasValue || x.PageId == pageId.Value) && 
-                                (x.Question.Contains(cleanQuestion, StringComparison.OrdinalIgnoreCase) || 
-                                 cleanQuestion.Contains(x.Question, StringComparison.OrdinalIgnoreCase)))
-                    .OrderByDescending(x => x.CreatedAt)
-                    .FirstOrDefault();
-            }
-
-            // Fallback 2: Last relevant turn in the same page
-            if (turnToRemove == null)
-            {
-                turnToRemove = history
+                var history = new List<ConversationTurn>(existing);
+                var lastRelevant = history
                     .Where(x => x.IsRelevantForContext && (!pageId.HasValue || x.PageId == pageId.Value))
                     .OrderByDescending(x => x.CreatedAt)
                     .FirstOrDefault();
-            }
 
-            if (turnToRemove != null)
-            {
-                history.Remove(turnToRemove);
-                _cache.Set(cacheKey, history, new MemoryCacheEntryOptions
+                if (lastRelevant != null)
                 {
-                    SlidingExpiration = TimeSpan.FromMinutes(_ttlMinutes)
-                });
-                _logger.LogInformation("[Context] 🗑️ Removed turn from session: {SessionId} (Question: {Question})", sessionId, turnToRemove.Question);
-            }
-            else
-            {
-                _logger.LogWarning("[Context] ⚠️ Could not find any turn matching question \"{Question}\" to remove in session: {SessionId}", question, sessionId);
+                    history.Remove(lastRelevant);
+                    _cache.Set(cacheKey, history, new MemoryCacheEntryOptions
+                    {
+                        SlidingExpiration = TimeSpan.FromMinutes(_ttlMinutes)
+                    });
+                    removedTurn = lastRelevant;
+                }
             }
         }
-        return Task.CompletedTask;
+        finally
+        {
+            sessionLock.Release();
+        }
+
+        if (removedTurn != null)
+        {
+            _logger.LogInformation("[Context] 🗑️ Removed last relevant turn from session: {SessionId} (Question: {Question})", sessionId, removedTurn.Question);
+        }
+    }
+
+    public async Task RemoveTurnByQuestionAsync(string sessionId, string question, int? pageId = null, CancellationToken cancellationToken = default)
+    {
+        if (!_enabled) return;
+
+        var cacheKey = $"context-{sessionId}";
+        var sessionLock = _sessionLocks.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
+        bool cacheFound = false;
+        ConversationTurn? removedTurn = null;
+
+        await sessionLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_cache.TryGetValue<List<ConversationTurn>>(cacheKey, out var existing) && existing != null && existing.Count > 0)
+            {
+                cacheFound = true;
+                var history = new List<ConversationTurn>(existing);
+                var cleanQuestion = question.Trim();
+
+                // Try exact match first (case-insensitive)
+                var turnToRemove = history
+                    .Where(x => (!pageId.HasValue || x.PageId == pageId.Value) &&
+                                x.Question.Trim().Equals(cleanQuestion, StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(x => x.CreatedAt)
+                    .FirstOrDefault();
+
+                // Fallback 1: Substring/contained match
+                if (turnToRemove == null)
+                {
+                    turnToRemove = history
+                        .Where(x => (!pageId.HasValue || x.PageId == pageId.Value) &&
+                                    (x.Question.Contains(cleanQuestion, StringComparison.OrdinalIgnoreCase) ||
+                                     cleanQuestion.Contains(x.Question, StringComparison.OrdinalIgnoreCase)))
+                        .OrderByDescending(x => x.CreatedAt)
+                        .FirstOrDefault();
+                }
+
+                // Fallback 2: Last relevant turn in the same page
+                if (turnToRemove == null)
+                {
+                    turnToRemove = history
+                        .Where(x => x.IsRelevantForContext && (!pageId.HasValue || x.PageId == pageId.Value))
+                        .OrderByDescending(x => x.CreatedAt)
+                        .FirstOrDefault();
+                }
+
+                if (turnToRemove != null)
+                {
+                    history.Remove(turnToRemove);
+                    _cache.Set(cacheKey, history, new MemoryCacheEntryOptions
+                    {
+                        SlidingExpiration = TimeSpan.FromMinutes(_ttlMinutes)
+                    });
+                    removedTurn = turnToRemove;
+                }
+            }
+        }
+        finally
+        {
+            sessionLock.Release();
+        }
+
+        if (removedTurn != null)
+        {
+            _logger.LogInformation("[Context] 🗑️ Removed turn from session: {SessionId} (Question: {Question})", sessionId, removedTurn.Question);
+        }
+        else if (cacheFound)
+        {
+            _logger.LogWarning("[Context] ⚠️ Could not find any turn matching question \"{Question}\" to remove in session: {SessionId}", question, sessionId);
+        }
     }
 }

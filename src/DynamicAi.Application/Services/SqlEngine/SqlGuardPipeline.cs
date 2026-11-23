@@ -68,8 +68,7 @@ public class SqlGuardPipeline : ISqlGuardPipeline
                 "Please use OFFSET/FETCH ONLY for paging.");
         }
 
-        var securityVisitor = new SecurityVisitor();
-        fragment.Accept(securityVisitor);
+        SecurityVisitor.ValidateReadOnlyScript(fragment);
 
         // 3. Schema Sanitization
         await ValidateSchemaAsync(fragment, schemaPrefetchTask, connectionString, ct);

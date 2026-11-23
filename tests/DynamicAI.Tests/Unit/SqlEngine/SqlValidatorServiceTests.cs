@@ -50,7 +50,7 @@ public class SqlValidatorServiceTests
     }
 
     [Fact]
-    public async Task ValidateSqlAsync_EmptyString_ThrowsException()
+    public async Task ValidateSqlAsync_EmptyString_ThrowsSecurityException()
     {
         // Arrange
         var sql = "";
@@ -59,9 +59,9 @@ public class SqlValidatorServiceTests
         var act = async () => await _service.ValidateSqlAsync(sql, "tenant1");
 
         // Assert
-        // Empty SQL is technically valid but produces empty AST - depends on implementation
-        // We test that it doesn't crash
-        await act.Should().NotThrowAsync();
+        // Under strict read-only AST guard (Batches.Count == 1), empty SQL is rejected
+        await act.Should().ThrowAsync<SecurityException>()
+            .WithMessage("*batch*");
     }
 
     [Fact]

@@ -117,15 +117,13 @@ namespace DynamicAi.Application.Services
             _logger.LogInformation("[SqlValidator] STEP 3: Performing security validation (Blacklist-Only)...");
 
             // إنشاء الزائر الأمني (بدون Whitelist)
-            var securityVisitor = new SecurityVisitor();
-
             _logger.LogInformation("[SqlValidator] Initiating SecurityVisitor to traverse SQL AST...");
-            _logger.LogInformation("[SqlValidator] Checking for: DELETE, UPDATE, INSERT, DROP, ALTER, CREATE, EXEC, etc.");
+            _logger.LogInformation("[SqlValidator] Checking for: single SELECT only, no SELECT INTO, no DDL/DML/EXEC/WAITFOR/OPENROWSET.");
 
             try
             {
                 // التجول في شجرة بناء الجملة (AST)
-                fragment.Accept(securityVisitor);
+                SecurityVisitor.ValidateReadOnlyScript(fragment);
 
                 _logger.LogInformation("[SqlValidator] ✓ Security validation passed. No forbidden statements detected.");
             }

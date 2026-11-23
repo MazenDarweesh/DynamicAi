@@ -68,6 +68,13 @@ namespace DynamicAi.Application.Services.SqlEngine
                 return result;
             }
 
+            // Defensive copy so on-demand table merging never mutates a shared/cached dictionary
+            var workingSchemaMap = new Dictionary<string, HashSet<string>>(schemaMap.Count, StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in schemaMap)
+            {
+                workingSchemaMap[kvp.Key] = new HashSet<string>(kvp.Value, StringComparer.OrdinalIgnoreCase);
+            }
+
             // Parse SQL into AST
             TSqlParser parser = new TSql160Parser(false);
             IList<ParseError> errors;
@@ -96,7 +103,7 @@ namespace DynamicAi.Application.Services.SqlEngine
             if (!string.IsNullOrEmpty(connectionString))
             {
                 var missingTables = allReferencedTables
-                    .Where(t => !schemaMap.ContainsKey(t))
+                    .Where(t => !workingSchemaMap.ContainsKey(t))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
@@ -113,7 +120,7 @@ namespace DynamicAi.Application.Services.SqlEngine
                         var duration = (DateTime.UtcNow - fetchStart).TotalMilliseconds;
 
                         foreach (var kvp in extraSchema)
-                            schemaMap[kvp.Key] = kvp.Value;
+                            workingSchemaMap[kvp.Key] = new HashSet<string>(kvp.Value, StringComparer.OrdinalIgnoreCase);
 
                         _logger.LogInformation(
                             "[SqlSanitizer] ✅ Targeted Fetch Complete ({Duration:F0}ms). Merged {Fetched}/{Requested} missing tables into schema map.",
@@ -138,7 +145,7 @@ namespace DynamicAi.Application.Services.SqlEngine
             }
 
             // Visit AST and detect invalid columns
-            var visitor = new SanitizationVisitor(schemaMap);
+            var visitor = new SanitizationVisitor(workingSchemaMap);
             fragment.Accept(visitor);
 
             foreach (var warning in visitor.Warnings)

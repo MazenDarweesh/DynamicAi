@@ -28,6 +28,8 @@ namespace DynamicAi.Application.Services.SqlEngine
         // This prevents token explosion in the Self-Healing loop (was: 1 error per column = N × full column list).
         public List<string> ValidationErrors => GenerateConsolidatedErrors();
 
+        private readonly List<string> _otherValidationErrors = new List<string>();
+
         // Internal accumulator: TableName → (InvalidColumns, ValidColumns)
         private readonly Dictionary<string, (HashSet<string> InvalidCols, HashSet<string> ValidCols)>
             _invalidColumnsByTable = new Dictionary<string, (HashSet<string>, HashSet<string>)>(StringComparer.OrdinalIgnoreCase);
@@ -72,7 +74,7 @@ namespace DynamicAi.Application.Services.SqlEngine
             {
                 var error = $"Table '{realTableName}' is not defined in the schema database.";
                 Warnings.Add($"[Sanitizer] {error}");
-                ValidationErrors.Add(error);
+                _otherValidationErrors.Add(error);
                 return;
             }
 
@@ -195,7 +197,7 @@ namespace DynamicAi.Application.Services.SqlEngine
                     // الـ Alias نفسه غير معروف!
                     var error = $"Table alias '{tableNameOrAlias}' for column '{columnName}' is not defined in the FROM/JOIN clauses.";
                     Warnings.Add($"[Sanitizer] {error}");
-                    ValidationErrors.Add(error);
+                    _otherValidationErrors.Add(error);
                     return; 
                 }
             }
@@ -212,7 +214,7 @@ namespace DynamicAi.Application.Services.SqlEngine
                     // أكثر من جدول ولا يوجد Alias. خطأ صريح في الاستعلام المعقد
                     var error = $"Ambiguous column '{columnName}'. You must use an exact table alias (e.g. T1.{columnName}) when multiple tables are present.";
                     Warnings.Add($"[Sanitizer] {error}");
-                    ValidationErrors.Add(error);
+                    _otherValidationErrors.Add(error);
                     return;
                 }
             }
@@ -252,7 +254,7 @@ namespace DynamicAi.Application.Services.SqlEngine
         // ============================================================================
         private List<string> GenerateConsolidatedErrors()
         {
-            var errors = new List<string>();
+            var errors = new List<string>(_otherValidationErrors);
 
             foreach (var kvp in _invalidColumnsByTable)
             {
