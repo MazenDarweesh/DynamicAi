@@ -34,8 +34,9 @@ public class PromptTemplateEngineTests
 
         metadata.Name.Should().Be("unified_master");
         metadata.Version.Should().Be("1.0");
-        metadata.Model.Should().Be("gemini-2.0-flash-lite");
-        metadata.Variables.Should().Contain(v => v.Name == "user_question" && v.IsRequired);
+        metadata.Model.Should().Be("gemini-2.5-flash-lite");
+        metadata.Variables.Should().Contain(v => v.Name == "user_question" && !v.IsRequired);
+        metadata.Variables.Should().NotContain(v => v.Name == "previous_sql");
         metadata.Variables.Should().Contain(v => v.Name == "company_id" && v.IsRequired);
         metadata.Variables.Should().Contain(v => v.Name == "current_date" && v.IsRequired);
         metadata.Variables.Should().Contain(v => v.Name == "current_year" && v.IsRequired);
@@ -51,7 +52,8 @@ public class PromptTemplateEngineTests
             ["user_question"] = "عايز بيانات العميل لولو",
             ["company_id"] = 1,
             ["current_date"] = "2026-11-23",
-            ["current_year"] = "2026"
+            ["current_year"] = "2026",
+            ["conversation_history"] = "[Turn 1] User: هات الفواتير"
         };
 
         var rendered = await _sut.RenderAsync("unified_master", variables);
@@ -59,6 +61,20 @@ public class PromptTemplateEngineTests
         rendered.Should().Contain("Today's date is: 2026-11-23 (Year: 2026)");
         rendered.Should().Contain("JSON SCHEMA:");
         rendered.Should().Contain("## SECTION A: SQL GENERATION RULES");
+        rendered.Should().Contain("## REQUEST CONTEXT");
+        rendered.Should().Contain("CompanyId: 1");
+        rendered.Should().NotContain("Q: عايز بيانات العميل لولو");
+        rendered.Should().NotContain("{{user_question}}");
+
+        // Phase 0B.5 rules verification
+        rendered.Should().Contain("RULE 2");
+        rendered.Should().Contain("CreateBy");
+        rendered.Should().Contain("ModifyBy");
+        rendered.Should().Contain("ContractDate");
+        rendered.Should().Contain("IsCompany=FALSE");
+        rendered.Should().Contain("intent='Chat'");
+        rendered.Should().Contain("PREVIOUS TURNS (most recent first; [Turn 1] is the latest query):");
+
         rendered.Should().NotContain("{{> ");
         rendered.Should().NotContain("{{company_id}}");
         rendered.Should().NotContain("{{current_date}}");

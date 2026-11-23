@@ -24,14 +24,16 @@ public static class TailConditionBuilder
             });
         }
 
-        foreach (var detail in finalContext.DetailSetups ?? new())
+        var detailSetups = finalContext.DetailSetups ?? new();
+        for (int i = 0; i < detailSetups.Count; i++)
         {
+            var detail = detailSetups[i];
             if (!string.IsNullOrWhiteSpace(detail.TailCondition))
             {
                 tailEntries.Add(new TailConditionEntry
                 {
                     ViewName = detail.TableName,
-                    SqlAlias = "TD",
+                    SqlAlias = PageContextFormatter.GetDetailAlias(i, detailSetups.Count),
                     Condition = CleanCondition(detail.TailCondition)
                 });
             }
@@ -51,13 +53,16 @@ public static class TailConditionBuilder
         if (tailEntries.Any())
         {
             var promptTail = new StringBuilder();
+            var detailSetups = finalContext.DetailSetups ?? new();
 
             promptTail.AppendLine("RESERVED ALIASES (FIXED — must be used exactly as shown — cannot be reassigned or reused):");
             promptTail.AppendLine($"  TM → Master view: {finalContext.MasterSetup?.TableName} (always in FROM clause)");
 
-            foreach (var detail in finalContext.DetailSetups ?? new())
+            for (int i = 0; i < detailSetups.Count; i++)
             {
-                promptTail.AppendLine($"  TD → Detail view: {detail.TableName} (JOIN only when the question requires detail-level columns)");
+                var detail = detailSetups[i];
+                var alias = PageContextFormatter.GetDetailAlias(i, detailSetups.Count);
+                promptTail.AppendLine($"  {alias} → Detail view: {detail.TableName} (JOIN only when the question requires detail-level columns)");
             }
 
             promptTail.AppendLine("  T1, T2, T3… → Available for dropdown lookup JOINs only (never for master/detail).");
@@ -65,16 +70,17 @@ public static class TailConditionBuilder
             promptTail.AppendLine("MANDATORY FILTERS:");
             foreach (var entry in tailEntries)
             {
+                var isDetail = entry.SqlAlias.StartsWith("TD", StringComparison.OrdinalIgnoreCase);
                 promptTail.AppendLine(
                     $"  • View='{entry.ViewName}' | Alias='{entry.SqlAlias}' → CONDITION: ({entry.Condition}). " +
                     $"Prefix every column in this condition with '{entry.SqlAlias}.' (e.g. {entry.SqlAlias}.ColumnName). " +
-                    (entry.SqlAlias == "TD"
-                        ? "⚠️ Apply this filter ONLY if you JOIN TD. If TD is not in your query, SKIP this filter entirely."
+                    (isDetail
+                        ? $"⚠️ Apply this filter ONLY if you JOIN {entry.SqlAlias}. If {entry.SqlAlias} is not in your query, SKIP this filter entirely."
                         : "Apply this filter unconditionally in the main WHERE clause."));
             }
 
             promptTail.AppendLine();
-            promptTail.AppendLine("DROPDOWN LOOKUP JOINS (if needed per COLUMN RESOLUTION rule E): use T1, T2, T3… starting from T1.");
+            promptTail.AppendLine("DROPDOWN LOOKUP JOINS (if needed per COLUMN RESOLUTION RULE 2 (SearchName == ColumnName)): use T1, T2, T3… starting from T1.");
 
             if (isDirectedContext)
             {
@@ -82,14 +88,17 @@ public static class TailConditionBuilder
                 promptTail.AppendLine($"- Page: '{finalContext.PageName}'");
                 promptTail.AppendLine($"- TM (Master): {finalContext.MasterSetup?.TableName}");
 
-                foreach (var detail in finalContext.DetailSetups ?? new())
+                for (int i = 0; i < detailSetups.Count; i++)
                 {
-                    promptTail.AppendLine($"- TD (Detail): {detail.TableName} — join only if user needs detail columns");
+                    var detail = detailSetups[i];
+                    var alias = PageContextFormatter.GetDetailAlias(i, detailSetups.Count);
+                    promptTail.AppendLine($"- {alias} (Detail): {detail.TableName} — join only if user needs detail columns");
                 }
             }
 
-            logger?.LogInformation("[TailConditionBuilder] 🛡️ {Count} TailCondition entries built. Aliases: TM=Master, TD=Detail. Dropdown lookups use T1,T2,T3…",
-                tailEntries.Count);
+            var detailAliasNote = detailSetups.Count > 1 ? "TD1,TD2…=Detail" : "TD=Detail";
+            logger?.LogInformation("[TailConditionBuilder] 🛡️ {Count} TailCondition entries built. Aliases: TM=Master, {DetailAliases}. Dropdown lookups use T1,T2,T3…",
+                tailEntries.Count, detailAliasNote);
 
             return (tailEntries, promptTail.ToString().Trim());
         }

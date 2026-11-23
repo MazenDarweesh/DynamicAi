@@ -81,7 +81,7 @@ public class QueryOrchestrator : IQueryOrchestrator
             cachedResult = await _queryCacheService.TryGetCachedSqlAsync(
                 sharedVector,
                 request.TenantId,
-                request.ComID ?? 1,
+                request.ComID ?? 0,
                 request.PageId,
                 ct);
 

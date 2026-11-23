@@ -16,5 +16,8 @@ public interface ISqlGuardPipeline
         IEnumerable<TailConditionEntry>? tailConditions = null,
         CancellationToken ct = default,
         Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask = null,
-        string? connectionString = null);
+        string? connectionString = null,
+        IReadOnlySet<string>? allowedTables = null,
+        bool skipCompanyFilter = false,
+        string? masterViewName = null);
 }

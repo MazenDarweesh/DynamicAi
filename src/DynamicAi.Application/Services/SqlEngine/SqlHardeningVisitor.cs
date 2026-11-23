@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using DynamicAi.Application.Models.DirectIntegration;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
 
@@ -6,65 +7,61 @@ using Microsoft.SqlServer.TransactSql.ScriptDom;
 ///
 /// مسؤوليات هذا الزائر:
 ///   1. حقن TOP للحد من حجم النتائج.
-///   2. التحقق من وجود كل TailCondition المرتبطة بكل مصدر بياني (View/Table).
-///      • إذا كان الـ LLM قد أضاف الشرط بالفعل → لا يُعدّل شيء (Trust LLM).
-///      • إذا كان الشرط ناقصاً → يُحقن في الـ QuerySpecification الصحيح
-///        الذي يحتوي على الـ View صاحب الشرط.
-///
-/// تغيير معماري مهم: لم نعد نحقن جميع الشروط في أعلى QuerySpecification بشكل أعمى.
-/// كل شرط مرتبط بـ ViewName + SqlAlias، ويُبحث عنه في الـ FromClause الصحيح.
+///   2. التحقق من وجود فلتر الشركة ComID = @CurrentCompanyId على الاستعلام الخارجي وحقنه عند الحاجة.
+///   3. التحقق عبر AST من وجود كل TailCondition المرتبطة بكل مصدر بياني (View/Table) وحقن الناقص منها
+///      في الـ QuerySpecification الصحيح وفق تطابق (ViewName, SqlAlias).
 /// </summary>
-internal class SqlHardeningVisitor : TSqlFragmentVisitor
+public class SqlHardeningVisitor : TSqlFragmentVisitor
 {
     public Dictionary<string, object> Parameters { get; private set; }
     private readonly string _tenantId;
     private readonly int _topRows;
     private readonly List<TailConditionEntry> _tailConditions;
+    private readonly int? _companyId;
+    private readonly bool _enforceCompanyFilter;
+    private readonly string? _masterViewName;
 
-    // ─── Injection tracking ────────────────────────────────────────────────
-    // Maps ViewName (lower-invariant) → whether its condition was already found/injected.
-    private readonly Dictionary<string, bool> _conditionApplied;
-
-    // Populated during ExplicitVisit(NamedTableReference) so injection knows
-    // which QuerySpecification owns which table reference.
-    private readonly Dictionary<QuerySpecification, HashSet<string>> _queryToViews = new();
+    // Maps each QuerySpecification to the ordered list of (TableName, Alias) in its FROM/JOIN clauses.
+    private readonly Dictionary<QuerySpecification, List<(string TableName, string? Alias)>> _queryTables = new();
     private readonly Stack<QuerySpecification> _queryStack = new();
 
-    // TOP already injected guard (only once for outermost query)
+    private QuerySpecification? _outermostQuerySpec;
     private bool _topInjected = false;
+    private bool _companyFilterApplied = false;
 
     public SqlHardeningVisitor(
         Dictionary<string, object> parameters,
         string tenantId,
         int topRows,
-        IEnumerable<TailConditionEntry>? tailConditions = null)
+        IEnumerable<TailConditionEntry>? tailConditions = null,
+        int? companyId = null,
+        bool enforceCompanyFilter = false,
+        string? masterViewName = null)
     {
         Parameters = parameters;
         _tenantId = tenantId;
         _topRows = topRows;
+        _companyId = companyId;
+        _enforceCompanyFilter = enforceCompanyFilter;
+        _masterViewName = masterViewName;
         _tailConditions = tailConditions?
             .Where(e => !string.IsNullOrWhiteSpace(e.Condition) && !string.IsNullOrWhiteSpace(e.ViewName))
             .ToList() ?? new List<TailConditionEntry>();
-
-        _conditionApplied = _tailConditions
-            .ToDictionary(e => e.ViewName.ToLowerInvariant(), _ => false);
     }
 
-    // ─── Pass 1: Build QuerySpecification → Views map ─────────────────────
-
-    // ─── REMOVED: Visit(QuerySpecification) — it fired BEFORE ExplicitVisit causing
-    //             _queryStack to receive the same node TWICE (pushed) but only popped
-    //             ONCE at the end of ExplicitVisit, corrupting scope tracking.
-    //             TOP injection is now handled exclusively inside ExplicitVisit.
+    public override void Visit(SelectStatement node)
+    {
+        _outermostQuerySpec ??= node.QueryExpression as QuerySpecification;
+        base.Visit(node);
+    }
 
     public override void ExplicitVisit(QuerySpecification node)
     {
         _queryStack.Push(node);
 
-        if (!_queryToViews.ContainsKey(node))
-            _queryToViews[node] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!_queryTables.ContainsKey(node))
+            _queryTables[node] = new List<(string TableName, string? Alias)>();
 
-        // TOP Injection (outermost query only — moved here from Visit)
         if (!_topInjected && node.TopRowFilter == null && node.OffsetClause == null)
         {
             node.TopRowFilter = new TopRowFilter
@@ -74,10 +71,18 @@ internal class SqlHardeningVisitor : TSqlFragmentVisitor
             _topInjected = true;
         }
 
-        // Visit children so named table references register themselves
         node.AcceptChildren(this);
 
-        // ─── After children visited: determine which tail conditions are needed here ───
+        bool isOutermost = _outermostQuerySpec != null
+            ? ReferenceEquals(node, _outermostQuerySpec)
+            : _queryStack.Count == 1;
+
+        if (isOutermost && !_companyFilterApplied && _enforceCompanyFilter && _companyId.HasValue)
+        {
+            EnsureCompanyFilter(node);
+            _companyFilterApplied = true;
+        }
+
         if (_tailConditions.Any())
         {
             ApplyMissingConditionsToQuery(node);
@@ -87,7 +92,7 @@ internal class SqlHardeningVisitor : TSqlFragmentVisitor
     }
 
     /// <summary>
-    /// When the visitor encounters a table reference (FROM or JOIN), register it
+    /// Registers each FROM/JOIN NamedTableReference with its exact TableName and Alias
     /// under the nearest enclosing QuerySpecification.
     /// </summary>
     public override void ExplicitVisit(NamedTableReference node)
@@ -95,149 +100,315 @@ internal class SqlHardeningVisitor : TSqlFragmentVisitor
         if (_queryStack.TryPeek(out var currentQuery))
         {
             var tableName = node.SchemaObject?.BaseIdentifier?.Value ?? string.Empty;
-            if (!string.IsNullOrEmpty(tableName))
-                _queryToViews[currentQuery].Add(tableName);
-
-            // Also register the alias if present
-            var alias = node.Alias?.Value ?? string.Empty;
-            if (!string.IsNullOrEmpty(alias))
-                _queryToViews[currentQuery].Add(alias);
+            var alias = node.Alias?.Value;
+            if (!string.IsNullOrEmpty(tableName) || !string.IsNullOrEmpty(alias))
+            {
+                if (!_queryTables.TryGetValue(currentQuery, out var list))
+                {
+                    list = new List<(string TableName, string? Alias)>();
+                    _queryTables[currentQuery] = list;
+                }
+                list.Add((tableName, alias));
+            }
         }
     }
 
-    // ─── Per-query condition injection ────────────────────────────────────
+    private void EnsureCompanyFilter(QuerySpecification queryNode)
+    {
+        if (!_companyId.HasValue) return;
+
+        Parameters["@CurrentCompanyId"] = _companyId.Value;
+
+        if (queryNode.WhereClause != null)
+        {
+            var checkVisitor = new CompanyFilterCheckVisitor();
+            queryNode.WhereClause.Accept(checkVisitor);
+            if (checkVisitor.Found)
+            {
+                return;
+            }
+        }
+
+        string? masterAlias = ResolveMasterAlias(queryNode);
+        var identifier = new MultiPartIdentifier();
+        if (!string.IsNullOrWhiteSpace(masterAlias))
+        {
+            identifier.Identifiers.Add(new Identifier { Value = masterAlias });
+        }
+        identifier.Identifiers.Add(new Identifier { Value = "ComID" });
+
+        var companyComparison = new BooleanComparisonExpression
+        {
+            ComparisonType = BooleanComparisonType.Equals,
+            FirstExpression = new ColumnReferenceExpression { MultiPartIdentifier = identifier },
+            SecondExpression = new VariableReference { Name = "@CurrentCompanyId" }
+        };
+
+        AppendAndCondition(queryNode, companyComparison, wrapNewConditionInParens: false);
+    }
+
+    private string? ResolveMasterAlias(QuerySpecification queryNode)
+    {
+        if (!_queryTables.TryGetValue(queryNode, out var tables) || tables.Count == 0)
+            return null;
+
+        if (!string.IsNullOrWhiteSpace(_masterViewName))
+        {
+            var match = tables.FirstOrDefault(t =>
+                t.TableName.Equals(_masterViewName, StringComparison.OrdinalIgnoreCase));
+            return !string.IsNullOrEmpty(match.TableName) ? match.Alias : null;
+        }
+
+        return tables[0].Alias;
+    }
 
     private void ApplyMissingConditionsToQuery(QuerySpecification queryNode)
     {
-        var viewsInQuery = _queryToViews.TryGetValue(queryNode, out var v) ? v : new HashSet<string>();
+        if (!_queryTables.TryGetValue(queryNode, out var tables) || tables.Count == 0)
+            return;
 
         foreach (var entry in _tailConditions)
         {
-            var key = entry.ViewName.ToLowerInvariant();
-
-            // Only act on conditions whose view appears in this query scope
-            bool viewPresent = viewsInQuery.Contains(entry.ViewName)
-                            || viewsInQuery.Contains(entry.SqlAlias);
-
-            if (!viewPresent) continue;
-
-            // Check if condition text already exists in the WHERE clause text
-            bool alreadyPresent = IsConditionAlreadyInWhere(queryNode, entry.Condition);
-
-            if (alreadyPresent)
-            {
-                _conditionApplied[key] = true;
+            if (!TryResolveAliasInQuery(tables, entry, out var effectiveAlias))
                 continue;
+
+            if (IsConditionAlreadyInWhere(queryNode, entry.Condition, effectiveAlias))
+                continue;
+
+            InjectCondition(queryNode, entry.Condition, effectiveAlias);
+        }
+    }
+
+    private bool TryResolveAliasInQuery(
+        List<(string TableName, string? Alias)> tables,
+        TailConditionEntry entry,
+        out string? effectiveAlias)
+    {
+        // 1. Exact (ViewName, SqlAlias) match — prevents TD1/TD2 cross-contamination.
+        if (!string.IsNullOrWhiteSpace(entry.SqlAlias))
+        {
+            var exact = tables.FirstOrDefault(t =>
+                t.TableName.Equals(entry.ViewName, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(t.Alias, entry.SqlAlias, StringComparison.OrdinalIgnoreCase));
+
+            if (!string.IsNullOrEmpty(exact.TableName))
+            {
+                effectiveAlias = exact.Alias;
+                return true;
             }
-
-            // Condition is MISSING → inject it (safety net)
-            InjectCondition(queryNode, entry);
-            _conditionApplied[key] = true;
-        }
-    }
-
-    /// <summary>
-    /// Smart check: extracts business tokens (columns/tables) from the condition 
-    /// and checks if they exist in the LLM-generated WHERE clause. 
-    /// This avoids false-positive injections even if the LLM cleans up '1=1' or uses aliases.
-    /// </summary>
-    private static bool IsConditionAlreadyInWhere(QuerySpecification node, string condition)
-    {
-        if (node.WhereClause == null) return false;
-
-        var gen = new Sql160ScriptGenerator();
-        gen.GenerateScript(node.WhereClause, out var whereText);
-
-        var tokens = ExtractBusinessTokens(condition);
-        if (!tokens.Any()) return false;
-
-        foreach (var token in tokens)
-        {
-            if (!whereText.Contains(token, StringComparison.OrdinalIgnoreCase))
-                return false; // The LLM missed a crucial column/table, so we must inject.
         }
 
-        return true; // The LLM successfully included all business tokens.
+        // 2. Fallback: ViewName matches with a different/absent alias only when unambiguous
+        //    (single entry for that ViewName, and the table's alias isn't owned by another entry).
+        int entriesForView = _tailConditions.Count(e =>
+            e.ViewName.Equals(entry.ViewName, StringComparison.OrdinalIgnoreCase));
+        if (entriesForView == 1)
+        {
+            var claimedAliases = _tailConditions
+                .Where(e => !ReferenceEquals(e, entry) && !string.IsNullOrWhiteSpace(e.SqlAlias))
+                .Select(e => e.SqlAlias)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var fallback = tables.FirstOrDefault(t =>
+                t.TableName.Equals(entry.ViewName, StringComparison.OrdinalIgnoreCase) &&
+                (string.IsNullOrWhiteSpace(t.Alias) || !claimedAliases.Contains(t.Alias)));
+
+            if (!string.IsNullOrEmpty(fallback.TableName))
+            {
+                effectiveAlias = string.IsNullOrWhiteSpace(fallback.Alias) ? null : fallback.Alias;
+                return true;
+            }
+        }
+
+        effectiveAlias = null;
+        return false;
     }
 
-    /// <summary>
-    /// Extracts potential column and table names from the condition string.
-    /// It splits by non-alphanumeric chars, and filters out SQL keywords and short strings.
-    /// </summary>
-    private static IEnumerable<string> ExtractBusinessTokens(string condition)
+    private static bool IsConditionAlreadyInWhere(
+        QuerySpecification node,
+        string condition,
+        string? effectiveAlias)
     {
-        // SQL keywords to ignore when extracting tokens
-        var ignoredKeywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "SELECT", "FROM", "WHERE", "AND", "OR", "IN", "IS", "NOT", "NULL", "EXISTS", 
-            "LIKE", "CAST", "CONVERT", "BETWEEN", "AS", "ON", "JOIN", "INNER", "LEFT", "RIGHT", "OUTER"
-        };
+        if (node.WhereClause?.SearchCondition == null)
+            return false;
 
-        // Split by non-alphanumeric characters (spaces, parenthesis, commas, etc.)
-        var words = System.Text.RegularExpressions.Regex.Split(condition, @"[^a-zA-Z0-9_]+");
+        var unaliasedTailExpr = ParseConditionExpression(condition);
+        if (unaliasedTailExpr == null)
+            return false;
 
-        return words
-            .Where(w => w.Length > 2) // Ignore small words like 'T1', 'Id' to avoid false positives
-            .Where(w => !ignoredKeywords.Contains(w)) // Ignore SQL keywords
-            .Where(w => !int.TryParse(w, out _)) // Ignore numbers
-            .Distinct()
+        var whereConjuncts = ExtractConjuncts(node.WhereClause.SearchCondition)
+            .Select(NormalizeExpression)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var unaliasedConjuncts = ExtractConjuncts(unaliasedTailExpr)
+            .Select(NormalizeExpression)
             .ToList();
+
+        if (unaliasedConjuncts.Count == 0)
+            return false;
+
+        List<string>? aliasedConjuncts = null;
+        if (!string.IsNullOrWhiteSpace(effectiveAlias))
+        {
+            var aliasedTailExpr = ParseConditionExpression(condition);
+            if (aliasedTailExpr != null)
+            {
+                aliasedTailExpr.Accept(new AliasInjectorVisitor(effectiveAlias));
+                aliasedConjuncts = ExtractConjuncts(aliasedTailExpr)
+                    .Select(NormalizeExpression)
+                    .ToList();
+            }
+        }
+
+        for (int i = 0; i < unaliasedConjuncts.Count; i++)
+        {
+            bool matchedUnaliased = whereConjuncts.Contains(unaliasedConjuncts[i]);
+            bool matchedAliased = aliasedConjuncts != null &&
+                                  i < aliasedConjuncts.Count &&
+                                  whereConjuncts.Contains(aliasedConjuncts[i]);
+
+            if (!matchedUnaliased && !matchedAliased)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
-    /// <summary>
-    /// Parses the condition string and AND-appends it to the query's WHERE clause.
-    /// The condition may already include alias prefixes (the LLM adds them). We
-    /// inject it verbatim as provided by the business configuration.
-    /// </summary>
-    private static void InjectCondition(QuerySpecification queryNode, TailConditionEntry entry)
+    private static void InjectCondition(
+        QuerySpecification queryNode,
+        string condition,
+        string? effectiveAlias)
     {
-        string cleanedTail = entry.Condition.Trim();
-        // (Removal of WHERE is now handled at the source in UnifiedQueryHandler, but keeping as safety)
+        var tailExpr = ParseConditionExpression(condition);
+        if (tailExpr == null) return;
+
+        if (!string.IsNullOrWhiteSpace(effectiveAlias))
+        {
+            tailExpr.Accept(new AliasInjectorVisitor(effectiveAlias));
+        }
+
+        AppendAndCondition(queryNode, tailExpr, wrapNewConditionInParens: true);
+    }
+
+    private static void AppendAndCondition(
+        QuerySpecification queryNode,
+        BooleanExpression newCondition,
+        bool wrapNewConditionInParens)
+    {
+        if (queryNode.WhereClause == null)
+        {
+            queryNode.WhereClause = new WhereClause { SearchCondition = newCondition };
+            return;
+        }
+
+        queryNode.WhereClause.SearchCondition = new BooleanBinaryExpression
+        {
+            FirstExpression = new BooleanParenthesisExpression
+            {
+                Expression = queryNode.WhereClause.SearchCondition
+            },
+            SecondExpression = wrapNewConditionInParens
+                ? new BooleanParenthesisExpression { Expression = newCondition }
+                : newCondition,
+            BinaryExpressionType = BooleanBinaryExpressionType.And
+        };
+    }
+
+    private static BooleanExpression? ParseConditionExpression(string condition)
+    {
+        string cleanedTail = condition.Trim();
         if (cleanedTail.StartsWith("WHERE", StringComparison.OrdinalIgnoreCase))
+        {
             cleanedTail = cleanedTail[5..].Trim();
+        }
 
         var parser = new TSql160Parser(false);
         using var reader = new StringReader($"SELECT 1 WHERE ({cleanedTail})");
         var fragment = parser.Parse(reader, out var errors);
 
         if (errors.Count > 0 || fragment is not TSqlScript script || !script.Batches.Any())
-            return; // Unparseable condition — skip injection rather than break SQL
+            return null;
 
         var statement = script.Batches[0].Statements[0] as SelectStatement;
-        var tailExpr = (statement?.QueryExpression as QuerySpecification)?.WhereClause?.SearchCondition;
+        var expr = (statement?.QueryExpression as QuerySpecification)?.WhereClause?.SearchCondition;
+        return expr == null ? null : UnwrapOuterParentheses(expr);
+    }
 
-        if (tailExpr == null) return;
+    private static BooleanExpression UnwrapOuterParentheses(BooleanExpression expr)
+    {
+        while (expr is BooleanParenthesisExpression paren)
+            expr = paren.Expression;
+        return expr;
+    }
 
-        // ─── ALIAS INJECTION (The Safety Net's Safety Net) ───
-        // If the LLM or the config metadata forgot aliases, we add them here.
-        // We only target columns in the current scope, skipping subqueries.
-        var aliasInjector = new AliasInjectorVisitor(entry.SqlAlias);
-        tailExpr.Accept(aliasInjector);
+    private static IEnumerable<BooleanExpression> ExtractConjuncts(BooleanExpression expr)
+    {
+        expr = UnwrapOuterParentheses(expr);
 
-        if (queryNode.WhereClause == null)
+        if (expr is BooleanBinaryExpression bin && bin.BinaryExpressionType == BooleanBinaryExpressionType.And)
         {
-            queryNode.WhereClause = new WhereClause { SearchCondition = tailExpr };
+            foreach (var left in ExtractConjuncts(bin.FirstExpression))
+                yield return left;
+            foreach (var right in ExtractConjuncts(bin.SecondExpression))
+                yield return right;
         }
         else
         {
-            queryNode.WhereClause.SearchCondition = new BooleanBinaryExpression
-            {
-                FirstExpression = new BooleanParenthesisExpression { Expression = queryNode.WhereClause.SearchCondition },
-                SecondExpression = new BooleanParenthesisExpression { Expression = tailExpr },
-                BinaryExpressionType = BooleanBinaryExpressionType.And
-            };
+            yield return expr;
         }
     }
 
-    // ─── Legacy Visit overrides (kept for compat) ─────────────────────────
+    private static string NormalizeExpression(BooleanExpression expr)
+    {
+        expr = UnwrapOuterParentheses(expr);
+        var gen = new Sql160ScriptGenerator();
+        gen.GenerateScript(expr, out var script);
+        return Regex.Replace(script, @"\s+", " ").Trim().ToLowerInvariant();
+    }
+
     public override void Visit(StringLiteral node) { /* Parameter binding deferred to Dapper */ }
     public override void Visit(FromClause node) { /* Tenant isolation handled by the views */ }
 
+    private sealed class CompanyFilterCheckVisitor : TSqlFragmentVisitor
+    {
+        public bool Found { get; private set; }
+
+        public override void ExplicitVisit(QuerySpecification node)
+        {
+            // Do not descend into subqueries in WHERE when checking the current scope's filter.
+        }
+
+        public override void Visit(BooleanComparisonExpression node)
+        {
+            if (Found) return;
+
+            if (node.ComparisonType == BooleanComparisonType.Equals &&
+                ((IsComIdColumn(node.FirstExpression) && IsCurrentCompanyVar(node.SecondExpression)) ||
+                 (IsComIdColumn(node.SecondExpression) && IsCurrentCompanyVar(node.FirstExpression))))
+            {
+                Found = true;
+            }
+
+            base.Visit(node);
+        }
+
+        private static bool IsComIdColumn(ScalarExpression? expr) =>
+            expr is ColumnReferenceExpression col &&
+            col.MultiPartIdentifier?.Identifiers.LastOrDefault()?.Value?
+                .Equals("ComID", StringComparison.OrdinalIgnoreCase) == true;
+
+        private static bool IsCurrentCompanyVar(ScalarExpression? expr) =>
+            expr is VariableReference varRef &&
+            varRef.Name.Equals("@CurrentCompanyId", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
-    /// زائر يقوم بحقن الـ Alias في الأعمدة التي تفتقر إليه.
-    /// يتجاهل الـ Subqueries لضمان عدم إفساد الأعمدة الداخلية فيها.
+    /// Injects the table alias onto unaliased columns in the outer predicate scope only,
+    /// skipping nested subqueries.
     /// </summary>
-    private class AliasInjectorVisitor : TSqlFragmentVisitor
+    private sealed class AliasInjectorVisitor : TSqlFragmentVisitor
     {
         private readonly string _alias;
 
@@ -246,27 +417,17 @@ internal class SqlHardeningVisitor : TSqlFragmentVisitor
             _alias = alias;
         }
 
-        // 1. Stop traversal into subqueries (IN/EXISTS subqueries inside the condition).
-        //    CRITICAL: Must override ExplicitVisit — NOT Visit.
-        //    In ScriptDom, Visit fires but AcceptChildren is called from ExplicitVisit.
-        //    Overriding Visit with an empty body does NOT stop AcceptChildren from firing.
-        //    By overriding ExplicitVisit without calling base, we prevent child traversal entirely.
         public override void ExplicitVisit(QuerySpecification node)
         {
             // Intentionally empty — do not descend into subqueries.
-            // This ensures T1 prefix is NOT injected into inner subquery columns
-            // e.g. DepartmentId inside: SELECT DepartmentId FROM EmpployeeDepartments
         }
 
-        // 2. Inject the alias into unaliased columns in the OUTER scope only.
         public override void Visit(ColumnReferenceExpression node)
         {
             if (node.MultiPartIdentifier != null && node.MultiPartIdentifier.Identifiers.Count == 1)
             {
-                // Column has no alias prefix (e.g. DepartmentId) → prepend it (e.g. T1.DepartmentId)
                 node.MultiPartIdentifier.Identifiers.Insert(0, new Identifier { Value = _alias });
             }
-            // NOTE: base.Visit is intentionally NOT called — ColumnReferenceExpression has no children to recurse.
         }
     }
 }

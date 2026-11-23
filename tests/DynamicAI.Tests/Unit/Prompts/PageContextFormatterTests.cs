@@ -74,7 +74,7 @@ public class PageContextFormatterTests
     }
 
     [Fact]
-    public void CompressPageContextForPrompt_WithBusinessRules_ShouldIncludeBusinessRulesSection()
+    public void CompressPageContextForPrompt_WithBusinessRules_ShouldNotEmitBusinessRulesSection()
     {
         var request = LoadFixture();
         request.ExplicitContext.BusinessRules = new List<string>
@@ -84,8 +84,65 @@ public class PageContextFormatterTests
 
         var output = PageContextFormatter.CompressPageContextForPrompt(request.ExplicitContext, new List<ColumnSynonym>());
 
-        output.Should().Contain("[BUSINESS_RULES]");
-        output.Should().Contain("• Exclude cancelled invoices");
+        output.Should().NotContain("[BUSINESS_RULES]");
+        output.Should().NotContain("Exclude cancelled invoices");
+    }
+
+    [Fact]
+    public void CompressPageContextForPrompt_ShouldStripDroFromNonDropdownAndTextDropdownColumns_AndKeepRealDropdowns()
+    {
+        var request = LoadFixture();
+        var output = PageContextFormatter.CompressPageContextForPrompt(request.ExplicitContext, new List<ColumnSynonym>());
+        var lines = output.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+        // CreateBy, ModifyBy, SalesManName (DroValue == DroText), and number/date columns emit NO Dro: metadata
+        lines.Should().Contain(l => l.Contains("CreateBy | CreateBy | dropdown |") && !l.Contains("Dro:"));
+        lines.Should().Contain(l => l.Contains("ModifyBy | ModifyBy | dropdown |") && !l.Contains("Dro:"));
+        lines.Should().Contain(l => l.Contains("SalesManName | SalesManName | dropdown |") && !l.Contains("Dro:"));
+        lines.Should().Contain(l => l.Contains("TotalOrder | TotalOrder | number |") && !l.Contains("Dro:"));
+        lines.Should().Contain(l => l.Contains("Discount | Discount | number |") && !l.Contains("Dro:"));
+        lines.Should().Contain(l => l.Contains("ContractDate | ContractDate | date |") && !l.Contains("Dro:"));
+
+        // Real dropdowns KEEP Dro:
+        lines.Should().Contain(l => l.Contains("ContractType | ContractType | dropdown |") && l.Contains("Dro:ConType:ContractTypeID:TypeName"));
+        lines.Should().Contain(l => l.Contains("ProductID | ProductID | dropdown |") && l.Contains("Dro:ProductPurchase:"));
+        lines.Should().Contain(l => l.Contains("UnitID | UnitID | dropdown |") && l.Contains("Dro:Units:"));
+        lines.Should().Contain(l => l.Contains("SystemStore | SystemStore | dropdown |") && l.Contains("Dro:StoreView:SID:SName"));
+    }
+
+    [Fact]
+    public void CompressPageContextForPrompt_SingleVsMultipleDetails_ShouldAssignTdOrTd1Td2()
+    {
+        var singleDetailCtx = new ShippedPageContext
+        {
+            PageId = 10,
+            PageName = "SingleDetail",
+            MasterSetup = new PageMasterSetup { TableName = "MasterTbl", PrimaryKey = "ID" },
+            DetailSetups = new List<PageDetailSetup>
+            {
+                new() { TableName = "DetailOne", ForeignKey = "MasterID" }
+            }
+        };
+
+        var singleOutput = PageContextFormatter.CompressPageContextForPrompt(singleDetailCtx, new List<ColumnSynonym>());
+        singleOutput.Should().Contain("[DETAIL] Table=DetailOne | FK=MasterID | Alias=TD");
+        singleOutput.Should().NotContain("Alias=TD1");
+
+        var multiDetailCtx = new ShippedPageContext
+        {
+            PageId = 11,
+            PageName = "MultiDetail",
+            MasterSetup = new PageMasterSetup { TableName = "MasterTbl", PrimaryKey = "ID" },
+            DetailSetups = new List<PageDetailSetup>
+            {
+                new() { TableName = "DetailOne", ForeignKey = "MasterID" },
+                new() { TableName = "DetailTwo", ForeignKey = "MasterID" }
+            }
+        };
+
+        var multiOutput = PageContextFormatter.CompressPageContextForPrompt(multiDetailCtx, new List<ColumnSynonym>());
+        multiOutput.Should().Contain("[DETAIL] Table=DetailOne | FK=MasterID | Alias=TD1");
+        multiOutput.Should().Contain("[DETAIL] Table=DetailTwo | FK=MasterID | Alias=TD2");
     }
 
     [Fact]
@@ -106,7 +163,7 @@ public class PageContextFormatterTests
     }
 
     [Fact]
-    public void ResolveAliasToTable_WithFixture_ShouldResolveTmAndTd()
+    public void ResolveAliasToTable_WithFixtureAndMultiDetail_ShouldResolveTmTdTd1Td2()
     {
         var request = LoadFixture();
         var ctx = request.ExplicitContext;
@@ -115,5 +172,21 @@ public class PageContextFormatterTests
         PageContextFormatter.ResolveAliasToTable("TD.ProductID", ctx).Should().Be(ctx.DetailSetups.First().TableName);
         PageContextFormatter.ResolveAliasToTable("T1.CustomerAccountName", ctx).Should().BeNull();
         PageContextFormatter.ResolveAliasToTable("TotalOrder", ctx).Should().BeNull();
+
+        var multiCtx = new ShippedPageContext
+        {
+            MasterSetup = new PageMasterSetup { TableName = "MasterTbl" },
+            DetailSetups = new List<PageDetailSetup>
+            {
+                new() { TableName = "DetailOne" },
+                new() { TableName = "DetailTwo" }
+            }
+        };
+
+        PageContextFormatter.ResolveAliasToTable("TM.Id", multiCtx).Should().Be("MasterTbl");
+        PageContextFormatter.ResolveAliasToTable("TD.Col", multiCtx).Should().Be("DetailOne");
+        PageContextFormatter.ResolveAliasToTable("TD1.Col", multiCtx).Should().Be("DetailOne");
+        PageContextFormatter.ResolveAliasToTable("TD2.Col", multiCtx).Should().Be("DetailTwo");
+        PageContextFormatter.ResolveAliasToTable("TD3.Col", multiCtx).Should().BeNull();
     }
 }

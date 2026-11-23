@@ -6,6 +6,7 @@ using DynamicAi.Application.Models;
 using DynamicAi.Application.Models.DirectIntegration;
 using DynamicAi.Application.Observability;
 using DynamicAi.Application.Security;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
 
@@ -22,13 +23,17 @@ public class SqlGuardPipeline : ISqlGuardPipeline
     private const int MaxRowsLimit = 1000;
     private readonly IDbSchemaProvider _schemaProvider;
     private readonly ILogger<SqlGuardPipeline> _logger;
+    private readonly string _tableWhitelistMode;
 
     public SqlGuardPipeline(
         IDbSchemaProvider schemaProvider,
-        ILogger<SqlGuardPipeline> logger)
+        ILogger<SqlGuardPipeline> logger,
+        IConfiguration? configuration = null)
     {
         _schemaProvider = schemaProvider;
         _logger = logger;
+        var mode = configuration?["Security:TableWhitelistMode"];
+        _tableWhitelistMode = string.IsNullOrWhiteSpace(mode) ? "AuditOnly" : mode.Trim();
     }
 
     public async Task<RewrittenSqlResult> GuardAndHardenAsync(
@@ -38,7 +43,10 @@ public class SqlGuardPipeline : ISqlGuardPipeline
         IEnumerable<TailConditionEntry>? tailConditions = null,
         CancellationToken ct = default,
         Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask = null,
-        string? connectionString = null)
+        string? connectionString = null,
+        IReadOnlySet<string>? allowedTables = null,
+        bool skipCompanyFilter = false,
+        string? masterViewName = null)
     {
         using var guardActivity = DynamicAiTelemetry.ActivitySource.StartActivity("sql.guard");
         bool securityOk = false;
@@ -81,18 +89,27 @@ public class SqlGuardPipeline : ISqlGuardPipeline
             securityOk = true;
             guardActivity?.SetTag("sql.security_ok", true);
 
-            // 3. Extract referenced tables & Schema Sanitization
+            // 3. Extract referenced tables & enforce Table Whitelist before schema fetch
             var tableExtractor = new TableNameExtractor();
             fragment.Accept(tableExtractor);
             var allReferencedTables = tableExtractor.TableNames.ToList();
             guardActivity?.SetTag("sql.tables_count", allReferencedTables.Count);
 
-            await ValidateSchemaAsync(fragment, allReferencedTables, schemaPrefetchTask, connectionString, ct);
+            EnforceTableWhitelist(allReferencedTables, allowedTables);
+
+            var schemaMap = await ValidateSchemaAsync(fragment, allReferencedTables, schemaPrefetchTask, connectionString, ct);
             sanitizedOk = true;
             guardActivity?.SetTag("sql.sanitized_ok", true);
 
             // 4. Hardening
             var entries = tailConditions?.ToList() ?? new List<TailConditionEntry>();
+            var effectiveMasterView = !string.IsNullOrWhiteSpace(masterViewName)
+                ? masterViewName
+                : entries.FirstOrDefault(e => e.SqlAlias.Equals("TM", StringComparison.OrdinalIgnoreCase))?.ViewName;
+
+            bool enforceCompanyFilter = ShouldEnforceCompanyFilter(
+                skipCompanyFilter, companyId, effectiveMasterView, schemaMap);
+
             var parameters = new Dictionary<string, object>();
 
             if (companyId.HasValue && rawSql.Contains("@CurrentCompanyId", StringComparison.OrdinalIgnoreCase))
@@ -100,7 +117,14 @@ public class SqlGuardPipeline : ISqlGuardPipeline
                 parameters["@CurrentCompanyId"] = companyId.Value;
             }
 
-            var hardeningVisitor = new SqlHardeningVisitor(parameters, tenantId, MaxRowsLimit, entries);
+            var hardeningVisitor = new SqlHardeningVisitor(
+                parameters,
+                tenantId,
+                MaxRowsLimit,
+                entries,
+                companyId,
+                enforceCompanyFilter,
+                effectiveMasterView);
             fragment.AcceptChildren(hardeningVisitor);
 
             var sqlGenerator = new Sql160ScriptGenerator();
@@ -135,7 +159,60 @@ public class SqlGuardPipeline : ISqlGuardPipeline
         }
     }
 
-    private async Task ValidateSchemaAsync(
+    private void EnforceTableWhitelist(List<string> allReferencedTables, IReadOnlySet<string>? allowedTables)
+    {
+        if (allowedTables == null || allowedTables.Count == 0)
+        {
+            return;
+        }
+
+        var disallowed = allReferencedTables
+            .Where(t => !allowedTables.Contains(t))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (disallowed.Count == 0)
+        {
+            return;
+        }
+
+        var tablesList = string.Join(", ", disallowed);
+        if (_tableWhitelistMode.Equals("Strict", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new SecurityException(
+                $"Security Validation Failed: Access to table(s) '{tablesList}' is not allowed in the current page context.");
+        }
+
+        _logger.LogWarning(
+            "[SqlGuardPipeline] AuditOnly: table(s) [{Tables}] referenced outside page whitelist",
+            tablesList);
+        DynamicAiTelemetry.SecurityBlocked.Add(1,
+            new KeyValuePair<string, object?>("mode", "audit_only"));
+    }
+
+    private static bool ShouldEnforceCompanyFilter(
+        bool skipCompanyFilter,
+        int? companyId,
+        string? masterViewName,
+        Dictionary<string, HashSet<string>>? schemaMap)
+    {
+        if (skipCompanyFilter || !companyId.HasValue)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(masterViewName) &&
+            schemaMap != null &&
+            schemaMap.TryGetValue(masterViewName, out var masterColumns) &&
+            !masterColumns.Contains("ComID", StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private async Task<Dictionary<string, HashSet<string>>?> ValidateSchemaAsync(
         TSqlFragment fragment,
         List<string> allReferencedTables,
         Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask,
@@ -152,13 +229,13 @@ public class SqlGuardPipeline : ISqlGuardPipeline
         catch (Exception ex)
         {
             _logger.LogError(ex, "[SqlGuardPipeline] Error retrieving schema map. Skipping sanitization (Fail-Open).");
-            return;
+            return null;
         }
 
         if (schemaMap == null || !schemaMap.Any())
         {
             _logger.LogWarning("[SqlGuardPipeline] Schema map is empty. Skipping sanitization (Fail-Open).");
-            return;
+            return schemaMap;
         }
 
         if (!string.IsNullOrEmpty(connectionString))
@@ -207,5 +284,7 @@ public class SqlGuardPipeline : ISqlGuardPipeline
                 $"SQL schema validation failed with {visitor.ValidationErrors.Count} error(s):\n{errorSummary}",
                 visitor.ValidationErrors);
         }
+
+        return schemaMap;
     }
 }

@@ -14,6 +14,12 @@ public static class PageContextFormatter
     private static readonly TSqlParser SqlParser = new TSql160Parser(false);
 
     /// <summary>
+    /// Returns the deterministic detail alias for a detail setup at <paramref name="index"/>.
+    /// Uses "TD" when there is at most one detail view, or "TD1", "TD2", ... when multiple exist.
+    /// </summary>
+    public static string GetDetailAlias(int index, int totalCount) => totalCount <= 1 ? "TD" : $"TD{index + 1}";
+
+    /// <summary>
     /// Compresses ShippedPageContext into compact pipe-delimited format for the LLM prompt.
     /// </summary>
     public static string CompressPageContextForPrompt(ShippedPageContext ctx, List<ColumnSynonym> approvedSynonyms)
@@ -31,22 +37,18 @@ public static class PageContextFormatter
         AppendColumnRows(sb, ctx.MasterSetup.TableName, ctx.MasterSetup.Columns, approvedSynonyms);
         sb.AppendLine();
 
-        foreach (var detail in ctx.DetailSetups ?? new())
+        var detailSetups = ctx.DetailSetups ?? new();
+        for (int i = 0; i < detailSetups.Count; i++)
         {
-            sb.AppendLine($"[DETAIL] Table={detail.TableName} | FK={detail.ForeignKey} | Alias=TD");
+            var detail = detailSetups[i];
+            var alias = GetDetailAlias(i, detailSetups.Count);
+            sb.AppendLine($"[DETAIL] Table={detail.TableName} | FK={detail.ForeignKey} | Alias={alias}");
             if (!string.IsNullOrWhiteSpace(detail.TailCondition))
                 sb.AppendLine($"[DETAIL.TailCondition] {detail.TailCondition.Trim()}");
 
             sb.AppendLine("[DETAIL.COLUMNS] SearchName | ColumnName | InsertType | arLabel | enLabel | DroInfo");
             AppendColumnRows(sb, detail.TableName, detail.Columns, approvedSynonyms);
             sb.AppendLine();
-        }
-
-        if (ctx.BusinessRules?.Any() == true)
-        {
-            sb.AppendLine("[BUSINESS_RULES]");
-            foreach (var rule in ctx.BusinessRules)
-                sb.AppendLine($"  • {rule}");
         }
 
         return sb.ToString().Trim();
@@ -60,7 +62,13 @@ public static class PageContextFormatter
     {
         foreach (var col in columns)
         {
-            var dro = col.DroModel != null
+            bool includeDro = string.Equals(col.InsertType, "dropdown", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(col.DroModel)
+                && !string.Equals(col.ColumnName, "CreateBy", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(col.ColumnName, "ModifyBy", StringComparison.OrdinalIgnoreCase)
+                && !(!string.IsNullOrWhiteSpace(col.DroValue) && string.Equals(col.DroValue, col.DroText, StringComparison.OrdinalIgnoreCase));
+
+            var dro = includeDro
                 ? $"Dro:{col.DroModel}:{col.DroValue}:{col.DroText}"
                 : string.Empty;
 
@@ -71,7 +79,10 @@ public static class PageContextFormatter
                 .ToList();
 
             var synonymPart = colSynonyms.Any() ? $" (مرادفات: {string.Join("، ", colSynonyms)})" : string.Empty;
-            sb.AppendLine($"  {col.SearchName} | {col.ColumnName} | {col.InsertType} | {col.arColumnLabel}{synonymPart} | {col.enColumnLabel} | {dro}");
+            var row = $"  {col.SearchName} | {col.ColumnName} | {col.InsertType} | {col.arColumnLabel}{synonymPart} | {col.enColumnLabel}";
+            if (!string.IsNullOrEmpty(dro))
+                row += $" | {dro}";
+            sb.AppendLine(row);
         }
     }
 
@@ -107,14 +118,26 @@ public static class PageContextFormatter
 
     public static string? ResolveAliasToTable(string mappedToColumn, ShippedPageContext? ctx)
     {
-        if (ctx == null || !mappedToColumn.Contains('.')) return null;
+        if (ctx == null || string.IsNullOrWhiteSpace(mappedToColumn) || !mappedToColumn.Contains('.'))
+            return null;
+
         var alias = mappedToColumn.Split('.')[0].Trim().ToUpperInvariant();
-        return alias switch
+        if (alias == "TM")
+            return ctx.MasterSetup?.TableName;
+
+        if (alias == "TD")
+            return ctx.DetailSetups?.FirstOrDefault()?.TableName;
+
+        if (alias.StartsWith("TD", StringComparison.Ordinal)
+            && int.TryParse(alias.AsSpan(2), out int detailNumber)
+            && detailNumber >= 1
+            && ctx.DetailSetups != null
+            && detailNumber <= ctx.DetailSetups.Count)
         {
-            "TM" => ctx.MasterSetup?.TableName,
-            "TD" => ctx.DetailSetups?.FirstOrDefault()?.TableName,
-            _ => null
-        };
+            return ctx.DetailSetups[detailNumber - 1]?.TableName;
+        }
+
+        return null;
     }
 
     private sealed class ExtractTablesVisitor : TSqlFragmentVisitor

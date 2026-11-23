@@ -1,6 +1,6 @@
 {{#if conversation_history}}
 ## CONVERSATION HISTORY
-PREVIOUS TURNS (most recent first):
+PREVIOUS TURNS (most recent first; [Turn 1] is the latest query):
 {{conversation_history}}
 
 ### DECISION RULES for DataRetrieval (pick the BEST match):

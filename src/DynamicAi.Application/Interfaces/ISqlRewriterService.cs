@@ -31,6 +31,8 @@ namespace DynamicAi.Application.Interfaces
             string tenantId,
             int? comID = 1,
             IEnumerable<TailConditionEntry>? tailConditions = null,
-            CancellationToken ct = default);
+            CancellationToken ct = default,
+            bool enforceCompanyFilter = false,
+            string? masterViewName = null);
     }
 }

@@ -6,7 +6,7 @@ JSON SCHEMA:
   "schema_linking": [
     {
       "user_term": "Keyword or term from the user's question (Arabic or English)",
-      "mapped_to_column": "TM.ColumnName or TD.ColumnName mapped to this keyword",
+      "mapped_to_column": "TM.ColumnName or TD.ColumnName (or TD1.ColumnName) mapped to this keyword",
       "ar_label": "The arColumnLabel of the mapped column",
       "reason": "Brief justification explaining why this mapping is correct"
     }
@@ -28,3 +28,4 @@ RULES:
 - For PredictionWithDataRetrieval: fill "sql" to fetch the necessary data FIRST. Leave "message" empty.
 - ALWAYS include the "intent" field so the system knows how to process your response.
 - "confidence" reflects how confident you are in the result (0.0 = very uncertain, 1.0 = certain).
+- When "needs_clarification" is true: set "clarification_question" in Arabic (no technical DB terms), leave "content.sql" empty, and set "confidence" < 0.7.

@@ -28,7 +28,9 @@ namespace DynamicAi.Application.Services
             string tenantId,
             int? comID = 1,
             IEnumerable<TailConditionEntry>? tailConditions = null,
-            CancellationToken ct = default)
+            CancellationToken ct = default,
+            bool enforceCompanyFilter = false,
+            string? masterViewName = null)
         {
             var entries = tailConditions?.ToList() ?? new List<TailConditionEntry>();
             _logger.LogInformation("[SqlRewriter] Hardening SQL ({Count} TailCondition entries)", entries.Count);
@@ -60,7 +62,14 @@ namespace DynamicAi.Application.Services
                 _logger.LogInformation("[SqlRewriter] Added @CurrentCompanyId parameter with value: {CompanyId}", comID.Value);
             }
 
-            var visitor = new SqlHardeningVisitor(parameters, tenantId, MAX_ROWS_LIMIT, entries);
+            var visitor = new SqlHardeningVisitor(
+                parameters,
+                tenantId,
+                MAX_ROWS_LIMIT,
+                entries,
+                comID,
+                enforceCompanyFilter,
+                masterViewName);
 
             // 3. Apply hardening (ExplicitVisit-driven traversal)
             fragment.AcceptChildren(visitor);

@@ -168,6 +168,19 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
             }
         }
 
+        if (parsedResponse.NeedsClarification && !string.IsNullOrWhiteSpace(parsedResponse.ClarificationQuestion))
+        {
+            return new QueryExecutionResult
+            {
+                ErrorMessage = $"CLARIFICATION_REQUIRED: {parsedResponse.ClarificationQuestion.Trim()}",
+                QueryLogId = context?.QueryLogId,
+                ConfidenceScore = (float?)parsedResponse.Confidence,
+                Intent = parsedResponse.Intent,
+                PageId = currentPageId,
+                SelfHealingUsed = selfHealingUsed
+            };
+        }
+
         CaptureSchemaLinkingSynonyms(parsedResponse, finalContext, currentPageId);
 
         // Phase 5: Execute Route

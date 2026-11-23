@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using DynamicAi.Application.Models.DirectIntegration;
@@ -47,6 +48,11 @@ public class SqlExecutionPipeline : ISqlExecutionPipeline
         }
 
         var tailEntries = TailConditionBuilder.BuildTailConditionEntries(structuredContext);
+        var allowedTables = BuildAllowedTables(structuredContext);
+        var skipCompanyFilter = ShouldSkipCompanyFilter(structuredContext);
+        var masterViewName = !string.IsNullOrWhiteSpace(structuredContext?.MasterSetup?.TableName)
+            ? structuredContext.MasterSetup.TableName
+            : null;
 
         _logger.LogInformation("[SqlExecutionPipeline] Guarding & hardening SQL ({Count} TailCondition entries)...", tailEntries.Count);
 
@@ -57,7 +63,10 @@ public class SqlExecutionPipeline : ISqlExecutionPipeline
             tailEntries,
             ct,
             schemaPrefetchTask,
-            context?.ConnectionString);
+            context?.ConnectionString,
+            allowedTables,
+            skipCompanyFilter,
+            masterViewName);
 
         var finalSql = rewrittenResult.RewrittenSql;
 
@@ -118,4 +127,50 @@ public class SqlExecutionPipeline : ISqlExecutionPipeline
             PageId = pageId
         };
     }
+
+    private static HashSet<string>? BuildAllowedTables(ShippedPageContext? structuredContext)
+    {
+        if (structuredContext == null) return null;
+
+        var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(structuredContext.MasterSetup?.TableName))
+            allowed.Add(structuredContext.MasterSetup.TableName);
+
+        AddDropdownModels(allowed, structuredContext.MasterSetup?.Columns);
+
+        foreach (var detail in structuredContext.DetailSetups ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(detail.TableName))
+                allowed.Add(detail.TableName);
+
+            AddDropdownModels(allowed, detail.Columns);
+        }
+
+        foreach (var tailTable in PageContextFormatter.ExtractTablesFromTailConditions(structuredContext))
+        {
+            if (!string.IsNullOrWhiteSpace(tailTable))
+                allowed.Add(tailTable);
+        }
+
+        return allowed;
+    }
+
+    private static void AddDropdownModels(HashSet<string> allowed, IEnumerable<ColumnDefinition>? columns)
+    {
+        if (columns == null) return;
+        foreach (var col in columns)
+        {
+            if (col.InsertType.Equals("dropdown", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(col.DroModel))
+            {
+                allowed.Add(col.DroModel);
+            }
+        }
+    }
+
+    private static bool ShouldSkipCompanyFilter(ShippedPageContext? structuredContext) =>
+        structuredContext?.BusinessRules?.Any(rule =>
+            !string.IsNullOrWhiteSpace(rule) &&
+            Regex.IsMatch(rule, @"\bIsCompany\s*=\s*FALSE\b", RegexOptions.IgnoreCase)) == true;
 }

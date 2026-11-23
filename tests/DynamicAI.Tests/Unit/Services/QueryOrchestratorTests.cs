@@ -242,4 +242,40 @@ public class QueryOrchestratorTests
         await act.Should().ThrowAsync<InteractionRequiredException>()
             .WithMessage("*هل تقصد مبيعات العام الحالي؟*");
     }
+
+    [Fact]
+    public async Task HandleDirectedPageQueryAsync_WhenComIdIsNull_ShouldPassZeroToCacheLookupAndStore()
+    {
+        var sut = CreateSut(queryCacheEnabled: true);
+        var request = CreateSampleRequest(244);
+        request.ComID = null;
+
+        var storeDone = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>._, "default", 0, 244, A<CancellationToken>._))
+            .Returns(Task.FromResult<CachedQueryResult?>(null));
+
+        A.CallTo(() => _unifiedHandler.HandleAsync(request.Question, A<IntentHandlerContext>._, A<CancellationToken>._))
+            .Returns(Task.FromResult(new QueryExecutionResult
+            {
+                Data = new List<dynamic>(),
+                RewrittenSql = "SELECT TOP 1000 TM.ContractID FROM ContractViewWithPaid TM",
+                Intent = "DataRetrieval",
+                PageId = 244
+            }));
+
+        A.CallTo(() => _queryCacheService.StoreCachedSqlAsync(
+                A<Guid>._, A<string>._, A<float[]>._, A<string>._, 244, "default", 0, A<string>._, A<CancellationToken>._))
+            .Invokes(call => storeDone.TrySetResult(call.GetArgument<int>(6)))
+            .Returns(Task.FromResult(Guid.NewGuid()));
+
+        await sut.HandleDirectedPageQueryAsync(request);
+
+        A.CallTo(() => _queryCacheService.TryGetCachedSqlAsync(A<float[]>._, "default", 0, 244, A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+
+        var completedTask = await Task.WhenAny(storeDone.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        completedTask.Should().Be(storeDone.Task);
+        (await storeDone.Task).Should().Be(0);
+    }
 }
