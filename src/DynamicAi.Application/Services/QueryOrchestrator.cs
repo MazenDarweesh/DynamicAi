@@ -71,6 +71,15 @@ public class QueryOrchestrator : IQueryOrchestrator
         var sharedEmbedding = await _embeddingService.GenerateAsync(request.Question, cancellationToken: ct);
         float[] sharedVector = sharedEmbedding.Vector.ToArray();
 
+        var embeddingTokenCount = Math.Max(1, request.Question.Length / 4);
+        var embeddingCostUsd = await _usageTracker.TrackEmbeddingCallAsync(
+            LlmOperationType.Embedding,
+            requestId: queryLogId.ToString(),
+            tokenCount: embeddingTokenCount,
+            tenantId: request.TenantId,
+            companyId: request.ComID,
+            cancellationToken: ct);
+
         CachedQueryResult? cachedResult = null;
         if (_queryCacheEnabled)
         {
@@ -122,6 +131,7 @@ public class QueryOrchestrator : IQueryOrchestrator
         try
         {
             result = await _unifiedHandler.HandleAsync(request.Question, context, ct);
+            result.LlmCostUsd += embeddingCostUsd;
 
             if (result.IsSuccess && result.Intent == "PredictionWithDataRetrieval")
             {
@@ -253,7 +263,6 @@ public class QueryOrchestrator : IQueryOrchestrator
         Guid queryLogId,
         int latencyMs)
     {
-        var summary = _usageTracker.GetSessionSummary();
         var finalHandlerType = "DirectedIntegration_" + (result.Intent ?? "DataRetrieval");
         var parentCtx = Activity.Current?.Context ?? default;
 
@@ -289,9 +298,9 @@ public class QueryOrchestrator : IQueryOrchestrator
                     CreatedAt = DateTime.UtcNow,
                     LatencyMs = latencyMs,
                     HandlerType = finalHandlerType,
-                    InputTokens = (int)summary.TotalInputTokens,
-                    OutputTokens = (int)summary.TotalOutputTokens,
-                    GeminiCost = (decimal)summary.TotalCostUsd,
+                    InputTokens = result.InputTokens,
+                    OutputTokens = result.OutputTokens,
+                    GeminiCost = result.LlmCostUsd,
                     ConfidenceScore = result.ConfidenceScore,
                     SelfHealingUsed = result.SelfHealingUsed
                 });
@@ -365,7 +374,7 @@ public class QueryOrchestrator : IQueryOrchestrator
                     HandlerType = "DirectedCacheHit",
                     InputTokens = 0,
                     OutputTokens = 0,
-                    GeminiCost = 0m,
+                    GeminiCost = result.LlmCostUsd,
                     ConfidenceScore = 1.0f
                 });
             }

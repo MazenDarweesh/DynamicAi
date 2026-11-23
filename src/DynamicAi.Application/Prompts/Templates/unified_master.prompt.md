@@ -1,7 +1,7 @@
 ---
 name: unified_master
 version: "1.0"
-model: gemini-2.5-flash-lite
+model: gemini-3.5-flash-lite
 description: "Unified Master Prompt — handles SQL generation, Chat, and Prediction from a single LLM call. Routes by analyzing user intent inline."
 variables:
   - user_question (optional)

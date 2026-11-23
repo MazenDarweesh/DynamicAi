@@ -72,6 +72,26 @@ public class QueryExecutionResult
     /// Whether self-healing JSON retry was triggered.
     /// </summary>
     public bool SelfHealingUsed { get; set; }
+
+    /// <summary>
+    /// Total input tokens reported by the LLM for this query execution.
+    /// </summary>
+    public int InputTokens { get; set; }
+
+    /// <summary>
+    /// Total output tokens reported by the LLM for this query execution.
+    /// </summary>
+    public int OutputTokens { get; set; }
+
+    /// <summary>
+    /// Total cached input tokens reported by the LLM for this query execution.
+    /// </summary>
+    public int CachedTokens { get; set; }
+
+    /// <summary>
+    /// Total LLM/embedding cost in USD for this query execution.
+    /// </summary>
+    public decimal LlmCostUsd { get; set; }
 }
 
 /// <summary>

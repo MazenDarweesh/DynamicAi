@@ -1,4 +1,3 @@
-using System.Net;
 using DynamicAi.Api.Services;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
@@ -11,11 +10,9 @@ using DynamicAi.Application.Services.SqlEngine;
 using DynamicAi.Infrastructure.Persistence;
 using DynamicAi.Infrastructure.Repositories;
 using DynamicAi.Infrastructure.Services;
+using Google.GenAI;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
-using Microsoft.SemanticKernel.ChatCompletion;
-using Microsoft.SemanticKernel.Connectors.Google;
-using Polly;
 using Qdrant.Client;
 using Serilog;
 
@@ -132,60 +129,13 @@ public static class ServiceCollectionExtensions
 
     private static IServiceCollection AddGeminiClients(this IServiceCollection services, IConfiguration configuration)
     {
-        var googleApiKey = configuration["Gemini:ApiKey"]!;
-        var embeddingModel = configuration["Gemini:EmbeddingModel"]!;
-        var chatModel = configuration["Gemini:ChatModel"]!;
+        var googleApiKey = configuration["Gemini:ApiKey"];
 
-        var retryPolicy = Policy
-            .HandleResult<HttpResponseMessage>(r =>
-                r.StatusCode == HttpStatusCode.ServiceUnavailable ||
-                r.StatusCode == HttpStatusCode.TooManyRequests)
-            .Or<HttpRequestException>()
-            .WaitAndRetryAsync(
-                retryCount: 5,
-                sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt) * 5),
-                onRetry: (_, timespan, retryCount, _) =>
-                {
-                    Log.Warning("[Polly] Rate limit detected. Retry #{RetryCount} after {RetryWait}s...", retryCount, timespan.TotalSeconds);
-                });
+        services.AddSingleton(_ => new Client(
+            apiKey: string.IsNullOrWhiteSpace(googleApiKey) ? null : googleApiKey));
 
-        services.AddHttpClient("GeminiEmbeddingClient", client =>
-        {
-            client.Timeout = TimeSpan.FromMinutes(30);
-        });
-
-        services.AddHttpClient("GeminiChatClient", client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(900);
-        })
-        .AddPolicyHandler(retryPolicy);
-
-        services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
-        {
-            var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeminiEmbeddingClient");
-            return new GoogleAIEmbeddingGenerator(
-                modelId: embeddingModel,
-                apiKey: googleApiKey,
-                httpClient: httpClient);
-        });
-
-        services.AddSingleton<IChatCompletionService>(sp =>
-        {
-            var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeminiChatClient");
-            return new GoogleAIGeminiChatCompletionService(
-                modelId: chatModel,
-                apiKey: googleApiKey,
-                httpClient: httpClient);
-        });
-
-        services.AddSingleton<IChatClient>(sp =>
-        {
-            var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeminiChatClient");
-            return new GoogleAIGeminiChatCompletionService(
-                modelId: chatModel,
-                apiKey: googleApiKey,
-                httpClient: httpClient).AsChatClient();
-        });
+        services.AddSingleton<ILlmClient, GoogleGenAiClient>();
+        services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, GoogleGenAiEmbeddingGenerator>();
 
         return services;
     }

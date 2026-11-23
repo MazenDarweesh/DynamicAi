@@ -12,9 +12,9 @@ namespace DynamicAi.Application.Interfaces
     {
         /// <summary>
         /// يسجل استدعاء LLM (Chat, SQL Generation, Prediction, etc.).
-        /// يحسب التكلفة تلقائياً من الأسعار المكونة في appsettings.json.
+        /// يحسب التكلفة تلقائياً من الأسعار المكونة في appsettings.json ويعيد التكلفة بالدولار.
         /// </summary>
-        Task TrackLlmCallAsync(
+        Task<decimal> TrackLlmCallAsync(
             LlmOperationType operationType,
             string requestId,
             int inputTokens,
@@ -22,17 +22,19 @@ namespace DynamicAi.Application.Interfaces
             int cachedTokens = 0,
             string? tenantId = null,
             int? companyId = null,
+            string? modelName = null,
             CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// يسجل استدعاء Embedding API.
+        /// يسجل استدعاء Embedding API ويعيد التكلفة بالدولار.
         /// </summary>
-        Task TrackEmbeddingCallAsync(
+        Task<decimal> TrackEmbeddingCallAsync(
             LlmOperationType operationType,
             string requestId,
             int tokenCount,
             string? tenantId = null,
             int? companyId = null,
+            string? modelName = null,
             CancellationToken cancellationToken = default);
 
         /// <summary>

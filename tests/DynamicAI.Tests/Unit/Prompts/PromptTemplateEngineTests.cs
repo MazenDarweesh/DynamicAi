@@ -34,7 +34,7 @@ public class PromptTemplateEngineTests
 
         metadata.Name.Should().Be("unified_master");
         metadata.Version.Should().Be("1.0");
-        metadata.Model.Should().Be("gemini-2.5-flash-lite");
+        metadata.Model.Should().Be("gemini-3.5-flash-lite");
         metadata.Variables.Should().Contain(v => v.Name == "user_question" && !v.IsRequired);
         metadata.Variables.Should().NotContain(v => v.Name == "previous_sql");
         metadata.Variables.Should().Contain(v => v.Name == "company_id" && v.IsRequired);

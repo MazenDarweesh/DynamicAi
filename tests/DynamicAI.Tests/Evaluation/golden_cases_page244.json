@@ -1,0 +1,302 @@
+[
+  {
+    "id": "p244-01",
+    "question": "عايز بيانات فواتير العميل لولو",
+    "expectedIntent": "DataRetrieval",
+    "expectedTables": [ "ContractViewWithPaid" ],
+    "mustContainSqlFragments": [ "ContractViewWithPaid", "TM.CustomerAccountName", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *", "DROP ", "DELETE " ],
+    "sampleExpectedSql": "SELECT TOP 100 TM.ContractID, TM.AutoNumber, TM.ContractDate, TM.CustomerAccountName, TM.TotalOrder, TM.totalPaid, TM.remindpaid FROM ContractViewWithPaid TM WHERE TM.ComID = @CurrentCompanyId AND TM.CustomerAccountName LIKE N'%لولو%' ORDER BY TM.ContractDate DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-02",
+    "question": "Show all sales contracts from January 2025",
+    "expectedIntent": "DataRetrieval",
+    "expectedTables": [ "ContractViewWithPaid" ],
+    "mustContainSqlFragments": [ "ContractViewWithPaid", "TM.ContractDate", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *", "UPDATE ", "INSERT " ],
+    "sampleExpectedSql": "SELECT TOP 200 TM.ContractID, TM.AutoNumber, TM.ContractDate, TM.CustomerAccountName, TM.finaltotal FROM ContractViewWithPaid TM WHERE TM.ComID = @CurrentCompanyId AND TM.ContractDate >= '2025-01-01' AND TM.ContractDate < '2025-02-01' ORDER BY TM.ContractDate DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-03",
+    "question": "ما هو اجمالي المحصل والمدفوع نقدا في العقود؟",
+    "expectedIntent": "Analysis",
+    "expectedTables": [ "ContractViewWithPaid" ],
+    "mustContainSqlFragments": [ "SUM(TM.totalPaid)", "SUM(TM.POPaid)", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *", "DELETE " ],
+    "sampleExpectedSql": "SELECT SUM(TM.totalPaid) AS TotalCollected, SUM(TM.POPaid) AS TotalCashPaid, SUM(TM.remindpaid) AS TotalRemaining FROM ContractViewWithPaid TM WHERE TM.ComID = @CurrentCompanyId",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-04",
+    "question": "هات الفواتير غير المحصلة والمتبقي عليها أكبر من صفر",
+    "expectedIntent": "DataRetrieval",
+    "expectedTables": [ "ContractViewWithPaid" ],
+    "mustContainSqlFragments": [ "TM.IsPaid", "TM.remindpaid", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *", "TD." ],
+    "sampleExpectedSql": "SELECT TOP 100 TM.ContractID, TM.AutoNumber, TM.CustomerAccountName, TM.TotalOrder, TM.totalPaid, TM.remindpaid FROM ContractViewWithPaid TM WHERE TM.ComID = @CurrentCompanyId AND (TM.IsPaid = 0 OR TM.IsPaid IS NULL) AND TM.remindpaid > 0 ORDER BY TM.remindpaid DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-05",
+    "question": "Show contract totals grouped by treasury safe account",
+    "expectedIntent": "Analysis",
+    "expectedTables": [ "ContractViewWithPaid", "salessystemcontract", "MonyAccount" ],
+    "mustContainSqlFragments": [ "salessystemcontract TD", "MonyAccount T1", "TD.SafeAccount = T1.AcID", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *", "DROP " ],
+    "sampleExpectedSql": "SELECT T1.FullName AS SafeAccountName, COUNT(DISTINCT TM.ContractID) AS ContractsCount, SUM(TD.POPaid) AS CashCollected FROM ContractViewWithPaid TM JOIN salessystemcontract TD ON TM.ContractID = TD.ContractID LEFT JOIN MonyAccount T1 ON TD.SafeAccount = T1.AcID WHERE TM.ComID = @CurrentCompanyId GROUP BY T1.FullName ORDER BY CashCollected DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-06",
+    "question": "كم عدد العقود واجمالي المبيعات حسب تصنيف العميل؟",
+    "expectedIntent": "Analysis",
+    "expectedTables": [ "ContractViewWithPaid", "salessystemcontract", "CustomerCategory" ],
+    "mustContainSqlFragments": [ "CustomerCategory T1", "TD.CategoryID = T1.CCID", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT T1.CCName AS CustomerCategory, COUNT(DISTINCT TM.ContractID) AS ContractCount, SUM(TD.Total) AS TotalSales FROM ContractViewWithPaid TM JOIN salessystemcontract TD ON TM.ContractID = TD.ContractID LEFT JOIN CustomerCategory T1 ON TD.CategoryID = T1.CCID WHERE TM.ComID = @CurrentCompanyId GROUP BY T1.CCName ORDER BY TotalSales DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-07",
+    "question": "عرض العقود المرتبطة بأمر البيع والموردين",
+    "expectedIntent": "DataRetrieval",
+    "expectedTables": [ "ContractViewWithPaid", "salessystemcontract", "SupplyOrderNotContractedreviewd" ],
+    "mustContainSqlFragments": [ "SupplyOrderNotContractedreviewd T1", "TD.supplyerOrderId = T1.SupplyOrderID", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT TOP 100 TM.ContractID, TM.AutoNumber, TM.CustomerAccountName, T1.SupplyOrderName, TD.Total FROM ContractViewWithPaid TM JOIN salessystemcontract TD ON TM.ContractID = TD.ContractID LEFT JOIN SupplyOrderNotContractedreviewd T1 ON TD.supplyerOrderId = T1.SupplyOrderID WHERE TM.ComID = @CurrentCompanyId AND TD.supplyerOrderId IS NOT NULL ORDER BY TM.ContractID DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-08",
+    "question": "Total sales per branch store inventory",
+    "expectedIntent": "Analysis",
+    "expectedTables": [ "ContractViewWithPaid", "salessystemcontract", "StoreView" ],
+    "mustContainSqlFragments": [ "StoreView T1", "TD.StoreID = T1.SID", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *", "DELETE " ],
+    "sampleExpectedSql": "SELECT T1.SName AS StoreName, SUM(TD.Total) AS StoreSales, SUM(TD.Qty) AS TotalQty FROM ContractViewWithPaid TM JOIN salessystemcontract TD ON TM.ContractID = TD.ContractID LEFT JOIN StoreView T1 ON TD.StoreID = T1.SID WHERE TM.ComID = @CurrentCompanyId GROUP BY T1.SName ORDER BY StoreSales DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-09",
+    "question": "توزيع مبيعات الفواتير حسب الحي أو المحافظة",
+    "expectedIntent": "Analysis",
+    "expectedTables": [ "ContractViewWithPaid", "salessystemcontract", "GovView" ],
+    "mustContainSqlFragments": [ "GovView T1", "TD.Gov = T1.GOVID", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT T1.GovName AS Governorate, COUNT(DISTINCT TM.ContractID) AS InvoicesCount, SUM(TD.Total) AS TotalAmount FROM ContractViewWithPaid TM JOIN salessystemcontract TD ON TM.ContractID = TD.ContractID LEFT JOIN GovView T1 ON TD.Gov = T1.GOVID WHERE TM.ComID = @CurrentCompanyId GROUP BY T1.GovName ORDER BY TotalAmount DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-10",
+    "question": "Show sold quantities and units per product",
+    "expectedIntent": "DataRetrieval",
+    "expectedTables": [ "ContractViewWithPaid", "salessystemcontract", "Units", "ProductPurchase" ],
+    "mustContainSqlFragments": [ "Units T1", "TD.UnitID = T1.UID", "ProductPurchase T2", "TD.ProductID = T2.ProID", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT TOP 200 TM.ContractID, T2.ProName AS ProductName, T1.UName AS UnitName, TD.Qty, TD.UnitFactor, TD.QuantityInBaseUnit FROM ContractViewWithPaid TM JOIN salessystemcontract TD ON TM.ContractID = TD.ContractID LEFT JOIN Units T1 ON TD.UnitID = T1.UID LEFT JOIN ProductPurchase T2 ON TD.ProductID = T2.ProID WHERE TM.ComID = @CurrentCompanyId ORDER BY TM.ContractID DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-11",
+    "question": "هات البنود غير الفعالة أو المرتجعة في عقود المبيعات",
+    "expectedIntent": "DataRetrieval",
+    "expectedTables": [ "ContractViewWithPaid", "salessystemcontract" ],
+    "mustContainSqlFragments": [ "TD.NonActiveSystem", "TD.IsSystemResale", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT TOP 100 TM.ContractID, TM.AutoNumber, TM.CustomerAccountName, TD.NonActiveSystem, TD.IsSystemResale, TD.Total FROM ContractViewWithPaid TM JOIN salessystemcontract TD ON TM.ContractID = TD.ContractID WHERE TM.ComID = @CurrentCompanyId AND (TD.NonActiveSystem = 1 OR TD.IsSystemResale = 1) ORDER BY TM.ContractID DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-12",
+    "question": "Show contract line items expiring before 2026-01-01",
+    "expectedIntent": "DataRetrieval",
+    "expectedTables": [ "ContractViewWithPaid", "salessystemcontract" ],
+    "mustContainSqlFragments": [ "TD.Expirdate", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT TOP 100 TM.ContractID, TM.AutoNumber, TD.ProductID, TD.Expirdate, TD.Qty FROM ContractViewWithPaid TM JOIN salessystemcontract TD ON TM.ContractID = TD.ContractID WHERE TM.ComID = @CurrentCompanyId AND TD.Expirdate IS NOT NULL AND TD.Expirdate < '2026-01-01' ORDER BY TD.Expirdate ASC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-13",
+    "question": "العقود التي ينتهي ضمانها قبل نهاية عام 2025",
+    "expectedIntent": "DataRetrieval",
+    "expectedTables": [ "ContractViewWithPaid", "salessystemcontract" ],
+    "mustContainSqlFragments": [ "TD.InsuranceStartDate", "TD.InsuranceEndDate", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT TOP 100 TM.ContractID, TM.AutoNumber, TM.CustomerAccountName, TD.InsuranceStartDate, TD.InsuranceEndDate FROM ContractViewWithPaid TM JOIN salessystemcontract TD ON TM.ContractID = TD.ContractID WHERE TM.ComID = @CurrentCompanyId AND TD.InsuranceEndDate <= '2025-12-31' ORDER BY TD.InsuranceEndDate ASC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-14",
+    "question": "من قام بإدخال آخر 10 فواتير وتاريخ الإدخال؟",
+    "expectedIntent": "DataRetrieval",
+    "expectedTables": [ "ContractViewWithPaid" ],
+    "mustContainSqlFragments": [ "TM.CreateBy", "TM.CreateAt", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "EmployeeView", "SELECT *" ],
+    "sampleExpectedSql": "SELECT TOP 10 TM.ContractID, TM.AutoNumber, TM.CreateBy, TM.CreateAt, TM.TotalOrder FROM ContractViewWithPaid TM WHERE TM.ComID = @CurrentCompanyId ORDER BY TM.CreateAt DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-15",
+    "question": "Show the latest invoices with ModifyBy and ModifyAt audit info",
+    "expectedIntent": "DataRetrieval",
+    "expectedTables": [ "ContractViewWithPaid" ],
+    "mustContainSqlFragments": [ "TM.ModifyBy", "TM.ModifyAt", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "EmployeeView", "SELECT *" ],
+    "sampleExpectedSql": "SELECT TOP 20 TM.ContractID, TM.AutoNumber, TM.ModifyBy, TM.ModifyAt, TM.finaltotal FROM ContractViewWithPaid TM WHERE TM.ComID = @CurrentCompanyId AND TM.ModifyAt IS NOT NULL ORDER BY TM.ModifyAt DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-16",
+    "question": "ابحث عن الفاتورة برقم السند 1050 أو رقم الفواتشر",
+    "expectedIntent": "DataRetrieval",
+    "expectedTables": [ "ContractViewWithPaid" ],
+    "mustContainSqlFragments": [ "TM.Ordernumber", "TM.Voucher", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT TOP 50 TM.ContractID, TM.AutoNumber, TM.Ordernumber, TM.Voucher, TM.CustomerAccountName, TM.TotalOrder FROM ContractViewWithPaid TM WHERE TM.ComID = @CurrentCompanyId AND (TM.Ordernumber = N'1050' OR TM.Voucher = 1050)",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-17",
+    "question": "اجمالي المبيعات حسب طريقة البيع",
+    "expectedIntent": "Analysis",
+    "expectedTables": [ "ContractViewWithPaid", "ConType" ],
+    "mustContainSqlFragments": [ "ConType T1", "TM.ContractType = T1.ContractTypeID", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT T1.TypeName AS SaleMethod, COUNT(TM.ContractID) AS ContractCount, SUM(TM.finaltotal) AS TotalValue FROM ContractViewWithPaid TM LEFT JOIN ConType T1 ON TM.ContractType = T1.ContractTypeID WHERE TM.ComID = @CurrentCompanyId GROUP BY T1.TypeName ORDER BY TotalValue DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-18",
+    "question": "Show sales totals by selling currency and exchange rate",
+    "expectedIntent": "Analysis",
+    "expectedTables": [ "ContractViewWithPaid", "salessystemcontract", "Currancy" ],
+    "mustContainSqlFragments": [ "Currancy T1", "TD.CurrancyID = T1.CID", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT T1.CName AS CurrencyName, AVG(TD.CurrancyEX) AS AvgExchangeRate, SUM(TM.TotalCurrancy) AS ForeignTotal FROM ContractViewWithPaid TM JOIN salessystemcontract TD ON TM.ContractID = TD.ContractID LEFT JOIN Currancy T1 ON TD.CurrancyID = T1.CID WHERE TM.ComID = @CurrentCompanyId GROUP BY T1.CName ORDER BY ForeignTotal DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-19",
+    "question": "اجمالي المبيعات وعدد الفواتير حسب قناة البيع",
+    "expectedIntent": "Analysis",
+    "expectedTables": [ "ContractViewWithPaid", "salessystemcontract", "SalesTupe" ],
+    "mustContainSqlFragments": [ "SalesTupe T1", "TD.SalesTupeID = T1.STID", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT T1.STName AS SalesChannel, COUNT(DISTINCT TM.ContractID) AS InvoiceCount, SUM(TD.Total) AS ChannelTotal FROM ContractViewWithPaid TM JOIN salessystemcontract TD ON TM.ContractID = TD.ContractID LEFT JOIN SalesTupe T1 ON TD.SalesTupeID = T1.STID WHERE TM.ComID = @CurrentCompanyId GROUP BY T1.STName ORDER BY ChannelTotal DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-20",
+    "question": "Total sales cost and revenue by cost center",
+    "expectedIntent": "Analysis",
+    "expectedTables": [ "ContractViewWithPaid", "salessystemcontract", "CostItems" ],
+    "mustContainSqlFragments": [ "CostItems T1", "TD.CostCenterID = T1.CIID", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT T1.CIName AS CostCenter, SUM(TD.systemCost) AS TotalCost, SUM(TD.Total) AS TotalRevenue FROM ContractViewWithPaid TM JOIN salessystemcontract TD ON TM.ContractID = TD.ContractID LEFT JOIN CostItems T1 ON TD.CostCenterID = T1.CIID WHERE TM.ComID = @CurrentCompanyId GROUP BY T1.CIName ORDER BY TotalRevenue DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-21",
+    "question": "تقرير مبيعات كل مندوب مبيعات وعدد العقود",
+    "expectedIntent": "Analysis",
+    "expectedTables": [ "ContractViewWithPaid", "salessystemcontract", "SalesmenView" ],
+    "mustContainSqlFragments": [ "SalesmenView T1", "TD.SalesMan = T1.EmployeeID", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT T1.EmployeeNameA AS SalesmanName, COUNT(DISTINCT TM.ContractID) AS ContractCount, SUM(TD.Total) AS TotalSales FROM ContractViewWithPaid TM JOIN salessystemcontract TD ON TM.ContractID = TD.ContractID LEFT JOIN SalesmenView T1 ON TD.SalesMan = T1.EmployeeID WHERE TM.ComID = @CurrentCompanyId GROUP BY T1.EmployeeNameA ORDER BY TotalSales DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-22",
+    "question": "هات تفاصيل الأقساط وعددها وقيمة القسط للعقود",
+    "expectedIntent": "DataRetrieval",
+    "expectedTables": [ "ContractViewWithPaid", "salessystemcontract" ],
+    "mustContainSqlFragments": [ "TD.ISName", "TD.ISNumber", "TD.ISmony", "TD.ISStartDate", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT TOP 100 TM.ContractID, TM.AutoNumber, TM.CustomerAccountName, TD.ISName, TD.ISNumber, TD.ISmony, TD.ISStartDate FROM ContractViewWithPaid TM JOIN salessystemcontract TD ON TM.ContractID = TD.ContractID WHERE TM.ComID = @CurrentCompanyId AND TD.ISNumber > 0 ORDER BY TD.ISStartDate DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-23",
+    "question": "Show total discount, VAT tax, and shipping price across sales contracts",
+    "expectedIntent": "Analysis",
+    "expectedTables": [ "ContractViewWithPaid" ],
+    "mustContainSqlFragments": [ "SUM(TM.Discount)", "SUM(TM.TaxCurrancy)", "SUM(TM.shippingPrice)", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT SUM(TM.Discount) AS TotalDiscount, SUM(TM.TaxCurrancy) AS TotalVat, SUM(TM.shippingPrice) AS TotalShipping, SUM(TM.finaltotal) AS NetTotal FROM ContractViewWithPaid TM WHERE TM.ComID = @CurrentCompanyId",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-24",
+    "question": "اجمالي قيمة العقود حسب المشروع",
+    "expectedIntent": "Analysis",
+    "expectedTables": [ "ContractViewWithPaid", "salessystemcontract", "ProductNonInventory" ],
+    "mustContainSqlFragments": [ "ProductNonInventory T1", "TD.ContractProjectID = T1.ProID", "TM.ComID = @CurrentCompanyId" ],
+    "mustNotContainSqlFragments": [ "SELECT *" ],
+    "sampleExpectedSql": "SELECT T1.ProName AS ProjectName, COUNT(DISTINCT TM.ContractID) AS ContractCount, SUM(TD.Total) AS ProjectTotal FROM ContractViewWithPaid TM JOIN salessystemcontract TD ON TM.ContractID = TD.ContractID LEFT JOIN ProductNonInventory T1 ON TD.ContractProjectID = T1.ProID WHERE TM.ComID = @CurrentCompanyId GROUP BY T1.ProName ORDER BY ProjectTotal DESC",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-25",
+    "question": "هات الفواتير",
+    "expectedIntent": "Clarification",
+    "expectedTables": [],
+    "mustContainSqlFragments": [],
+    "mustNotContainSqlFragments": [],
+    "sampleExpectedSql": "",
+    "needsClarification": true
+  },
+  {
+    "id": "p244-26",
+    "question": "Show me the pending ones",
+    "expectedIntent": "Clarification",
+    "expectedTables": [],
+    "mustContainSqlFragments": [],
+    "mustNotContainSqlFragments": [],
+    "sampleExpectedSql": "",
+    "needsClarification": true
+  },
+  {
+    "id": "p244-27",
+    "question": "عايز تقرير عن الأفضل",
+    "expectedIntent": "Clarification",
+    "expectedTables": [],
+    "mustContainSqlFragments": [],
+    "mustNotContainSqlFragments": [],
+    "sampleExpectedSql": "",
+    "needsClarification": true
+  },
+  {
+    "id": "p244-28",
+    "question": "Compare totals for this year",
+    "expectedIntent": "Clarification",
+    "expectedTables": [],
+    "mustContainSqlFragments": [],
+    "mustNotContainSqlFragments": [],
+    "sampleExpectedSql": "",
+    "needsClarification": true
+  },
+  {
+    "id": "p244-29",
+    "question": "مرحبا، كيف يمكنك مساعدتي في صفحة فواتير المبيعات؟",
+    "expectedIntent": "Chat",
+    "expectedTables": [],
+    "mustContainSqlFragments": [],
+    "mustNotContainSqlFragments": [],
+    "sampleExpectedSql": "",
+    "needsClarification": false
+  },
+  {
+    "id": "p244-30",
+    "question": "What information can you analyze on the sales invoices page?",
+    "expectedIntent": "Chat",
+    "expectedTables": [],
+    "mustContainSqlFragments": [],
+    "mustNotContainSqlFragments": [],
+    "sampleExpectedSql": "",
+    "needsClarification": false
+  }
+]

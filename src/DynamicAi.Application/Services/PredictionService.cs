@@ -1,6 +1,6 @@
 using DynamicAi.Application.Interfaces;
+using DynamicAi.Application.Models;
 using DynamicAi.Domain.Entities;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -12,18 +12,18 @@ namespace DynamicAi.Application.Services;
 /// </summary>
 public class PredictionService : IPredictionService
 {
-    private readonly IChatClient _chatClient;
+    private readonly ILlmClient _llmClient;
     private readonly ILlmUsageTracker _usageTracker;
     private readonly IConversationContextService _contextService;
     private readonly ILogger<PredictionService> _logger;
 
     public PredictionService(
-        IChatClient chatClient,
+        ILlmClient llmClient,
         ILlmUsageTracker usageTracker,
         IConversationContextService contextService,
         ILogger<PredictionService> logger)
     {
-        _chatClient = chatClient;
+        _llmClient = llmClient;
         _usageTracker = usageTracker;
         _contextService = contextService;
         _logger = logger;
@@ -48,34 +48,37 @@ public class PredictionService : IPredictionService
             cancellationToken: cancellationToken);
 
         var systemPrompt = BuildSystemPrompt(isArabic, recentTurns);
-        var messages = new List<ChatMessage>
+        var request = new LlmRequest
         {
-            new ChatMessage(ChatRole.System, systemPrompt),
-            new ChatMessage(ChatRole.User, userQuestion)
+            SystemPrompt = systemPrompt,
+            UserMessage = userQuestion,
+            Temperature = 0.2,
+            MaxOutputTokens = 2048,
+            UseUnifiedJsonSchema = false
         };
 
         try
         {
-            var response = await _chatClient.GetResponseAsync(messages, cancellationToken: cancellationToken);
+            var response = await _llmClient.GenerateAsync(request, cancellationToken);
             var duration = (DateTime.UtcNow - startTime).TotalMilliseconds;
-            var responseText = response.Text ?? GetFallbackMessage(isArabic, "no_response");
-
-            var inputTokens = (int)(response.Usage?.InputTokenCount ?? EstimateTokens(systemPrompt + userQuestion));
-            var outputTokens = (int)(response.Usage?.OutputTokenCount ?? EstimateTokens(responseText));
+            var responseText = !string.IsNullOrWhiteSpace(response.Text)
+                ? response.Text
+                : GetFallbackMessage(isArabic, "no_response");
 
             await _usageTracker.TrackLlmCallAsync(
                 LlmOperationType.Prediction,
                 requestId: queryLogId?.ToString() ?? Guid.NewGuid().ToString(),
-                inputTokens: inputTokens,
-                outputTokens: outputTokens,
-                cachedTokens: 0,
+                inputTokens: response.InputTokens,
+                outputTokens: response.OutputTokens,
+                cachedTokens: response.CachedTokens,
                 tenantId: tenantId,
                 companyId: companyId,
+                modelName: response.ModelUsed,
                 cancellationToken: cancellationToken);
 
             _logger.LogInformation(
-                "[PredictionService] Prediction generated in {Duration:F0}ms (Input={Input}, Output={Output})",
-                duration, inputTokens, outputTokens);
+                "[PredictionService] Prediction generated in {Duration:F0}ms (Input={Input}, Output={Output}, Cached={Cached}, Model={Model})",
+                duration, response.InputTokens, response.OutputTokens, response.CachedTokens, response.ModelUsed);
 
             return responseText;
         }
@@ -213,12 +216,4 @@ public class PredictionService : IPredictionService
     }
 
     private static bool DetectArabic(string text) => Regex.IsMatch(text, @"[\u0600-\u06FF]");
-
-    private static int EstimateTokens(string text)
-    {
-        if (string.IsNullOrEmpty(text)) return 0;
-        var arabicCount = Regex.Matches(text, @"[\u0600-\u06FF]").Count;
-        var otherCount = text.Length - arabicCount;
-        return (arabicCount / 2) + (otherCount / 4) + 1;
-    }
 }
