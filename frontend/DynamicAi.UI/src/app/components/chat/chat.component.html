@@ -1,16 +1,95 @@
 <div class="chat-container">
-    <!-- Header / Status -->
+    <!-- Header / Status & POC Settings Toggle -->
     <header>
-        <!-- Status Badge -->
-
-        <div class="status-badge"
-            [ngClass]="{'connected': status === 'Connected! ✅', 'error': status.includes('Failed')}">
-            <span class="dot"></span> {{ status }}
+        <div class="header-left">
+            <div class="status-badge"
+                [ngClass]="{'connected': connectionState === 'connected', 'error': connectionState === 'error', 'checking': connectionState === 'checking'}"
+                [title]="errorMsg || status"
+                (click)="checkConnection()">
+                <span class="dot"></span> {{ status }}
+            </div>
+            <div *ngIf="connectionState === 'error'" class="quick-actions">
+                <button type="button" (click)="checkConnection()">Retry</button>
+            </div>
         </div>
-        <div *ngIf="status.includes('Failed')" class="quick-actions">
-            <button (click)="checkConnection()">Retry</button>
+
+        <div class="header-right">
+            <button type="button" class="settings-toggle-btn" (click)="toggleSettingsPanel()"
+                [class.active]="showSettingsPanel" [class.invalid]="!!contextJsonError">
+                <span>⚙️ POC Context Settings</span>
+                <span class="page-pill" [class.error-pill]="!!contextJsonError">
+                    {{ parsedContext ? ('Page ' + parsedContext.pageId + ' · ' + parsedContext.pageName) : 'Invalid Context' }}
+                </span>
+                <span class="chevron">{{ showSettingsPanel ? '▲' : '▼' }}</span>
+            </button>
         </div>
     </header>
+
+    <!-- Collapsible POC Context Settings Panel -->
+    <section *ngIf="showSettingsPanel" class="poc-settings-panel">
+        <div class="poc-panel-toolbar">
+            <div class="preset-group">
+                <label for="presetSelect">Preset</label>
+                <select id="presetSelect" [(ngModel)]="selectedPreset" (ngModelChange)="onPresetChange($event)">
+                    <option value="page244">Page 244 — فواتير المبيعات</option>
+                    <option value="custom">Custom JSON</option>
+                </select>
+                <button type="button" class="panel-btn secondary" (click)="resetPreset()">
+                    ↺ Reset Preset
+                </button>
+            </div>
+
+            <div class="cache-group">
+                <button type="button" class="panel-btn danger"
+                    [disabled]="!parsedContext || clearingCache"
+                    (click)="clearPageCache()">
+                    {{ clearingCache ? '⏳ Clearing...' : '🗑️ Clear Page Cache' }}
+                </button>
+            </div>
+        </div>
+
+        <div *ngIf="cacheActionMessage" class="cache-status" [class.error]="cacheActionError">
+            {{ cacheActionMessage }}
+        </div>
+
+        <div class="poc-fields-grid">
+            <div class="field-group">
+                <label for="comIdInput">ComID</label>
+                <input id="comIdInput" type="number" [(ngModel)]="comID" (ngModelChange)="onSettingsFieldChange()"
+                    placeholder="1" />
+            </div>
+
+            <div class="field-group">
+                <label for="tenantKeyInput">TenantKey (optional)</label>
+                <input id="tenantKeyInput" type="text" [(ngModel)]="tenantKey"
+                    (ngModelChange)="onSettingsFieldChange()" placeholder="e.g. erp_prod_01" />
+            </div>
+
+            <div class="field-group field-wide">
+                <label for="connStrInput">ConnectionString (optional dynamic ERP connection string)</label>
+                <input id="connStrInput" type="text" [(ngModel)]="connectionString"
+                    (ngModelChange)="onSettingsFieldChange()"
+                    placeholder="Server=...;Database=...;User Id=...;Password=...;" />
+            </div>
+        </div>
+
+        <div class="json-editor-section">
+            <div class="json-editor-header">
+                <label for="explicitContextEditor">explicitContext (ShippedPageContext JSON)</label>
+                <span class="json-validation-badge" [class.valid]="!contextJsonError" [class.invalid]="!!contextJsonError">
+                    {{ contextJsonError ? '❌ Invalid JSON' : '✅ Valid JSON' }}
+                </span>
+            </div>
+            <textarea id="explicitContextEditor" class="context-json-editor"
+                [ngModel]="explicitContextJson"
+                (ngModelChange)="onContextJsonChange($event)"
+                rows="10"
+                spellcheck="false"></textarea>
+            <div *ngIf="contextJsonError" class="json-error-msg">
+                ⚠️ {{ contextJsonError }}
+            </div>
+        </div>
+    </section>
 
     <!-- Welcome Screen -->
     <div *ngIf="messages.length === 0" class="welcome-screen">
@@ -18,28 +97,31 @@
             <h1>How can I help you today?</h1>
         </div>
         <div class="suggestions">
-            <div class="suggestion-card" (click)="setQuestion('هاتلي مبيعات الشهر السابق')">
+            <div class="suggestion-card" (click)="setQuestion('اعرض فواتير المبيعات للعميل لولو')">
+                <span class="icon">🧾</span>
+                <span class="text">اعرض فواتير المبيعات للعميل لولو</span>
+            </div>
+            <div class="suggestion-card" (click)="setQuestion('اجمالي المبيعات والمتبقي على العملاء اخر شهر')">
                 <span class="icon">📊</span>
-                <span class="text">هاتلي مبيعات الشهر السابق</span>
+                <span class="text">اجمالي المبيعات والمتبقي على العملاء اخر شهر</span>
             </div>
-            <div class="suggestion-card" (click)="setQuestion('هاتلي مشتريات الشهر السابق')">
-                <span class="icon">🛒</span>
-                <span class="text">هاتلي مشتريات الشهر السابق</span>
-            </div>
-            <div class="suggestion-card" (click)="setQuestion('هاتلي متحصلات العملاء اخر 3 شهور')">
+            <div class="suggestion-card" (click)="setQuestion('اكتر 10 اصناف مبيعا من حيث الكمية والقيمة')">
                 <span class="icon">📦</span>
-                <span class="text">هاتلي متحصلات العملاء اخر 3 شهور</span>
+                <span class="text">اكتر 10 اصناف مبيعا من حيث الكمية والقيمة</span>
+            </div>
+            <div class="suggestion-card" (click)="setQuestion('الفواتير غير المحصلة بالكامل وقيمتها المتبقية')">
+                <span class="icon">💰</span>
+                <span class="text">الفواتير غير المحصلة بالكامل وقيمتها المتبقية</span>
             </div>
         </div>
         <div class="ai-usage-tip">
             <span class="tip-icon">💡</span>
-            <span>برجاء استخدام أسماء الصفحات والأعمدة والجداول كما هي لديك في البرنامج لمساعدة الـ AI في الحصول على
-                نتائج دقيقة.</span>
+            <span>وضع التشغيل المباشر (Directed POC Mode) نشط على سياق الصفحة المحددة في POC Context Settings — يمكنك تعديل الـ JSON أو الإعدادات من الأعلى.</span>
         </div>
     </div>
 
     <!-- Chat History -->
-    <div class="chat-scroll-area" #scrollContainer>
+    <div *ngIf="messages.length > 0" class="chat-scroll-area" #scrollContainer>
         <div *ngFor="let msg of messages" class="message-row" [ngClass]="{'ai': msg.isAi, 'user': !msg.isAi}">
             <div class="message-content" [class.wide]="msg.tableData && msg.tableData.length > 0">
                 <div class="avatar">
@@ -78,13 +160,12 @@
                             </table>
                         </div>
                     </div>
-                    <!-- Feedback Actions (Moved Inside Bubble) -->
+
+                    <!-- Feedback & Utility Actions -->
                     <div *ngIf="msg.isAi && !msg.isLogged" class="feedback-actions">
-                        <!-- Like Button -->
                         <button class="like-btn" (click)="likeResponse(msg)" [disabled]="loading || msg.isLiked"
                             [class.liked]="msg.isLiked" title="Like this response">
                             <ng-container *ngIf="msg.isLiked; else likeIcon">
-                                <!-- Filled Heart Icon -->
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"
                                     stroke="currentColor" stroke-width="2">
                                     <path
@@ -93,7 +174,6 @@
                                 </svg>
                             </ng-container>
                             <ng-template #likeIcon>
-                                <!-- Thumbs Up Icon -->
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path
@@ -102,20 +182,18 @@
                                 </svg>
                             </ng-template>
                         </button>
-                        <!-- Dislike Button -->
+
                         <button class="dislike-btn" (click)="dislikeResponse(msg)"
                             [disabled]="loading || (msg.retryCount ?? 0) >= 2 || msg.isLogged"
                             [class.disabled-btn]="msg.isLogged"
                             [title]="((msg.retryCount ?? 0) >= 2 || msg.isLogged) ? 'Reported' : 'Dislike and Report'">
                             <ng-container *ngIf="(msg.retryCount ?? 0) >= 2; else dislikeIcon">
-                                <!-- Check Icon -->
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <polyline points="20 6 9 17 4 12"></polyline>
                                 </svg>
                             </ng-container>
                             <ng-template #dislikeIcon>
-                                <!-- Thumbs Down Icon -->
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path
@@ -124,7 +202,7 @@
                                 </svg>
                             </ng-template>
                         </button>
-                        <!-- Show SQL Button -->
+
                         <button *ngIf="msg.sql" class="show-sql-btn" (click)="msg.showSql = !msg.showSql"
                             [class.active]="msg.showSql" title="Show executed SQL query">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -134,7 +212,6 @@
                             </svg>
                         </button>
 
-                        <!-- Print & Export (Only for Data Tables) -->
                         <ng-container *ngIf="msg.tableData && msg.tableData.length > 0">
                             <button class="action-btn" (click)="printTable(msg)" title="Print Table">
                                 🖨️
@@ -143,6 +220,24 @@
                                 📥
                             </button>
                         </ng-container>
+                    </div>
+
+                    <!-- Telemetry Pills (Model/Cached, Tokens, Cost USD) -->
+                    <div *ngIf="msg.isAi && hasTelemetry(msg)" class="telemetry-pills">
+                        <span *ngIf="msg.isCached !== undefined" class="telemetry-pill"
+                            [class.cached]="msg.isCached" [class.live]="!msg.isCached">
+                            {{ msg.isCached ? '⚡ Cached' : '🤖 LLM' }}
+                        </span>
+                        <span *ngIf="msg.inputTokens !== undefined || msg.outputTokens !== undefined || msg.cachedTokens !== undefined"
+                            class="telemetry-pill tokens"
+                            [title]="'Input: ' + (msg.inputTokens ?? 0) + ', Output: ' + (msg.outputTokens ?? 0) + ', Cached: ' + (msg.cachedTokens ?? 0)">
+                            🔤 {{ msg.inputTokens ?? 0 }} in / {{ msg.outputTokens ?? 0 }} out<ng-container
+                                *ngIf="(msg.cachedTokens ?? 0) > 0"> · {{ msg.cachedTokens }} cached</ng-container>
+                        </span>
+                        <span *ngIf="msg.llmCostUsd !== undefined && msg.llmCostUsd !== null"
+                            class="telemetry-pill cost">
+                            💲 {{ formatCostUsd(msg.llmCostUsd) }}
+                        </span>
                     </div>
 
                     <!-- SQL Display Panel -->
@@ -156,7 +251,7 @@
                         <pre class="sql-code">{{ msg.sql }}</pre>
                     </div>
 
-                    <!-- Suggestion Tips (from Dislike Response) -->
+                    <!-- Suggestion Tips -->
                     <div *ngIf="msg.suggestionTips && msg.suggestionTips.length > 0" class="suggestion-tips">
                         <div class="tips-header">💡 نصائح لتحسين السؤال:</div>
                         <ul class="tips-list">
@@ -166,9 +261,8 @@
                         </ul>
                     </div>
                 </div>
-                <!-- Feedback Actions (only for AI messages) -->
 
-                <!-- Retry Action (Smart Dislike) -->
+                <!-- Retry Action -->
                 <div *ngIf="msg.askRetry" class="retry-actions" style="margin-top: 8px; text-align: right;">
                     <button (click)="setQuestion(msg.originalQuestion || '', msg.retryCount)"
                         style="background: #2196F3; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9em; display: inline-flex; align-items: center; gap: 5px;">
@@ -193,28 +287,13 @@
 
     <!-- Input Area -->
     <div class="input-area">
-        <!-- Direct Context Dropdown (Pre-warmed Pipeline) -->
-        <div class="page-selector-wrapper" *ngIf="groupedPages.length > 0">
-            <label for="explicitPageSelect" class="selector-label">توجيه الذكاء الاصطناعي:</label>
-            <select id="explicitPageSelect" class="page-selector" [(ngModel)]="selectedPage">
-                <option [ngValue]="null">🌍 السياق الشامل المفتوح (كل النظام)</option>
-                <optgroup *ngFor="let group of groupedPages" [label]="group.groupName">
-                    <option *ngFor="let page of group.pages" [ngValue]="page">
-                        📄 {{ page.pageName }}
-                    </option>
-                </optgroup>
-            </select>
-            <span class="selector-hint" title="حدد صفحة محددة وسيعمل النظام أسرع بكثير (Cache) وسيتجنب الهلوسة في أعمدة الصفحات الأخرى.">🎯 (اختياري)</span>
-        </div>
-
         <div class="input-wrapper">
             <textarea [(ngModel)]="question" (keydown.enter)="onEnter($event)" placeholder="Message DynamicAi..."
                 rows="1"></textarea>
-            <!-- Send Button (visible when NOT loading) -->
-            <button *ngIf="!loading" (click)="sendQuestion()" [disabled]="!question.trim()" class="send-btn">
+            <button *ngIf="!loading" (click)="sendQuestion()" [disabled]="!question.trim() || !!contextJsonError"
+                class="send-btn" [title]="contextJsonError ? contextJsonError : 'Send'">
                 ➤
             </button>
-            <!-- Stop Button (visible when loading) -->
             <button *ngIf="loading" (click)="stopGeneration()" class="stop-btn" title="إيقاف التوليد">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                     <rect x="4" y="4" width="16" height="16" rx="2"></rect>

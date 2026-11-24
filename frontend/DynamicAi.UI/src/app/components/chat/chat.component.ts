@@ -1,13 +1,23 @@
-import { Component, OnInit, OnDestroy, ViewChild, ElementRef, AfterViewChecked, ChangeDetectorRef, inject } from '@angular/core';
+import {
+    Component,
+    OnInit,
+    OnDestroy,
+    ViewChild,
+    ElementRef,
+    AfterViewChecked,
+    ChangeDetectorRef,
+    inject
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ApiService } from '../../services/api.service';
-import { ChatSignalService } from '../../services/chat-signal.service';
-import { environment } from '../../../environments/environment';
-import { ChatMessage } from '../../models';
-import { PageDictionaryItem } from '../../models/page-dictionary.model';
 import { Observable, Subscription, race } from 'rxjs';
 import * as xlsx from 'xlsx';
+
+import { ApiService } from '../../services/api.service';
+import { ChatSignalService } from '../../services/chat-signal.service';
+import { PocSettingsService } from '../../services/poc-settings.service';
+import { ChatMessage, DirectedPageAskRequest, ShippedPageContext } from '../../models';
+import { PAGE_244_PRESET_CONTEXT } from '../../presets/page244.preset';
 
 @Component({
     selector: 'app-chat',
@@ -19,41 +29,51 @@ import * as xlsx from 'xlsx';
 export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     @ViewChild('scrollContainer') private scrollContainer!: ElementRef;
 
-
     private apiService = inject(ApiService);
     private cdr = inject(ChangeDetectorRef);
     private chatSignal = inject(ChatSignalService);
+    private pocSettings = inject(PocSettingsService);
 
     status = 'Connected! ✅';
-    apiUrl = environment.apiUrl;
+    connectionState: 'connected' | 'checking' | 'error' = 'connected';
     errorMsg = '';
 
     question = '';
     messages: ChatMessage[] = [];
     loading = false;
-    // sidebar state is now managed by parent (App), we emit event to toggle it
 
-    // Stop Generation
+    // Stop Generation & Reset
     private activeSubscription: Subscription | null = null;
+    private resetSubscription: Subscription | null = null;
 
-    // Context
+    // Conversation Context
     lastQuestion: string | undefined = undefined;
     lastSql: string | undefined = undefined;
     confirmedQuestion: string | undefined = undefined;
     confirmedSql: string | undefined = undefined;
 
-    // Page Scope (Context Bypass)
-    availablePages: PageDictionaryItem[] = [];
-    groupedPages: { groupName: string, pages: PageDictionaryItem[] }[] = [];
-    selectedPage: PageDictionaryItem | null = null;
+    // POC Context Settings Panel
+    showSettingsPanel = false;
+    selectedPreset: 'page244' | 'custom' = 'page244';
+    comID = 1;
+    tenantId = 'default';
+    tenantKey = '';
+    connectionString = '';
+    explicitContextJson = '';
+    contextJsonError = '';
+    parsedContext: ShippedPageContext | null = null;
+    clearingCache = false;
+    cacheActionMessage = '';
+    cacheActionError = false;
+
+    private readonly formattedPage244Preset = JSON.stringify(PAGE_244_PRESET_CONTEXT, null, 2);
 
     ngOnInit() {
-        // Subscribe to external reset signals (e.g. from Sidebar)
-        this.chatSignal.reset$.subscribe(() => {
+        this.resetSubscription = this.chatSignal.reset$.subscribe(() => {
             this.resetChat();
         });
 
-        // Load Persistent State
+        // Load Persistent Chat State
         const savedState = this.chatSignal.getState();
         if (savedState.messages.length > 0) {
             this.messages = savedState.messages;
@@ -63,41 +83,40 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
             this.confirmedSql = savedState.confirmedSql;
         }
 
-        // Fetch Page Dictionary for explicit scope bypassing 
-        this.apiService.getPagesDictionary().subscribe({
-            next: (pages) => {
-                this.availablePages = pages;
-                this.groupPages();
-            },
-            error: (err) => {
-                console.warn('[PageDictionary] Failed to load pages. RAG will remain in Semantic mode.', err);
-            }
-        });
-    }
+        // Load Persistent POC Context Settings
+        const snapshot = this.pocSettings.getSnapshot();
+        this.comID = snapshot.comID ?? 1;
+        this.tenantId = snapshot.tenantId || 'default';
+        this.tenantKey = snapshot.tenantKey || '';
+        this.connectionString = snapshot.connectionString || '';
 
-    private groupPages() {
-        if (!this.availablePages || this.availablePages.length === 0) return;
+        if (snapshot.explicitContextJson && snapshot.explicitContextJson.trim().length > 0) {
+            this.explicitContextJson = snapshot.explicitContextJson;
+            this.selectedPreset =
+                snapshot.explicitContextJson.trim() === this.formattedPage244Preset.trim()
+                    ? 'page244'
+                    : 'custom';
+        } else {
+            this.explicitContextJson = this.formattedPage244Preset;
+            this.selectedPreset = 'page244';
+            this.pocSettings.save({ explicitContextJson: this.explicitContextJson });
+        }
 
-        const groups = new Map<string, PageDictionaryItem[]>();
-        this.availablePages.forEach(p => {
-            if (!groups.has(p.groupName)) {
-                groups.set(p.groupName, []);
-            }
-            groups.get(p.groupName)!.push(p);
-        });
-
-        this.groupedPages = Array.from(groups.entries()).map(([key, value]) => ({
-            groupName: key,
-            pages: value.sort((a, b) => a.pageName.localeCompare(b.pageName))
-        })).sort((a, b) => a.groupName.localeCompare(b.groupName));
+        this.validateContextJson(this.explicitContextJson);
+        this.checkConnection();
     }
 
     ngOnDestroy() {
-        // Save State when component is destroyed (e.g. navigating away)
-        this.chatSignal.saveState(this.messages, this.lastQuestion, this.lastSql, this.confirmedQuestion, this.confirmedSql);
+        this.resetSubscription?.unsubscribe();
+        this.activeSubscription?.unsubscribe();
+        this.chatSignal.saveState(
+            this.messages,
+            this.lastQuestion,
+            this.lastSql,
+            this.confirmedQuestion,
+            this.confirmedSql
+        );
     }
-
-
 
     ngAfterViewChecked() {
         this.scrollToBottom();
@@ -105,37 +124,177 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
 
     scrollToBottom(): void {
         try {
-            this.scrollContainer.nativeElement.scrollTop = this.scrollContainer.nativeElement.scrollHeight;
-        } catch (err) { }
+            this.scrollContainer.nativeElement.scrollTop =
+                this.scrollContainer.nativeElement.scrollHeight;
+        } catch {
+            // Ignore when scrollContainer is not yet rendered
+        }
+    }
+
+    toggleSettingsPanel(): void {
+        this.showSettingsPanel = !this.showSettingsPanel;
+    }
+
+    onPresetChange(preset: 'page244' | 'custom'): void {
+        this.selectedPreset = preset;
+        if (preset === 'page244') {
+            this.explicitContextJson = this.formattedPage244Preset;
+            this.validateContextJson(this.explicitContextJson);
+            this.pocSettings.save({ explicitContextJson: this.explicitContextJson });
+        }
+    }
+
+    resetPreset(): void {
+        this.selectedPreset = 'page244';
+        this.explicitContextJson = this.formattedPage244Preset;
+        this.cacheActionMessage = '';
+        this.cacheActionError = false;
+        this.validateContextJson(this.explicitContextJson);
+        this.pocSettings.save({ explicitContextJson: this.explicitContextJson });
+    }
+
+    onSettingsFieldChange(): void {
+        const normalizedComId = Number.isFinite(Number(this.comID)) ? Number(this.comID) : 1;
+        this.pocSettings.save({
+            comID: normalizedComId,
+            tenantId: this.tenantId || 'default',
+            tenantKey: this.tenantKey,
+            connectionString: this.connectionString
+        });
+    }
+
+    onContextJsonChange(value: string): void {
+        this.explicitContextJson = value;
+        this.selectedPreset =
+            value.trim() === this.formattedPage244Preset.trim() ? 'page244' : 'custom';
+        this.validateContextJson(value);
+        this.pocSettings.save({ explicitContextJson: value });
+    }
+
+    private validateContextJson(rawJson: string): void {
+        if (!rawJson || !rawJson.trim()) {
+            this.parsedContext = null;
+            this.contextJsonError = 'ExplicitContext JSON is required.';
+            return;
+        }
+
+        try {
+            const parsed = JSON.parse(rawJson);
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                this.parsedContext = null;
+                this.contextJsonError = 'ExplicitContext must be a JSON object.';
+                return;
+            }
+            if (typeof parsed.pageId !== 'number' || !Number.isFinite(parsed.pageId)) {
+                this.parsedContext = null;
+                this.contextJsonError = 'Field "pageId" must be a valid number.';
+                return;
+            }
+            if (typeof parsed.pageName !== 'string' || !parsed.pageName.trim()) {
+                this.parsedContext = null;
+                this.contextJsonError = 'Field "pageName" must be a non-empty string.';
+                return;
+            }
+            if (
+                !parsed.masterSetup ||
+                typeof parsed.masterSetup !== 'object' ||
+                typeof parsed.masterSetup.tableName !== 'string' ||
+                !parsed.masterSetup.tableName.trim()
+            ) {
+                this.parsedContext = null;
+                this.contextJsonError = 'Field "masterSetup.tableName" is required.';
+                return;
+            }
+            if (
+                typeof parsed.masterSetup.primaryKey !== 'string' ||
+                !parsed.masterSetup.primaryKey.trim()
+            ) {
+                this.parsedContext = null;
+                this.contextJsonError = 'Field "masterSetup.primaryKey" is required.';
+                return;
+            }
+            if (!Array.isArray(parsed.masterSetup.columns)) {
+                this.parsedContext = null;
+                this.contextJsonError = 'Field "masterSetup.columns" must be an array.';
+                return;
+            }
+            if (!Array.isArray(parsed.detailSetups)) {
+                this.parsedContext = null;
+                this.contextJsonError = 'Field "detailSetups" must be an array.';
+                return;
+            }
+
+            this.parsedContext = parsed as ShippedPageContext;
+            this.contextJsonError = '';
+        } catch (err: any) {
+            this.parsedContext = null;
+            this.contextJsonError = `Invalid JSON: ${err?.message || 'Syntax error'}`;
+        }
+    }
+
+    clearPageCache(): void {
+        if (!this.parsedContext?.pageId) {
+            this.cacheActionMessage = '⚠️ يرجى إدخال ExplicitContext JSON صالح يحتوي على pageId.';
+            this.cacheActionError = true;
+            return;
+        }
+
+        const targetPageId = this.parsedContext.pageId;
+        this.clearingCache = true;
+        this.cacheActionMessage = '';
+        this.cacheActionError = false;
+
+        this.apiService.clearCacheByPage(targetPageId).subscribe({
+            next: (res) => {
+                this.clearingCache = false;
+                this.cacheActionError = false;
+                this.cacheActionMessage =
+                    res?.message || `✅ تم مسح الكاش للصفحة (${targetPageId}) بنجاح.`;
+                this.cdr.detectChanges();
+            },
+            error: (err) => {
+                this.clearingCache = false;
+                this.cacheActionError = true;
+                this.cacheActionMessage =
+                    err?.error?.detail ||
+                    err?.error?.message ||
+                    `❌ فشل مسح الكاش للصفحة (${targetPageId}).`;
+                this.cdr.detectChanges();
+            }
+        });
     }
 
     checkConnection() {
+        this.connectionState = 'checking';
         this.status = 'جاري فحص النظام...';
         this.errorMsg = '';
 
         const timeoutId = setTimeout(() => {
-            if (this.status === 'جاري فحص النظام...') {
+            if (this.connectionState === 'checking') {
+                this.connectionState = 'error';
                 this.status = 'فشل الاتصال ❌';
                 this.errorMsg = '⏱️ الخادم لم يستجب خلال 15 ثانية. قد يكون النظام في مرحلة التشغيل الأولى.';
                 this.cdr.detectChanges();
             }
         }, 15000);
 
-        const sessionId = this.chatSignal.getOrCreateSessionId();
-        this.apiService.ask('Hello', undefined, undefined, sessionId).subscribe({
-            next: (res) => {
+        this.apiService.testConnection().subscribe({
+            next: () => {
                 clearTimeout(timeoutId);
+                this.connectionState = 'connected';
                 this.status = 'متصل ✅';
+                this.errorMsg = '';
                 this.cdr.detectChanges();
             },
             error: (err) => {
                 clearTimeout(timeoutId);
+                this.connectionState = 'error';
                 this.status = 'فشل الاتصال ❌';
-                // ProblemDetails format: err.error.detail contains the human-readable message
-                const problem = err.error;
-                this.errorMsg = problem?.detail
-                    || (err.status === 0
-                        ? '⚠️ تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.'
+                const problem = err?.error;
+                this.errorMsg =
+                    problem?.detail ||
+                    (err?.status === 0
+                        ? '⚠️ تعذر الاتصال بالخادم. يرجى التحقق من تشغيل الـ Backend.'
                         : '⚠️ الخادم غير متاح حالياً. يرجى المحاولة بعد قليل.');
                 this.cdr.detectChanges();
             }
@@ -160,7 +319,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         this.lastSql = undefined;
         this.confirmedQuestion = undefined;
         this.confirmedSql = undefined;
-        this.chatSignal.clearState(); // Clear persistence
+        this.chatSignal.clearState();
         this.cdr.detectChanges();
     }
 
@@ -168,35 +327,49 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         return obj ? Object.keys(obj) : [];
     }
 
+    hasTelemetry(msg: ChatMessage): boolean {
+        return (
+            msg.isCached !== undefined ||
+            msg.inputTokens !== undefined ||
+            msg.outputTokens !== undefined ||
+            msg.cachedTokens !== undefined ||
+            msg.llmCostUsd !== undefined
+        );
+    }
+
+    formatCostUsd(cost: number | undefined): string {
+        if (cost === undefined || cost === null || Number.isNaN(cost)) {
+            return '$0.0000';
+        }
+        return `$${cost.toFixed(cost > 0 && cost < 0.0001 ? 6 : 4)}`;
+    }
+
     formatText(text: string): string {
         if (!text) return '';
 
-        let html = text
-            // Escape HTML (basic)
-            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-            // Headers
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
             .replace(/^#{3}\s+(.*$)/gm, '<h3>$1</h3>')
             .replace(/^#{2}\s+(.*$)/gm, '<h2>$1</h2>')
             .replace(/^#\s+(.*$)/gm, '<h1>$1</h1>')
-            // Bold
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            // Italic
             .replace(/\*(.*?)\*/g, '<em>$1</em>')
-            // Code Blocks
             .replace(/```([\s\S]*?)```/g, '<pre class="code-block">$1</pre>')
-            // Inline Code
             .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
-            // Lists (Simple bullet points)
             .replace(/^\s*-\s+(.*$)/gm, '• $1<br>')
-            // Newlines (convert to <br> if not inside pre/h tags roughly)
             .replace(/\n/g, '<br>');
-
-        return html;
     }
 
     sendQuestion(retryCount: number = 0) {
-        console.log('🚀 [SendQuestion] Question:', this.question, 'RetryCount:', retryCount);
         if (!this.question.trim()) return;
+
+        if (!this.parsedContext) {
+            this.showSettingsPanel = true;
+            this.cdr.detectChanges();
+            return;
+        }
 
         const currentQ = this.question;
         this.messages.push({ isAi: false, text: currentQ });
@@ -206,23 +379,33 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
 
         const sessionId = this.chatSignal.getOrCreateSessionId();
 
-        // 🛡️ Safety Net: Timeout after 60 seconds
-        const timeout$ = new Observable<never>(observer => {
+        // Safety net: timeout after 60 seconds
+        const timeout$ = new Observable<never>((observer) => {
             const timer = setTimeout(() => {
                 observer.error(new Error('Timeout: Request took too long (>60s).'));
             }, 60000);
             return () => clearTimeout(timer);
         });
 
-        const selectedPageContext = this.selectedPage ? { pageId: this.selectedPage.pageId, pageName: this.selectedPage.pageName } : null;
+        const request: DirectedPageAskRequest = {
+            question: currentQ,
+            tenantId: this.tenantId.trim() || 'default',
+            tenantKey: this.tenantKey.trim() || null,
+            comID: Number.isFinite(Number(this.comID)) ? Number(this.comID) : 1,
+            sessionId: sessionId,
+            pageId: this.parsedContext.pageId,
+            connectionString: this.connectionString.trim() || null,
+            previousQuestion: this.lastQuestion ?? null,
+            previousSql: this.lastSql ?? null,
+            explicitContext: this.parsedContext
+        };
 
         this.activeSubscription = race(
-            this.apiService.ask(currentQ, this.lastQuestion, this.lastSql, sessionId, selectedPageContext),
+            this.apiService.directedPageAsk(request),
             timeout$
         ).subscribe({
             next: (res: any) => {
                 this.loading = false;
-                console.log('API Response:', res);
 
                 let data = res;
                 let sql: string | undefined = undefined;
@@ -240,21 +423,25 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                     }
                 }
 
-                // Helper to get case-insensitive property
-                const getProp = (obj: any, key: string) => obj && (obj[key] || obj[key.toLowerCase()] || obj[key.charAt(0).toUpperCase() + key.slice(1)]);
+                const getProp = (obj: any, key: string) =>
+                    obj &&
+                    (obj[key] ||
+                        obj[key.toLowerCase()] ||
+                        obj[key.charAt(0).toUpperCase() + key.slice(1)]);
 
                 let newMessage: ChatMessage;
-                const intent = res.intent ?? res.Intent;
+                const intent = res?.intent ?? res?.Intent;
                 const isRichTextIntent = ['Prediction', 'Chat'].includes(intent);
-                const isPredictionWithDataIntent = ['PredictionWithDataRetrieval', 'PredictionWithDataFetch'].includes(intent);
+                const isPredictionWithDataIntent = [
+                    'PredictionWithDataRetrieval',
+                    'PredictionWithDataFetch'
+                ].includes(intent);
 
-                // Attempt to parse string data if it looks like JSON, UNLESS it's a rich text intent that returns a string
                 if (typeof data === 'string' && !isRichTextIntent) {
                     try {
                         const parsed = JSON.parse(data);
-                        // Only use parsed if it's an object/array, otherwise keep as string
                         if (typeof parsed === 'object') data = parsed;
-                    } catch (e) {
+                    } catch {
                         // Keep as string
                     }
                 }
@@ -263,35 +450,32 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                 const msgText = getProp(data, 'Message');
 
                 if (isRichTextIntent) {
-                    // Force text/rich display for these intents
                     let content = '';
-
-                    // Handle Array response (PredictionWithDataFetch often returns [ { prediction: "..." } ])
                     if (Array.isArray(data) && data.length > 0) {
                         const firstItem = data[0];
-                        // Check for prediction property (case-insensitive)
-                        const prediction = firstItem.prediction || firstItem.Prediction || firstItem.Message || firstItem.message;
-                        if (prediction) {
-                            content = prediction;
-                        } else {
-                            content = JSON.stringify(data, null, 2);
-                        }
+                        const prediction =
+                            firstItem.prediction ||
+                            firstItem.Prediction ||
+                            firstItem.Message ||
+                            firstItem.message;
+                        content = prediction || JSON.stringify(data, null, 2);
+                    } else if (typeof data === 'string') {
+                        content = data;
+                    } else if (msgText) {
+                        content = msgText;
+                    } else if (data && typeof data === 'object') {
+                        content = JSON.stringify(data, null, 2);
                     }
-                    else if (typeof data === 'string') content = data;
-                    else if (msgText) content = msgText;
-                    else if (data && typeof data === 'object') content = JSON.stringify(data, null, 2);
 
                     newMessage = {
                         isAi: true,
                         text: content,
                         originalQuestion: currentQ,
                         retryCount: retryCount,
-                        isRichText: true // Enable HTML rendering
+                        isRichText: true
                     };
-                }
-                else if (isPredictionWithDataIntent) {
-                    // Extract prediction text from QueryInsights.Reasoning (where orchestrator puts it in the 2-pass pipeline)
-                    const insights = res.queryInsights || res.QueryInsights;
+                } else if (isPredictionWithDataIntent) {
+                    const insights = res?.queryInsights || res?.QueryInsights;
                     const predictionText = insights?.Reasoning || insights?.reasoning || msgText || '';
 
                     newMessage = {
@@ -302,41 +486,80 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                         originalQuestion: currentQ,
                         retryCount: retryCount
                     };
-                }
-                else if (msgText && !msgType) {
-                    // Standard message
-                    newMessage = { isAi: true, text: msgText, originalQuestion: currentQ, retryCount: retryCount };
-                } else if (msgType === 'Question' || res.extensions?.type === 'Question' || res.extensions?.isAmbiguous) {
-                    // Clarification Question – supports both old { Type, Message } and new ProblemDetails { extensions.type, detail } formats
-                    const clarificationText = msgText || res.detail || res.extensions?.detail;
-                    newMessage = { isAi: true, text: clarificationText, originalQuestion: currentQ, retryCount: retryCount };
+                } else if (msgText && !msgType) {
+                    newMessage = {
+                        isAi: true,
+                        text: msgText,
+                        originalQuestion: currentQ,
+                        retryCount: retryCount
+                    };
+                } else if (
+                    msgType === 'Question' ||
+                    res?.extensions?.type === 'Question' ||
+                    res?.extensions?.isAmbiguous
+                ) {
+                    const clarificationText = msgText || res?.detail || res?.extensions?.detail;
+                    newMessage = {
+                        isAi: true,
+                        text: clarificationText,
+                        originalQuestion: currentQ,
+                        retryCount: retryCount
+                    };
                 } else if (Array.isArray(data)) {
                     if (data.length > 0) {
-                        newMessage = { isAi: true, tableData: data, originalQuestion: currentQ, retryCount: retryCount };
+                        newMessage = {
+                            isAi: true,
+                            tableData: data,
+                            originalQuestion: currentQ,
+                            retryCount: retryCount
+                        };
                     } else {
-                        newMessage = { isAi: true, text: 'No results found.', originalQuestion: currentQ, retryCount: retryCount };
+                        newMessage = {
+                            isAi: true,
+                            text: 'No results found.',
+                            originalQuestion: currentQ,
+                            retryCount: retryCount
+                        };
                     }
+                } else if (typeof data === 'string') {
+                    newMessage = {
+                        isAi: true,
+                        text: data,
+                        originalQuestion: currentQ,
+                        retryCount: retryCount
+                    };
                 } else {
-                    // Fallback for objects (Data Response)
-                    // Check if data is just a string after all
-                    if (typeof data === 'string') {
-                        newMessage = { isAi: true, text: data, originalQuestion: currentQ, retryCount: retryCount };
-                    } else {
-                        newMessage = { isAi: true, data: data, originalQuestion: currentQ, retryCount: retryCount };
-                    }
+                    newMessage = {
+                        isAi: true,
+                        data: data,
+                        originalQuestion: currentQ,
+                        retryCount: retryCount
+                    };
                 }
 
                 newMessage.sql = sql;
                 newMessage.cacheId = cacheId;
                 newMessage.isLogged = false;
-                // Support both old format (queryLogId) and ProblemDetails extensions
-                newMessage.queryLogId = res.queryLogId || res.QueryLogId || res.extensions?.queryLogId;
+                newMessage.queryLogId =
+                    res?.queryLogId || res?.QueryLogId || res?.extensions?.queryLogId;
                 newMessage.intent = intent;
 
-                // Capture Query Insights (NEW)
-                if (res.queryInsights || res.QueryInsights) {
+                // Telemetry fields
+                const inputTokens = res?.inputTokens ?? res?.InputTokens;
+                const outputTokens = res?.outputTokens ?? res?.OutputTokens;
+                const cachedTokens = res?.cachedTokens ?? res?.CachedTokens;
+                const llmCostUsd = res?.llmCostUsd ?? res?.LlmCostUsd;
+                const isCached = res?.isCached ?? res?.IsCached;
+
+                if (typeof inputTokens === 'number') newMessage.inputTokens = inputTokens;
+                if (typeof outputTokens === 'number') newMessage.outputTokens = outputTokens;
+                if (typeof cachedTokens === 'number') newMessage.cachedTokens = cachedTokens;
+                if (typeof llmCostUsd === 'number') newMessage.llmCostUsd = llmCostUsd;
+                if (typeof isCached === 'boolean') newMessage.isCached = isCached;
+
+                if (res?.queryInsights || res?.QueryInsights) {
                     newMessage.queryInsights = res.queryInsights || res.QueryInsights;
-                    (newMessage as any).showInsights = false; // Initially collapsed
+                    (newMessage as any).showInsights = false;
                 }
 
                 this.messages.push(newMessage);
@@ -357,33 +580,28 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                 let sql = undefined;
                 let queryLogId = undefined;
 
-                // 1. Frontend timeout (60s safety net)
                 if (err.message && err.message.includes('Timeout')) {
-                    errorMsg = '⏱️ المعالج استغرق وقتاً طويلاً جداً (أكثر من 60 ثانية). يرجى محاولة صياغة السؤال بشكل أبسط.';
-                }
-                // 2. Network completely down (status 0)
-                else if (err.status === 0) {
-                    errorMsg = '⚠️ لا يمكن الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى.';
-                }
-                // 3. ProblemDetails format (RFC-7807) from ExceptionHandlingMiddleware
-                //    Shape: { title, status, detail, instance, extensions: { sql, queryLogId, ... } }
-                else if (err.error && typeof err.error === 'object' && err.error.detail) {
+                    errorMsg =
+                        '⏱️ المعالج استغرق وقتاً طويلاً جداً (أكثر من 60 ثانية). يرجى محاولة صياغة السؤال بشكل أبسط.';
+                } else if (err.status === 0) {
+                    errorMsg =
+                        '⚠️ لا يمكن الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى.';
+                } else if (err.error && typeof err.error === 'object' && err.error.detail) {
                     errorMsg = err.error.detail;
                     sql = err.error.extensions?.sql ?? err.error.sql ?? undefined;
-                    queryLogId = err.error.extensions?.queryLogId ?? err.error.queryLogId ?? undefined;
-                }
-                // 4. Legacy structured error object (500 with { error, sql, queryLogId }) – backward compat
-                else if (err.error && typeof err.error === 'object') {
+                    queryLogId =
+                        err.error.extensions?.queryLogId ?? err.error.queryLogId ?? undefined;
+                } else if (err.error && typeof err.error === 'object') {
                     sql = err.error.sql ?? undefined;
-                    errorMsg = err.error.error ?? '⚠️ حدث خطأ أثناء معالجة طلبك. يرجى المحاولة مرة أخرى.';
+                    errorMsg =
+                        err.error.error ??
+                        err.error.Error ??
+                        err.error.message ??
+                        '⚠️ حدث خطأ أثناء معالجة طلبك. يرجى المحاولة مرة أخرى.';
                     queryLogId = err.error.queryLogId ?? undefined;
-                }
-                // 5. Backend returned a plain string error (503, 500, 400)
-                else if (typeof err.error === 'string' && err.error.length > 0) {
+                } else if (typeof err.error === 'string' && err.error.length > 0) {
                     errorMsg = err.error;
-                }
-                // 6. Fallback
-                else {
+                } else {
                     errorMsg = '⚠️ حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.';
                 }
 
@@ -427,7 +645,8 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         this.lastQuestion = this.confirmedQuestion;
         this.lastSql = this.confirmedSql;
 
-        const userComment = prompt("هل يمكنك إخبارنا ما الخطأ في الإجابة؟ (اختياري)", "") || undefined;
+        const userComment =
+            prompt('هل يمكنك إخبارنا ما الخطأ في الإجابة؟ (اختياري)', '') || undefined;
         const sessionId = this.chatSignal.getOrCreateSessionId();
 
         const request = {
@@ -436,12 +655,12 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
             cacheId: msg.cacheId,
             sql: msg.sql,
             retryCount: retryCount,
-            tenantId: 'default',
-            companyId: 1,
+            tenantId: this.tenantId.trim() || 'default',
+            companyId: Number.isFinite(Number(this.comID)) ? Number(this.comID) : 1,
             displayedMessage: msg.text,
             queryLogId: msg.queryLogId,
             userComment: userComment,
-            pageId: this.selectedPage?.pageId
+            pageId: this.parsedContext?.pageId
         };
 
         this.apiService.dislike(request).subscribe({
@@ -468,8 +687,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                             suggestionTips: res.suggestionTips
                         });
                     }
-                }
-                else if (res.shouldStopRetrying) {
+                } else if (res.shouldStopRetrying) {
                     msg.isLogged = true;
                     msg.retryCount = 2;
                     this.messages.push({
@@ -485,16 +703,36 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                     }
                     const newData = res.regeneratedData;
                     if (Array.isArray(newData)) {
-                        this.messages.push({ isAi: true, tableData: newData, originalQuestion: msg.originalQuestion, retryCount: retryCount });
+                        this.messages.push({
+                            isAi: true,
+                            tableData: newData,
+                            originalQuestion: msg.originalQuestion,
+                            retryCount: retryCount
+                        });
                     } else if (newData.Message) {
-                        this.messages.push({ isAi: true, text: newData.Message, originalQuestion: msg.originalQuestion, retryCount: retryCount });
+                        this.messages.push({
+                            isAi: true,
+                            text: newData.Message,
+                            originalQuestion: msg.originalQuestion,
+                            retryCount: retryCount
+                        });
                     } else {
-                        this.messages.push({ isAi: true, data: newData, originalQuestion: msg.originalQuestion, retryCount: retryCount });
+                        this.messages.push({
+                            isAi: true,
+                            data: newData,
+                            originalQuestion: msg.originalQuestion,
+                            retryCount: retryCount
+                        });
                     }
                 } else if (res.success) {
                     msg.isLogged = true;
                     if (res.message) {
-                        this.messages.push({ isAi: true, text: res.message, isLogged: true, suggestionTips: res.suggestionTips });
+                        this.messages.push({
+                            isAi: true,
+                            text: res.message,
+                            isLogged: true,
+                            suggestionTips: res.suggestionTips
+                        });
                     }
                 }
                 this.cdr.detectChanges();
@@ -502,9 +740,10 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
             error: (err) => {
                 this.loading = false;
                 msg.isLogged = true;
-                const errText = err.status === 0
-                    ? '⚠️ تعذر الاتصال بالخادم. تم حفظ ملاحظتك محلياً وسيتم إرسالها لاحقاً.'
-                    : '✅ تم تسجيل الملاحظة. شكراً لمساعدتنا في التحسين!';
+                const errText =
+                    err.status === 0
+                        ? '⚠️ تعذر الاتصال بالخادم. تم حفظ ملاحظتك محلياً وسيتم إرسالها لاحقاً.'
+                        : '✅ تم تسجيل الملاحظة. شكراً لمساعدتنا في التحسين!';
                 this.messages.push({ isAi: true, text: errText, isLogged: true });
                 this.cdr.detectChanges();
             }
@@ -518,14 +757,19 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
             return;
         }
 
-        this.apiService.like(msg.queryLogId, 1).subscribe({
+        const companyId = Number.isFinite(Number(this.comID)) ? Number(this.comID) : 1;
+        this.apiService.like(msg.queryLogId, companyId).subscribe({
             next: (res) => {
                 msg.isLiked = true;
                 msg.isLogged = true;
-                this.messages.push({ isAi: true, text: res.message || 'شكراً لتقييمك! 🙏', isLogged: true });
+                this.messages.push({
+                    isAi: true,
+                    text: res.message || 'شكراً لتقييمك! 🙏',
+                    isLogged: true
+                });
                 this.cdr.detectChanges();
             },
-            error: (err) => {
+            error: () => {
                 msg.isLiked = true;
                 this.cdr.detectChanges();
             }
@@ -533,63 +777,58 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     }
 
     copySql(sql: string) {
-        navigator.clipboard.writeText(sql).then(() => {
-            console.log('✅ SQL copied to clipboard');
-        }).catch(err => {
-            console.error('❌ Failed to copy SQL:', err);
-        });
+        navigator.clipboard
+            .writeText(sql)
+            .then(() => {
+                console.log('✅ SQL copied to clipboard');
+            })
+            .catch((err) => {
+                console.error('❌ Failed to copy SQL:', err);
+            });
     }
 
-    // 🖨️ Print Data Table
     printTable(msg: ChatMessage) {
         if (!msg.tableData || msg.tableData.length === 0) return;
 
         const printWindow = window.open('', '', 'height=800,width=1000');
         if (!printWindow) return;
 
-        // Formatted timestamp
-        const timestamp = new Date().toLocaleString('en-EG', { dateStyle: 'medium', timeStyle: 'short' });
+        const timestamp = new Date().toLocaleString('en-EG', {
+            dateStyle: 'medium',
+            timeStyle: 'short'
+        });
         const keys = this.getKeys(msg.tableData[0]);
-
-        // Base64 logo or absolute URL. Since it's in public folder, use root path.
         const logoUrl = '/squareLogo.jpeg';
 
-        let tableHtml = `
+        const tableHtml = `
         <html>
         <head>
             <title>Dynamic AI - Print Data</title>
             <style>
-                @page { margin: 0; size: auto; } /* Hides browser default header/footer */
+                @page { margin: 0; size: auto; }
                 body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #333; margin: 0; }
-                .content-wrapper { padding: 40px; } /* Ensures padding inside the page since body margin is 0 */
-                
+                .content-wrapper { padding: 40px; }
                 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 20px; }
                 .logo-section { display: flex; align-items: center; gap: 15px; }
                 .logo { height: 60px; width: auto; object-fit: contain; }
                 .app-name { font-size: 1.5rem; font-weight: bold; color: #6366f1; }
                 .meta { text-align: right; font-size: 0.9rem; color: #666; }
-                
                 h2 { margin: 0 0 10px 0; font-size: 1.4rem; color: #1e293b; }
-                
                 table { width: 100%; border-collapse: collapse; margin-bottom: 30px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
                 th, td { border: 1px solid #e2e8f0; padding: 12px; text-align: left; font-size: 0.95rem; }
                 th { background-color: #f8fafc; font-weight: 600; color: #475569; -webkit-print-color-adjust: exact; }
                 tr:nth-child(even) { background-color: #f1f5f9; -webkit-print-color-adjust: exact; }
-                
-                .question-box { 
-                    margin-bottom: 20px; 
-                    padding: 15px; 
-                    background-color: #f1f5f9; 
+                .question-box {
+                    margin-bottom: 20px;
+                    padding: 15px;
+                    background-color: #f1f5f9;
                     border-left: 4px solid #6366f1;
-                    font-size: 1.2rem; 
-                    font-weight: bold; 
-                    color: #1e293b; 
+                    font-size: 1.2rem;
+                    font-weight: bold;
+                    color: #1e293b;
                     -webkit-print-color-adjust: exact;
                 }
-                
-                @media print {
-                    .no-print { display: none; }
-                }
+                @media print { .no-print { display: none; } }
             </style>
         </head>
         <body>
@@ -604,35 +843,29 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                         <div>Rows: ${msg.tableData.length}</div>
                     </div>
                 </div>
-
-                <div class="question-box">
-                    ${msg.originalQuestion || 'No question provided'}
-                </div>
-
+                <div class="question-box">${msg.originalQuestion || 'No question provided'}</div>
                 <h2>Data Result</h2>
-                
                 <table>
                     <thead>
-                        <tr>${keys.map(k => `<th>${k}</th>`).join('')}</tr>
+                        <tr>${keys.map((k) => `<th>${k}</th>`).join('')}</tr>
                     </thead>
                     <tbody>
-                        ${msg.tableData.map(row => `
-                            <tr>${keys.map(k => `<td>${row[k]}</td>`).join('')}</tr>
-                        `).join('')}
+                        ${msg.tableData
+                            .map(
+                                (row) => `
+                            <tr>${keys.map((k) => `<td>${row[k]}</td>`).join('')}</tr>
+                        `
+                            )
+                            .join('')}
                     </tbody>
                 </table>
             </div>
-
             <script>
                 window.onload = function() {
                     window.focus();
-                    setTimeout(function() {
-                        window.print();
-                    }, 500);
+                    setTimeout(function() { window.print(); }, 500);
                 };
-                window.onafterprint = function() {
-                    window.close();
-                };
+                window.onafterprint = function() { window.close(); };
             </script>
         </body>
         </html>`;
@@ -641,30 +874,21 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         printWindow.document.close();
     }
 
-    // 📥 Export to Excel (using xlsx)
     async exportExcel(msg: ChatMessage) {
         if (!msg.tableData || msg.tableData.length === 0) return;
 
         try {
-            // Dynamically import xlsx to keep bundle size optimized if desired, or just use standard import
-            // Since user asked for "import * as xlsx", we will use that at the top level, 
-            // but for now let's assume standard import is available.
-
-            // NOTE: We need to import xlsx at the top of the file. 
-            // I will add the import statement in a separate replacement chunk.
-
             const worksheet = xlsx.utils.json_to_sheet(msg.tableData);
             const workbook = xlsx.utils.book_new();
             xlsx.utils.book_append_sheet(workbook, worksheet, 'Data');
 
-            // Generate filename based on question or timestamp
             const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-            const sanitizedQ = (msg.originalQuestion || 'data').replace(/[^a-z0-9]/gi, '_').substring(0, 20);
+            const sanitizedQ = (msg.originalQuestion || 'data')
+                .replace(/[^a-z0-9]/gi, '_')
+                .substring(0, 20);
             const fileName = `DynamicAI_${sanitizedQ}_${timestamp}.xlsx`;
 
             xlsx.writeFile(workbook, fileName);
-
-            console.log('✅ Exported to Excel:', fileName);
         } catch (error) {
             console.error('❌ Export failed:', error);
             alert('Failed to export Excel. Please try again.');

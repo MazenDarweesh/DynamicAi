@@ -16,4 +16,9 @@ export interface ClearCacheRequest {
      * Optional company identifier (defaults to 0 if not specified).
      */
     companyId?: number;
+
+    /**
+     * Optional page identifier for scoped cache clearing.
+     */
+    pageId?: number;
 }

@@ -2,7 +2,7 @@ import { Component, OnInit, inject, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TrainingService } from '../../services/training.service';
-import { IntentReviewService } from '../../services/intent-review.service';
+import { ApiService } from '../../services/api.service';
 import { TrainingStats, ManualTrainingRequest, ClearCacheRequest } from '../../models';
 
 @Component({
@@ -14,7 +14,7 @@ import { TrainingStats, ManualTrainingRequest, ClearCacheRequest } from '../../m
 })
 export class TrainingDataComponent implements OnInit {
     private readonly trainingService = inject(TrainingService);
-    private readonly intentReviewService = inject(IntentReviewService);
+    private readonly apiService = inject(ApiService);
     private readonly cdr = inject(ChangeDetectorRef);
 
     stats: TrainingStats | null = null;
@@ -155,7 +155,7 @@ export class TrainingDataComponent implements OnInit {
             tenantId: 'default',
             companyId: 1
         };
-        this.intentReviewService.clearCacheByQuestion(req).subscribe({
+        this.apiService.clearCacheByQuestion(req).subscribe({
             next: (res) => {
                 this.clearCacheMessage = res.message || '✅ Done';
                 this.clearCacheQuestion = '';

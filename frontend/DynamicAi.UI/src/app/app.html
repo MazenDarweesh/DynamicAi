@@ -26,9 +26,6 @@
         <div class="history-item" routerLink="/query-insights" routerLinkActive="active">
           🔍 Query Insights
         </div>
-        <div class="history-item" routerLink="/intent-review" routerLinkActive="active" *ngIf="(config.features$ | async)?.intentClassificationEnabled">
-          🧠 Intent Review
-        </div>
         <div class="history-item" routerLink="/training-data" routerLinkActive="active">
           📚 Training Data
         </div>
@@ -55,7 +52,29 @@
         <h1 class="page-title">{{ currentPageTitle }}</h1>
         <div class="header-spacer"></div>
         <div class="header-actions">
-          <!-- Space for potential global actions -->
+          <div class="api-key-pill" [class.has-key]="!!pocSettings.apiKey.trim()" title="POC X-Api-Key for Strict Auth Mode">
+            <span class="api-key-status">{{ pocSettings.apiKey.trim() ? '🔑' : '🔓' }}</span>
+            <input
+              [type]="showApiKey ? 'text' : 'password'"
+              class="api-key-input"
+              placeholder="X-Api-Key (POC)"
+              aria-label="POC X-Api-Key"
+              [(ngModel)]="pocSettings.apiKey"
+            />
+            <button
+              type="button"
+              class="api-key-action"
+              (click)="showApiKey = !showApiKey"
+              [title]="showApiKey ? 'Hide API Key' : 'Show API Key'"
+            >{{ showApiKey ? '🙈' : '👁' }}</button>
+            <button
+              type="button"
+              class="api-key-action"
+              *ngIf="pocSettings.apiKey"
+              (click)="pocSettings.clearApiKey()"
+              title="Clear API Key"
+            >✕</button>
+          </div>
         </div>
       </header>
       <div class="router-wrapper">

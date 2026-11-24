@@ -1,28 +1,28 @@
 import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { RouterModule, Router, NavigationEnd, ActivatedRoute } from '@angular/router';
 import { filter, map, mergeMap } from 'rxjs/operators';
 import { ChatSignalService } from './services/chat-signal.service';
-import { ConfigService } from './services/config.service';
+import { PocSettingsService } from './services/poc-settings.service';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, RouterModule],
+  imports: [CommonModule, FormsModule, RouterModule],
   templateUrl: './app.html',
   styleUrls: ['./app.css']
 })
 export class App {
   isSidebarOpen = window.innerWidth > 768;
   currentPageTitle = 'AI Assistant';
+  showApiKey = false;
   private chatSignal = inject(ChatSignalService);
   private router = inject(Router);
   private activatedRoute = inject(ActivatedRoute);
-  readonly config = inject(ConfigService);
+  readonly pocSettings = inject(PocSettingsService);
 
   constructor() {
-    // Load config
-    this.config.loadFeatures().subscribe();
     // Subscribe to sidebar toggle signals from child components
     this.chatSignal.sidebarToggle$.subscribe(() => {
       this.toggleSidebar();

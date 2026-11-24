@@ -26,6 +26,12 @@ export interface ChatMessage {
     /** Query Insight Panel data */
     queryInsights?: QueryInsight;
     isRichText?: boolean; // If true, renders text as HTML/Markdown
+    // Telemetry & Cost fields
+    inputTokens?: number;
+    outputTokens?: number;
+    cachedTokens?: number;
+    llmCostUsd?: number;
+    isCached?: boolean;
 }
 
 // export interface QueryInsight {

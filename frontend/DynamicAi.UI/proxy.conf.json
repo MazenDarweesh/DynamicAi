@@ -1,11 +1,16 @@
 {
     "/api": {
-        "target": "https://localhost:7257",
+        "target": "http://localhost:5053",
+        "secure": false,
+        "changeOrigin": true
+    },
+    "/AIQuery": {
+        "target": "http://localhost:5053",
         "secure": false,
         "changeOrigin": true
     },
     "/swagger": {
-        "target": "https://localhost:7257",
+        "target": "http://localhost:5053",
         "secure": false,
         "changeOrigin": true
     }
