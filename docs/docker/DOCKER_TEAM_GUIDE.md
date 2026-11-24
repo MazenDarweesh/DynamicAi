@@ -1,170 +1,69 @@
-# 🚀 DynamicAI Docker Deployment Guide
+# 🐳 DynamicAi v2.0 Docker Team & Deployment Guide
 
-> **آخر تحديث:** 2026-01-05  
-> **السيرفر:** 5.189.150.146  
-> **Port:** 9090
-
----
-
-## 📋 النسخة النهائية من Docker Compose
-
-```yaml
-services:
-  dynamicai-app:
-    image: mazendarweesh/dynamicai:v1.6.0-enterprise-hardening
-    container_name: dynamicai-app
-    ports:
-      - "9090:8080"
-    environment:
-      # ASP.NET Core Settings
-      - ASPNETCORE_ENVIRONMENT=Development
-      # ✅ Port 8080 required for non-root user 'appuser'
-      - ASPNETCORE_URLS=http://+:8080
-
-      - ConnectionStrings__AppDbContextConnection=Server=sqlserver;Database=DynamicAi_AppDb;User Id=sa;Password=YourStr0ngP@ssw0rd123!;TrustServerCertificate=True;
-
-      # External Production Database (where AI queries run)
-      - ConnectionStrings__DefaultConnection=Server=66.94.98.79;Database=QualityControl;User Id=SchemaPipelineUser;Password=P@ssw0rdStr0ng!;MultipleActiveResultSets=True;TrustServerCertificate=True;Encrypt=False;
-      - Database__Name=QualityControl
-      - Gemini__ApiKey=AIzaSyBi_XZrF0iLYzVB5GNzNhw5bltGc1dfBo4
-      - Qdrant__Host=https://776996c7-2269-49ec-83eb-b88ba99d13a8.us-east4-0.gcp.cloud.qdrant.io
-      - Qdrant__ApiKey=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.ot1PhqlKlYKNw1UqNd2-qKCuuzZlWj9IU9XGoI0JHE0
-      - Qdrant__CollectionName=erp_knowledge_base_v3_indexed
-      - Qdrant__IntentCollectionName=intent_examples
-      - Caching__QueryCache__CollectionName=query_cache
-      - IntentRouter__ConfidenceThreshold=0.75
-      - Caching__QueryCache__SimilarityThreshold=0.97
-    healthcheck:
-      test: [ "NONE" ]
-    networks:
-      - egdynamics-network
-    restart: unless-stopped
-
-networks:
-  egdynamics-network:
-    external: true
-    name: 5189150146_egdynamics-network
-```
+> [!IMPORTANT]
+> Never hardcode real passwords, database IPs, or Gemini/API keys inside Compose files or documentation. Always supply secrets via `.env` (gitignored) or your secret manager.
 
 ---
 
-## ⚠️ المشاكل التي واجهتنا والحلول
+## 📋 Current Compose Architecture (`docker-compose.yml`)
 
-### 1️⃣ مشكلة الـ Network
+Since Phase 4, **Qdrant has been completely removed** from the DynamicAi runtime. The root [docker-compose.yml](file:///e:/Mazen/EGYD/DynamicAi/docker-compose.yml) defines:
 
-| المشكلة | الحل |
-|---------|------|
-| كل docker-compose file يُنشئ network منفصل حتى لو نفس الاسم | استخدام `external: true` مع `name` الكامل للـ network |
+- **`dynamicai-app`** (`mazendarweesh/dynamicai:v2.0.0`, built from root [Dockerfile](file:///e:/Mazen/EGYD/DynamicAi/Dockerfile)): Combined .NET 8 API + Angular 21 UI served on port `8080:8080` (`appuser` non-root).
+- **`sqlserver`** (`mcr.microsoft.com/mssql/server:2022-latest`): Local SQL Server for `DynamicAi_AppDb` (EF Core logs, feedback, LLM costs) exposed on `1434:1433` with `sqlcmd` healthcheck.
+- **`aspire-dashboard`** (`mcr.microsoft.com/dotnet/aspire-dashboard:latest`, optional `--profile observability`): Local OpenTelemetry UI on port `18888` (`http://localhost:18888`) and OTLP gRPC receiver on `4317:18889`.
 
-```yaml
-networks:
-  egdynamics-network:
-    external: true
-    name: 5189150146_egdynamics-network  # ← الاسم الفعلي
-```
+---
 
-**للتحقق من اسم الـ network:**
+## ⚙️ Step 1: Configure `.env`
+
+Copy `.env.example` to `.env` in the repository root and replace all placeholder values:
+
 ```bash
-docker network ls | grep egdynamics
+# Local SQL Server container password (used by sqlserver & AppDbContextConnection)
+SA_PASSWORD="<STRONG_SA_PASSWORD>"
+
+# Default / fallback target ERP database connection string (use a db_datareader login)
+PRODUCTION_DB_CONNECTION_STRING="Server=<SQL_HOST>;Database=<ERP_DB>;User Id=dynamicai_readonly;Password=<READONLY_PASSWORD>;MultipleActiveResultSets=True;TrustServerCertificate=True;"
+PRODUCTION_DB_NAME="QualityControl"
+
+# Google Gemini API key
+GEMINI_API_KEY="<YOUR_GEMINI_API_KEY>"
+
+# Strict API Key Auth & Dynamic ERP Integration
+AUTH_MODE="Strict"
+ERP_API_KEY="<STRONG_RANDOM_ERP_API_KEY>"
+ADMIN_API_KEY="<STRONG_RANDOM_ADMIN_API_KEY>"
+ALLOW_DYNAMIC_CONNECTION_STRING="true"
+
+# Optional: Enable OpenTelemetry export to .NET Aspire Dashboard
+Observability__OtlpEnabled="false"
+Observability__OtlpEndpoint="http://aspire-dashboard:18889"
 ```
 
 ---
 
-### 2️⃣ مشكلة الـ Port 80
+## 🚀 Step 2: Start Containers
 
-| المشكلة | الحل |
-|---------|------|
-| الـ Docker image يستخدم non-root user (`appuser`) لا يمكنه bind على port 80 | استخدام port 8080 داخلياً |
-
-```yaml
-- ASPNETCORE_URLS=http://+:8080  # ✅ صحيح
-# - ASPNETCORE_URLS=http://+:80  # ❌ لن يعمل
-```
-
----
-
-### 3️⃣ مشكلة تعارض المنافذ
-
-| المشكلة | الحل |
-|---------|------|
-| Port 8080 محجوز بواسطة `portal` container | استخدام port مختلف (9090) |
-
-```yaml
-ports:
-  - "9090:8080"  # external:internal
-```
-
-**للتحقق من المنافذ المستخدمة:**
 ```bash
-ss -tuln | grep -E '8080|9090'
+# Standard stack (dynamicai-app + sqlserver)
+docker compose up -d
+
+# With .NET Aspire Dashboard (set Observability__OtlpEnabled=true in .env)
+docker compose --profile observability up -d
 ```
 
 ---
 
-### 4️⃣ مشكلة الـ Healthcheck
+## 🔧 Operational Notes & Troubleshooting
 
-| المشكلة | الحل |
-|---------|------|
-| الـ Docker image لا يحتوي على `curl` فيظهر Container كـ `unhealthy` | تعطيل الـ healthcheck |
+1. **Non-Root User & Port `8080`:** `Dockerfile` runs as `appuser`, which cannot bind to port `80`. Keep `ASPNETCORE_URLS=http://+:8080` and map host ports (`8080:8080` or `9090:8080` if `8080` is occupied on the host).
+2. **Container Healthcheck:** `aspnet:8.0` does not include `curl`. The root `Dockerfile` uses bash `/dev/tcp/127.0.0.1/8080` against `GET /aiquery/ping`.
+3. **External Network (Shared Server Deployments):** If deploying alongside an external ERP SQL container on an existing Docker network, configure an external `networks:` block in a Compose override rather than editing tracked secrets.
+4. **Logs & Verification:**
 
-```yaml
-healthcheck:
-  test: [ "NONE" ]
-```
-
----
-
-### 5️⃣ مشكلة Static Files مع Nginx
-
-| المشكلة | الحل |
-|---------|------|
-| ملفات JS/CSS تُطلب من root path بدلاً من `/dynamicai-app/` | تشغيل مباشر على port 9090 بدون nginx |
-
-**عند استخدام nginx:**
-- يجب build الـ Angular app بـ `--base-href=/dynamicai-app/`
-- أو إضافة location blocks لإعادة توجيه الـ static files
-
----
-
-## 🔧 أوامر مفيدة
-
-### إعادة تشغيل التطبيق
 ```bash
-cd /root/ServersConfigration/servers/5.189.150.146
-docker rm -f dynamicai-app
-docker-compose -f ai-docker-compose.yml up -d
-```
-
-### عرض الـ Logs
-```bash
+docker compose ps
 docker logs dynamicai-app --tail 100 -f
-```
-
-### فتح port في Firewall
-```bash
-ufw allow 9090/tcp
-```
-
-### التحقق من حالة الـ Container
-```bash
-docker ps --filter name=dynamicai
-```
-
----
-
-## ✅ Checklist قبل الـ Deployment
-
-- [ ] التأكد من وجود الـ network: `docker network ls | grep egdynamics`
-- [ ] التأكد من عدم تعارض المنافذ: `ss -tuln | grep 9090`
-- [ ] فتح الـ port في Firewall: `ufw allow 9090/tcp`
-- [ ] تحديث API Keys في الملف
-- [ ] تشغيل الـ container: `docker-compose -f ai-docker-compose.yml up -d`
-- [ ] التحقق من الـ logs: `docker logs dynamicai-app --tail 20`
-
----
-
-## 🌐 الوصول للتطبيق
-
-```
-http://5.189.150.146:9090/
+curl http://localhost:8080/AIQuery/ping
 ```

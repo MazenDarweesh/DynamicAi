@@ -94,3 +94,228 @@ body {
   outline: none;
   border-color: var(--primary-color);
 }
+
+/* Shared Glass Card, Table & Modal Utilities */
+.glass {
+  background: rgba(30, 30, 40, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+.table-container {
+  overflow: auto;
+  margin-top: 0.5rem;
+  border-radius: 8px;
+}
+
+.examples-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.examples-table th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #4facfe;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.examples-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  vertical-align: middle;
+}
+
+.examples-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(8px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  animation: modalFadeIn 0.3s ease;
+}
+
+.modal-content {
+  width: 100%;
+  max-width: 800px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  animation: modalSlideUp 0.3s ease;
+}
+
+.modal-header {
+  padding: 1rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: #4facfe;
+  font-size: 1.25rem;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 2rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.close-btn:hover {
+  color: #fff;
+}
+
+.modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+}
+
+.sql-view {
+  background: rgba(0, 0, 0, 0.4);
+  padding: 1.5rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  font-family: 'Fira Code', monospace;
+  color: #86efac;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modalSlideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Shared Banners, Form Controls & Buttons */
+.error-banner,
+.success-banner {
+  margin: 0 2rem 1rem 2rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.error-banner {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
+
+.success-banner {
+  background: rgba(46, 213, 115, 0.2);
+  border: 1px solid rgba(46, 213, 115, 0.5);
+  color: #86efac;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-group.full-width {
+  grid-column: 1 / -1;
+}
+
+.form-group label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #94a3b8;
+  margin-bottom: 0.4rem;
+}
+
+.input,
+.textarea {
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.2);
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.input:focus,
+.textarea:focus {
+  outline: none;
+  border-color: rgba(79, 172, 254, 0.5);
+}
+
+.textarea {
+  resize: vertical;
+  font-family: 'Fira Code', 'Courier New', monospace;
+}
+
+.btn {
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background: linear-gradient(90deg, #4facfe, #00f2fe);
+  color: #0f172a;
+}
+
+.btn.secondary {
+  background: rgba(79, 172, 254, 0.2);
+  color: #4facfe;
+  border: 1px solid rgba(79, 172, 254, 0.5);
+}
+
+.btn.approve {
+  background: rgba(46, 213, 115, 0.2);
+  color: #86efac;
+  border: 1px solid rgba(46, 213, 115, 0.5);
+  padding: 0.4rem 0.8rem;
+  margin-right: 0.4rem;
+}
+
+.btn.reject {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  padding: 0.4rem 0.8rem;
+}

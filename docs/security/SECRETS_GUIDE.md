@@ -1,97 +1,84 @@
-# User Secrets Management Guide
+# User Secrets & Configuration Security Guide
 
-This file contains commands to manage your User Secrets and easily switch between *Remote* and *Local* database connections without modifying the code or appsettings.json.
-
-## 1. View Current Secrets
-Check what secrets are currently loaded:
-powershell
-dotnet user-secrets list --project "DynamicAi/DynamicAi.Api.csproj"
-
-
-## 2. Switch Database Connection
-
-### Option A: Switch to *REMOTE* Server (66.94.98.79)
-Run this command to use the remote production/staging database:
-powershell
-
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=66.94.98.79;Database=QualityControl;User Id=SchemaPipelineUser;Password=P@ssw0rdStr0ng!;MultipleActiveResultSets=True; TrustServerCertificate=True;" --project "DynamicAi/DynamicAi.Api.csproj"
-
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=66.94.98.79;Database=QualityControl;User Id=SchemaPipelineUser;Password=P@ssw0rdStr0ng!;MultipleActiveResultSets=True; TrustServerCertificate=True;" --project "SchemaBootstrapper/SchemaBootstrapper.csproj"
-
-
-
-### Option B: Switch to *LOCAL* Server (.)
-Run this command to use your local SQL Server instance:
-powershell
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=.;Database=QualityControl;User Id=SchemaPipelineUser;Password=P@ssw0rdStr0ng!;TrustServerCertificate=True;" --project "DynamicAi/DynamicAi.Api.csproj"
-
-
-> *Note:* After running either command, you may need to restart the application for the changes to take effect.
-
-## 3. Manage Other Keys
-
-### Update Gemini API Key
-powershell
-dotnet user-secrets set "Gemini:ApiKey" "AIzaSyAA8vEsG5qfpZ_p5ew6N4b5-24PBW5Ib5k" --project "DynamicAi/DynamicAi.Api.csproj"
-
-dotnet user-secrets set "Gemini:ApiKey" "AIzaSyAA8vEsG5qfpZ_p5ew6N4b5-24PBW5Ib5k" --project "SchemaBootstrapper/SchemaBootstrapper.csproj"
-
-
-free --.=> Default
-dotnet user-secrets set "Gemini:ApiKey" "AIzaSyBYPHFyeCD_NvGp8Swr33cY3ui_bUwiqlw" --project "DynamicAi/DynamicAi.Api.csproj"
-
-freeRepo 
-dotnet user-secrets set "Gemini:ApiKey" "AIzaSyBi_XZrF0iLYzVB5GNzNhw5bltGc1dfBo4" --project "DynamicAi/DynamicAi.Api.csproj"
-
-
-### Update Qdrant API Key
-powershell
-dotnet user-secrets set "Qdrant:Host" "https://776996c7-2269-49ec-83eb-b88ba99d13a8.us-east4-0.gcp.cloud.qdrant.io" --project "DynamicAi/DynamicAi.Api.csproj"
-
-dotnet user-secrets set "Qdrant:ApiKey" "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.ot1PhqlKlYKNw1UqNd2-qKCuuzZlWj9IU9XGoI0JHE0" --project "DynamicAi/DynamicAi.Api.csproj"
-
-dotnet user-secrets set "Qdrant:Host" "https://776996c7-2269-49ec-83eb-b88ba99d13a8.us-east4-0.gcp.cloud.qdrant.io" --project "SchemaBootstrapper/SchemaBootstrapper.csproj"
-
-dotnet user-secrets set "Qdrant:ApiKey" "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.ot1PhqlKlYKNw1UqNd2-qKCuuzZlWj9IU9XGoI0JHE0" --project "SchemaBootstrapper/SchemaBootstrapper.csproj"
-
-
-
-## 4. Clear All Secrets
-**Warning:** This will delete all secrets for this project.
-powershell
-dotnet user-secrets clear --project "DynamicAi/DynamicAi.Api.csproj"
-
-# User Secrets Management Guide
-
-This file contains commands to manage your User Secrets and easily switch between **Remote** and **Local** database connections without modifying the code or [appsettings.json](cci:7://file:///x:/work/EgyDynamic/DynamicAi/DynamicAi/SchemaBootstrapper/appsettings.json:0:0-0:0).
+> [!IMPORTANT]
+> Never commit real API keys, database passwords, or connection strings to git (`appsettings.json`, `.env`, or documentation). Use **dotnet user-secrets** locally and **environment variables** / secret stores in Docker and production.
 
 ---
 
+## 1. View Current Secrets
 
+```powershell
+dotnet user-secrets list --project "src/DynamicAi.Api/DynamicAi.Api.csproj"
+```
 
-dotnet run --project "x:\work\EgyDynamic\DynamicAi\DynamicAi\DynamicAi\DynamicAi.Api.csproj" --launch-profile https
+---
 
+## 2. Configure Gemini API Key
 
+```powershell
+dotnet user-secrets set "Gemini:ApiKey" "<YOUR_GEMINI_API_KEY>" --project "src/DynamicAi.Api/DynamicAi.Api.csproj"
+```
 
-$OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8; [Console]::InputEncoding = [Text.Encoding]::UTF8; $ts = Get-Date -Format "yyyy-MM-dd_HH-mm"; dotnet run --project "x:\work\EgyDynamic\DynamicAi\DynamicAi\DynamicAi\DynamicAi.Api.csproj" --launch-profile https 2>&1 | Tee-Object -FilePath "x:\work\EgyDynamic\DynamicAi\DynamicAi\logs\backend_$ts.log"
+---
 
--- use this to read logs:
-Get-Content "backend_2025-12-17_11-31.log" -Encoding Unicode | Set-Content "backend_2025-12-17_11-31_utf8.log" -Encoding UTF8
+## 3. Configure Strict API Key Authentication (`Auth:Mode = Strict`)
 
-/code-gear-1
+`appsettings.json` defaults to `Auth:Mode = Strict`. Configure at least one `Integration` key (for ERP callers) and one `Admin` key (for `/api/llm-costs`, `/api/query-cache`, `/api/feedback`, `/api/metrics`, `/api/config`, `/api/maintenance`):
 
-لتشغيل الـ Tests:
+```powershell
+dotnet user-secrets set "Auth:Mode" "Strict" --project "src/DynamicAi.Api/DynamicAi.Api.csproj"
 
-bash
-dotnet test
+dotnet user-secrets set "Auth:ApiKeys:0:Name" "ERP-Integration" --project "src/DynamicAi.Api/DynamicAi.Api.csproj"
+dotnet user-secrets set "Auth:ApiKeys:0:Role" "Integration" --project "src/DynamicAi.Api/DynamicAi.Api.csproj"
+dotnet user-secrets set "Auth:ApiKeys:0:Key" "<ERP_API_KEY>" --project "src/DynamicAi.Api/DynamicAi.Api.csproj"
 
+dotnet user-secrets set "Auth:ApiKeys:1:Name" "Admin-Dashboard" --project "src/DynamicAi.Api/DynamicAi.Api.csproj"
+dotnet user-secrets set "Auth:ApiKeys:1:Role" "Admin" --project "src/DynamicAi.Api/DynamicAi.Api.csproj"
+dotnet user-secrets set "Auth:ApiKeys:1:Key" "<ADMIN_API_KEY>" --project "src/DynamicAi.Api/DynamicAi.Api.csproj"
+```
 
+---
 
+## 4. Configure Application & ERP Database Connections
 
-بص يا سيدي انا عايز البرومبت الخاص بالجزئية ديه يبقى واضح جدا لل ai عشان يبقى فاهم ايه اللي هيعمله عشان يقدر ي select اسم العمود بشكل صحيح ... وانت يا ai جوة ال listsetup عشان تجيب اسم العمود بالعربي من العمود arcolomnname هتبص تشوف هل InsertType == 'dropdown' لو فعلا ده صحيح خلاص يبقى عندنا حالة من اتنين دلوقتي اما SearchName == ColumnName وبكده حضرتك هتاخد اسم العمود اللي موجود في ال DroText وتشوف لو موجود اصلا في اسم ال view اللي احنا اصلا حاليا فيها يبقى خلاص اعرضه منها طب لو مش موجود خلاص خده من الجدول اللي في DroValue ويبقى Your JOIN KEY is SearchName = DroValue طب لو   SearchName != ColumnName ساعتها الموضوع سهل خالص اعرض بس و select ال colomnnmae from current view ومش محتاج تبص ع ال drotext or do any joins ... طب لو اصلا بقى ال InsertType != dropdown ساعتها مفيش اي حاجة تعملها غير انك ت select ال colomnname من ال current view ومش محتاج تعمل اي join ولا تروح في اي حتة ... فهمت كده .. عدل ال prompet عشان يبقى فاهم الكلام السابق كويس اوي
+### Application Metadata DB (`AppDbContextConnection` — EF Core logs, feedback, costs)
 
+```powershell
+dotnet user-secrets set "ConnectionStrings:AppDbContextConnection" "Server=localhost,1434;Database=DynamicAi_AppDb;User Id=sa;Password=<YOUR_STRONG_SA_PASSWORD>;TrustServerCertificate=True;" --project "src/DynamicAi.Api/DynamicAi.Api.csproj"
+```
 
-Qdrant:Host = https://776996c7-2269-49ec-83eb-b88ba99d13a8.us-east4-0.gcp.cloud.qdrant.io
-Qdrant:ApiKey = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.ot1PhqlKlYKNw1UqNd2-qKCuuzZlWj9IU9XGoI0JHE0
-Gemini:ApiKey = AIzaSyAA8vEsG5qfpZ_p5ew6N4b5-24PBW5Ib5k
-ConnectionStrings:DefaultConnection = Server=66.94.98.79;Database=QualityControl;User Id=SchemaPipelineUser;Password=P@ssw0rdStr0ng!;MultipleActiveResultSets=True; TrustServerCertificate=True;
+### Target ERP Database (`ConnectionStrings:DefaultConnection` or Dynamic `connectionString` / `tenantKey`)
+
+- **Recommended Multi-Company ERP Flow:** Keep `Integration:AllowLegacyConnectionString = true`, pass the per-company `connectionString` in `POST /AIQuery/integration/directed-page-ask` over **HTTPS**, and ensure the SQL login has **only `db_datareader`** permissions (never `sa` or `db_owner`).
+- **Centralized Fixed-Tenant Alternative:** Register named connections under `Integration:TenantConnections:<tenantKey>` and pass `tenantKey` in the request payload.
+- **Local Fallback (`DefaultConnection`):**
+
+```powershell
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=<SQL_SERVER_HOST>;Database=<ERP_DATABASE>;User Id=dynamicai_readonly;Password=<READONLY_PASSWORD>;TrustServerCertificate=True;" --project "src/DynamicAi.Api/DynamicAi.Api.csproj"
+```
+
+See [ERP_INTEGRATION_MIGRATION_GUIDE.md](file:///e:/Mazen/EGYD/DynamicAi/docs/ERP_INTEGRATION_MIGRATION_GUIDE.md) for the T-SQL script to create the `db_datareader` SQL login.
+
+---
+
+## 5. Obsolete Qdrant Secrets
+
+> [!NOTE]
+> **Qdrant was removed from the runtime in Phase 4.** Keys such as `Qdrant:Host` and `Qdrant:ApiKey` are no longer used by `DynamicAi.Api`.
+
+---
+
+## 6. Clear All User Secrets
+
+```powershell
+dotnet user-secrets clear --project "src/DynamicAi.Api/DynamicAi.Api.csproj"
+```
+
+---
+
+## 7. Run API Locally
+
+```powershell
+$env:DOTNET_ROLL_FORWARD = "Major"
+dotnet run --project "src/DynamicAi.Api/DynamicAi.Api.csproj" --launch-profile http
+```

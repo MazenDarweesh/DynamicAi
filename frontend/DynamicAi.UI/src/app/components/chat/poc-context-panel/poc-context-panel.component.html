@@ -1,0 +1,65 @@
+<section *ngIf="showSettingsPanel" class="poc-settings-panel">
+    <div class="poc-panel-toolbar">
+        <div class="preset-group">
+            <label for="presetSelect">Preset</label>
+            <select id="presetSelect" [(ngModel)]="selectedPreset" (ngModelChange)="onPresetChange($event)">
+                <option value="page244">Page 244 — فواتير المبيعات</option>
+                <option value="custom">Custom JSON</option>
+            </select>
+            <button type="button" class="panel-btn secondary" (click)="resetPreset()">
+                ↺ Reset Preset
+            </button>
+        </div>
+
+        <div class="cache-group">
+            <button type="button" class="panel-btn danger"
+                [disabled]="!parsedContext || clearingCache"
+                (click)="clearPageCache()">
+                {{ clearingCache ? '⏳ Clearing...' : '🗑️ Clear Page Cache' }}
+            </button>
+        </div>
+    </div>
+
+    <div *ngIf="cacheActionMessage || validationMessage" class="cache-status"
+        [class.error]="cacheActionError || (!cacheActionMessage && !!validationMessage)">
+        {{ cacheActionMessage || validationMessage }}
+    </div>
+
+    <div class="poc-fields-grid">
+        <div class="field-group">
+            <label for="comIdInput">ComID</label>
+            <input id="comIdInput" type="number" [(ngModel)]="comID" (ngModelChange)="onSettingsFieldChange()"
+                placeholder="1" />
+        </div>
+
+        <div class="field-group">
+            <label for="tenantKeyInput">TenantKey (optional)</label>
+            <input id="tenantKeyInput" type="text" [(ngModel)]="tenantKey"
+                (ngModelChange)="onSettingsFieldChange()" placeholder="e.g. erp_prod_01" />
+        </div>
+
+        <div class="field-group field-wide">
+            <label for="connStrInput">ConnectionString (optional dynamic ERP connection string)</label>
+            <input id="connStrInput" type="text" [(ngModel)]="connectionString"
+                (ngModelChange)="onSettingsFieldChange()"
+                placeholder="Server=...;Database=...;User Id=...;Password=...;" />
+        </div>
+    </div>
+
+    <div class="json-editor-section">
+        <div class="json-editor-header">
+            <label for="explicitContextEditor">explicitContext (ShippedPageContext JSON)</label>
+            <span class="json-validation-badge" [class.valid]="!contextJsonError" [class.invalid]="!!contextJsonError">
+                {{ contextJsonError ? '❌ Invalid JSON' : '✅ Valid JSON' }}
+            </span>
+        </div>
+        <textarea id="explicitContextEditor" class="context-json-editor"
+            [ngModel]="explicitContextJson"
+            (ngModelChange)="onContextJsonChange($event)"
+            rows="10"
+            spellcheck="false"></textarea>
+        <div *ngIf="contextJsonError" class="json-error-msg">
+            ⚠️ {{ contextJsonError }}
+        </div>
+    </div>
+</section>

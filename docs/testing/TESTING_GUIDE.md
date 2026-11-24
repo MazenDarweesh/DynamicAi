@@ -1,37 +1,75 @@
-# TestSprite Testing Guide for Dynamic AI
+# DynamicAi Testing Guide
 
-This guide explains how to use the **TestSprite MCP** to automate testing and debugging within the Dynamic AI project.
+All automated tests run **100% offline by default** (`$0` LLM cost, zero external database or network dependencies) using **xUnit**, **FakeItEasy**, and **FluentAssertions**.
 
-## 🚀 Getting Started
+---
 
-The TestSprite MCP server is now configured in your `mcp_config.json`. This allows your AI assistant to access TestSprite's intelligent testing tools.
+## 🧪 Test Suites
 
-## 🛠 Features Enabled
+### 1. Main Solution (`DynamicAi.sln`) — 287 Tests
 
-- **Automated Test Generation:** Automatically create unit and integration tests for your C# services.
-- **AI-Powered Debugging:** If a test fails, TestSprite can help identify the root cause by analyzing the code vs. the intent.
-- **Quality Assurance:** Validate that generated SQL queries meet the business logic requirements.
+Located in `tests/DynamicAI.Tests/`:
 
-## 🤖 How to use via MCP (AI assistant)
+| Category | Path | Coverage |
+| :--- | :--- | :--- |
+| **Unit** | `Unit/` | `ApiKeyAuthenticationHandler`, `TenantConnectionResolver`, `ExactQueryCacheService`, `QueryOrchestrator`, `UnifiedQueryHandler`, `QueryIrCompiler`, `SqlGuardPipeline`, `SqlValidatorService`, `SqlRewriterService`, `SqlHardeningVisitor`, `SanitizationVisitor`, `SandboxedSqlExecutor`, `DailyBudgetLimitService`, `LlmUsageTracker`, `PredictionMathService`, `ConversationContextService`, `DbSchemaProvider`, `PageContextFormatter`, `PromptTemplateEngine`, `CorrelationIdMiddleware`, `SecretRedactor`, `DynamicAiTelemetry` |
+| **Security Red-Team** | `Security/` | `SecurityVisitorTests`, `SecurityVisitorRedTeamTests` (DDL/DML, `EXEC`, `WAITFOR`, `OPENROWSET`, `OPENQUERY`, `DBCC`, `BULK INSERT`, `SET`/`DECLARE`, `SHUTDOWN`, `KILL`, SQL injection vectors) |
+| **Integration & E2E** | `Integration/` | `DirectedPagePipelineTests`, `SecurityPipelineTests`, `LiveApiE2ETests` (offline contract check by default; opt-in live HTTP E2E) |
+| **Evaluation** | `Evaluation/` | `GoldenDatasetRunnerTests` (30 Page 244 cases), `ShadowModeComparisonTests` (50 total cases: 30 Golden + 20 Extended IR) |
 
-Once the MCP server is activated in your environment, you can use specialized tools. As an AI, I can call these tools for you. If you don't see the tools yet, you may need to **Restart your AI Assistant** or **Refresh MCP Servers**.
+Run all 287 tests:
 
-### Available MCP Tools (Expected):
-- `testsprite_generate_code_summary`: Scans the project and creates a JSON summary.
-- `testsprite_generate_tests`: Generates unit tests for specific files.
-- `testsprite_run_tests`: Executes tests and provides AI-driven debugging.
-
-### Usage Examples (for you to tell me):
-- *"Scan the DynamicAi project using the TestSprite MCP tool."*
-- *"Generate tests for IntentClassificationService.cs using the TestSprite tool."*
-
-## 💻 Manual Use (Terminal)
-
-If the MCP is not yet active in your UI, you can always use the terminal fallback:
-```bash
-npx @testsprite/testsprite-mcp@latest --help
+```powershell
+$env:DOTNET_ROLL_FORWARD = "Major"
+dotnet test DynamicAi.sln
 ```
 
-## ⚠️ Security Note
+### 2. Legacy Schema Tools (`tools/legacy/SchemaTools.sln`) — 10 Smoke Tests
 
-Your API key is stored securely in `mcp_config.json`. Do not commit this file to public repositories or share the key in logs.
+Located in `tools/legacy/SchemaTools.Tests/`:
+
+```powershell
+$env:DOTNET_ROLL_FORWARD = "Major"
+dotnet test tools/legacy/SchemaTools.sln
+```
+
+### 3. Frontend Production Build Check
+
+```powershell
+npm --prefix frontend/DynamicAi.UI run build
+```
+
+---
+
+## 🌐 Opt-In Live Verification Tests
+
+The live evaluation and E2E tests stay in offline assertion mode unless explicitly enabled via environment variables:
+
+### Live Golden Dataset Evaluation (`GoldenDatasetRunnerTests`)
+
+Runs representative Page 244 cases against Gemini (`gemini-3.5-flash-lite`):
+
+```powershell
+$env:DOTNET_ROLL_FORWARD = "Major"
+$env:RUN_LIVE_GOLDEN = "true"
+$env:GEMINI_API_KEY = "<YOUR_GEMINI_API_KEY>"
+dotnet test DynamicAi.sln --filter "FullyQualifiedName~GoldenDatasetRunnerTests"
+```
+
+### Live 4-Step HTTP E2E (`LiveApiE2ETests`)
+
+Tests `GET /AIQuery/ping`, `GET /swagger/v1/swagger.json`, `POST /AIQuery/integration/directed-page-ask`, and `GET /api/llm-costs/budget-status` + `recent-logs`:
+
+```powershell
+$env:DOTNET_ROLL_FORWARD = "Major"
+$env:RUN_LIVE_E2E = "true"
+$env:E2E_ERP_CONNECTION_STRING = "Server=<HOST>;Database=<DB>;User Id=<READONLY_USER>;Password=<PASSWORD>;TrustServerCertificate=True;"
+$env:E2E_API_KEY = "<YOUR_ADMIN_OR_INTEGRATION_KEY>"
+# Optional: target an already-running server instead of auto-starting local API on port 5053
+# $env:E2E_BASE_URL = "http://localhost:5053"
+dotnet test DynamicAi.sln --filter "FullyQualifiedName~LiveApiE2ETests"
+```
+
+> **Note:** Step 4 of `LiveApiE2ETests` queries `/api/llm-costs/*`, which requires an `Admin` role `X-Api-Key` when `Auth:Mode = Strict`.
+
+See [Evaluation/README.md](file:///e:/Mazen/EGYD/DynamicAi/tests/DynamicAI.Tests/Evaluation/README.md) for details on the Golden and Shadow Mode evaluation datasets.

@@ -1,49 +1,46 @@
-# clear the cache collection in your Qdrant Docker
+> [!WARNING]
+> **DEPRECATED (Phase 4 — Qdrant Removed):** Qdrant and embedding-based semantic query caching were completely removed from the DynamicAi runtime in Phase 4. DynamicAi v2.0 uses `ExactQueryCacheService` backed by an in-memory `IMemoryCache` (`MaxEntries = 10000`, `TTLDays = 7`).
+>
+> **Use these active API endpoints instead** (requires `Admin` role `X-Api-Key` header when `Auth:Mode = Strict`):
+> - **Clear by question & scope:** `POST /api/query-cache/clear-by-question`
+> - **Clear specific cache entry:** `DELETE /api/query-cache/{cacheId}`
+> - **Clear all cached entries for a page:** `DELETE /api/query-cache/page/{pageId}?tenantId=...&companyId=...`
+>
+> Example (PowerShell):
+> ```powershell
+> Invoke-RestMethod -Method Delete -Uri "http://localhost:5053/api/query-cache/page/244" -Headers @{ "X-Api-Key" = "<YOUR_ADMIN_API_KEY>" }
+> ```
 
-To clear the cache collection in your Qdrant Docker instance, you can use the REST API via `curl` or PowerShell. 
+---
 
-Based on your project configuration, the cache collection is named **`query_cache`**.
+# [Legacy Archive] Clear the Cache Collection in Qdrant Docker
+
+To clear the legacy cache collection in a Qdrant Docker instance (for historical/legacy tool environments only), you can use the Qdrant REST API via `curl` or PowerShell.
+
+Based on legacy configuration, the cache collection was named **`query_cache`**.
 
 ### 1. Using `curl` (Command Line)
-If you have `curl` installed, run this command to delete the collection entirely. The DynamicAi application will automatically recreate it with the correct settings (3072 dimensions, Cosine distance) the next time it starts or needs to cache something.
-
 ```bash
 # Delete the collection entirely
 curl -X DELETE "http://localhost:6333/collections/query_cache"
 ```
 
-Alternatively, if you want to **keep the collection structure** but empty all the data:
+Alternatively, empty all points while keeping the collection:
 ```bash
-# Clear all points but keep the collection
 curl -X POST "http://localhost:6333/collections/query_cache/points/delete" \
      -H "Content-Type: application/json" \
      -d '{"filter": {}}'
 ```
 
 ### 2. Using PowerShell (Windows)
-Since you are on Windows, you can use `Invoke-RestMethod`:
-
 ```powershell
-# Delete the collection
 Invoke-RestMethod -Method Delete -Uri "http://localhost:6333/collections/query_cache"
 ```
 
-### 3. Using Docker Exec
-If you want to run the command through the Docker container itself:
-```bash
-docker exec -it dynamicai-qdrant-local curl -X DELETE "http://localhost:6333/collections/query_cache"
-```
+### 3. Legacy Qdrant Collections Reference
 
----
-
-### 🔍 Reference: Your Qdrant Collections
-In case you intended to clear a different collection, here is the list found in your `appsettings.json`:
-
-| Collection Name | Purpose |
+| Collection Name | Legacy Purpose |
 | :--- | :--- |
-| **`query_cache`** | Stores semantic cache for SQL queries (The "Cache"). |
-| **`intent_examples`** | Stores examples for AI intent classification. |
-| **`erp_knowledge_base_v3_indexed`** | The main RAG knowledge base for ERP documentation. |
-
-> [!TIP]
-> After deleting a collection, the application's `QueryCacheService` will log `[QueryCache] Creating collection: query_cache` on the next request to re-initialize it correctly.
+| **`query_cache`** | Replaced by `ExactQueryCacheService` (`IMemoryCache`) in Phase 4. |
+| **`intent_examples`** | Retired with legacy intent router removal. |
+| **`erp_knowledge_base_v3_indexed`** | Retired from runtime; legacy schema tools are isolated in `tools/legacy/SchemaTools.sln`. |

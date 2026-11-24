@@ -1,89 +1,82 @@
-# 🐳 DynamicAI Docker Deployment Strategy (Backend-Only)
-just change the Name and :
-docker build -t mazendarweesh/dynamicai:v2.1.1-dynamicai-health-observability -f deployment/Dockerfile .
+# 🐳 DynamicAi Docker Maintenance & Configuration Guide
 
-docker push mazendarweesh/dynamicai:v2.0.1-Direct_pages_Integration_PrompetInhancment
-
-This document provides a line-by-line breakdown of how to containerize the DynamicAI Backend, manage secrets, and override configurations for production deployment.
+This document explains how the root [Dockerfile](file:///e:/Mazen/EGYD/DynamicAi/Dockerfile) and [docker-compose.yml](file:///e:/Mazen/EGYD/DynamicAi/docker-compose.yml) build, configure, and run DynamicAi v2.0.
 
 ---
 
-## 1. How .NET Handles Configuration (The "Override" Rule)
-In .NET Core, configurations are loaded in a specific order:
-1. `appsettings.json` (Base values)
-2. `appsettings.Production.json` (Production overrides)
-3. **Environment Variables** (The Ultimate Winner 🏆)
+## 1. Configuration Precedence (.NET 8)
 
-**The Double Underscore Rule (`__`):**
-In Docker, you can override any JSON key using environment variables.
-*   JSON: `"Gemini": { "ApiKey": "" }`
-*   Environment: `Gemini__ApiKey`
+Configurations load in order (later overrides earlier):
+1. `src/DynamicAi.Api/appsettings.json` (base defaults, zero secrets)
+2. `src/DynamicAi.Api/appsettings.{Environment}.json`
+3. **Environment Variables** (via `.env` / Compose `environment:`)
+
+**Double Underscore Rule (`__`):** Nested JSON keys map to `__` in environment variables (e.g., `Gemini:ApiKey` -> `Gemini__ApiKey`, `Auth:Mode` -> `Auth__Mode`, `Auth:ApiKeys:0:Key` -> `Auth__ApiKeys__0__Key`).
 
 ---
 
-## 2. Managing Secrets (The `.env` file)
-Never hardcode API keys or passwords. We use a `.env` file in the project root to feed variables into the compose file.
+## 2. Environment Variables (`.env`)
 
-### Create/Update `.env` in the root:
+Copy `.env.example` to `.env` (never commit `.env` to source control):
+
 ```bash
-# 🤖 AI Provider Keys
-GEMINI_API_KEY="AIzaSyA..."
-QDRANT_API_KEY=""
+# System Metadata DB
+SA_PASSWORD="<STRONG_SA_PASSWORD>"
 
-# ⚡ Features & Caching (Optional overrides)
-FEATURES_INTENT_ENABLED="true"
-CACHING_QUERY_ENABLED="true"
+# Optional Default ERP Connection (db_datareader login)
+PRODUCTION_DB_CONNECTION_STRING="Server=<SQL_HOST>;Database=<ERP_DB>;User Id=dynamicai_readonly;Password=<READONLY_PASSWORD>;MultipleActiveResultSets=True;TrustServerCertificate=True;"
+PRODUCTION_DB_NAME="QualityControl"
 
-# 🔌 Networking (If using local qdrant in compose)
-QDRANT_HOST="http://qdrant_local"
+# Google Gemini
+GEMINI_API_KEY="<YOUR_GEMINI_API_KEY>"
+
+# Strict API Key Auth & Dynamic ERP Integration
+AUTH_MODE="Strict"
+ERP_API_KEY="<STRONG_RANDOM_ERP_API_KEY>"
+ADMIN_API_KEY="<STRONG_RANDOM_ADMIN_API_KEY>"
+ALLOW_DYNAMIC_CONNECTION_STRING="true"
+
+# Observability (Aspire Dashboard via --profile observability)
+Observability__OtlpEnabled="false"
+Observability__OtlpEndpoint="http://aspire-dashboard:18889"
 ```
 
----
-
-## 3. Detailed Dockerfile Breakdown (`deployment/Dockerfile`)
-*This version is optimized for Backend-only execution.*
-
-| Section | Purpose | Why? |
-| :--- | :--- | :--- |
-| `FROM mcr...sdk:8.0` | .NET 8 SDK. | Required to *compile* the code. |
-| `RUN dotnet restore` | NuGet Restore. | Run *before* copying all code to cache dependencies. Saves minutes on builds. |
-| `RUN dotnet publish` | Compile & Bundle. | Optimizes code for speed and removes debugging symbols. |
-| `FROM mcr...aspnet:8.0` | Runtime image. | Very small (~200MB). Only contains what's needed to *run* the app. |
-| `RUN adduser ... appuser` | Non-root User. | **Security Best Practice.** Prevents root access to the OS if the app is compromised. |
-| `EXPOSE 8080` | Port Mapping. | Non-root users cannot bind to port 80. 8080 is the standard. |
+> **Note:** Qdrant environment variables (`QDRANT_HOST`, `QDRANT_API_KEY`) were retired in Phase 4 when `ExactQueryCacheService` (`IMemoryCache`) replaced Qdrant.
 
 ---
 
-## 4. Detailed Compose Breakdown (`deployment/docker-compose.yml`)
+## 3. Multi-Stage Dockerfile Breakdown (`Dockerfile`)
 
-### 🌐 Networking (`external: true`)
-The application uses an **external network** (`5189150146_egdynamics-network`). This allows the app to communicate with a pre-existing SQL Server or other containers managed by a different compose file.
-
-### 🧠 Qdrant Optimization
-*   **Resource Limits**: Limited to 2 CPUs and 4GB RAM to prevent memory leaks from crashing the host.
-*   **Persistence**: Uses `qdrant_storage` and `qdrant_snapshots` volumes to ensure AI knowledge survives container restarts.
-
-### ⚡ Grouped Environment Variables
-The new structure groups variables for better maintenance:
-*   **Connection Strings**: Handles DB access.
-*   **Gemini Configuration**: Chat, Predict, and Embedding model settings.
-*   **Features & Caching**: granular control over system behavior (Intent, Condenser, TTLs).
+| Stage / Instruction | Purpose |
+| :--- | :--- |
+| `node:20-alpine` (`frontend-build`) | Installs `frontend/DynamicAi.UI` dependencies and builds the Angular 21 app (`dist/DynamicAi.UI/browser`). |
+| `mcr.microsoft.com/dotnet/sdk:8.0` (`backend-build`) | Restores `src/DynamicAi.Api/DynamicAi.Api.csproj` and publishes `DynamicAi.Api` in `Release`. |
+| `mcr.microsoft.com/dotnet/aspnet:8.0` (`final`) | Copies published .NET binaries + Angular `wwwroot`, creates non-root `appuser`, exposes `8080`, and runs a `/dev/tcp` `HEALTHCHECK` against `GET /aiquery/ping`. |
 
 ---
 
-## 🚀 Execution Steps
+## 4. Compose Services Breakdown (`docker-compose.yml`)
 
-1.  **Navigate to the project root:**
-    ```bash
-    cd e:\Mazen\EGYD\DynamicAi
-    ```
-2.  **Build and Deploy:**
-    ```bash
-    docker-compose -f deployment/docker-compose.yml up -d --build
-    ```
-3.  **Verify External Network:**
-    Ensure the network exists before starting: `docker network ls | grep egdynamics`
-4.  **Check Logs:**
-    ```bash
-    docker logs -f dynamicai-app
-    ```
+- **`dynamicai-app`** (`mazendarweesh/dynamicai:v2.0.0`): Runs the combined API + UI on `8080:8080`, depends on healthy `sqlserver`, and binds `Auth__Mode`, `Auth__ApiKeys__*`, `Integration__AllowLegacyConnectionString`, `Gemini__ApiKey`, and `Observability__Otlp*`.
+- **`sqlserver`** (`mcr.microsoft.com/mssql/server:2022-latest`): Stores `DynamicAi_AppDb` on `1434:1433` using `sqlvolume` with a `sqlcmd` healthcheck.
+- **`aspire-dashboard`** (`--profile observability`): Runs `mcr.microsoft.com/dotnet/aspire-dashboard:latest` on `18888:18888` (UI) and `4317:18889` (OTLP gRPC).
+
+> **Legacy Files:** Older Compose files in `infra/docker/` (`docker-compose.yml`, `docker-compose.team.yml`) are kept only as historical references; use the root [docker-compose.yml](file:///e:/Mazen/EGYD/DynamicAi/docker-compose.yml) for all v2.0 deployments.
+
+---
+
+## 5. Common Commands
+
+```bash
+# Build & start v2.0 stack
+docker compose up -d --build
+
+# Start with OpenTelemetry Aspire Dashboard
+docker compose --profile observability up -d
+
+# Tail application logs
+docker logs -f dynamicai-app
+
+# Stop containers (preserve sqlvolume)
+docker compose down
+```

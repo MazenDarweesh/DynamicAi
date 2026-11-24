@@ -81,8 +81,6 @@ export class DashboardComponent implements OnInit {
             )
         }).subscribe({
             next: (results) => {
-                console.log('[Dashboard] Data received:', results);
-
                 this.performance = results.performance;
                 if (results.performance) {
                     this.updatePerformanceChart(results.performance);
@@ -96,7 +94,6 @@ export class DashboardComponent implements OnInit {
 
                 this.problematicQueries = results.queries || [];
                 this.loading = false;
-                console.log('[Dashboard] Loading complete. loading =', this.loading);
 
                 // Force Angular to detect changes
                 this.cdr.detectChanges();
