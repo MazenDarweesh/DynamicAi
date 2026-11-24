@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using DynamicAi.Api.Controllers;
 using DynamicAi.Api.Security;
 using DynamicAi.Controllers;
@@ -225,5 +226,28 @@ public class AuthenticationAndAuthzTests
         }
 
         controllerTypes.Should().BeEquivalentTo(adminControllers.Append(aiController));
+    }
+
+    [Fact]
+    public void AppSettings_ShouldEnforceStrictAuthModeWithoutHardcodedKeys_AndAllowDynamicConnectionString()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "DynamicAi.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        dir.Should().NotBeNull("DynamicAi.sln must be discoverable from test output directory");
+        var appSettingsPath = Path.Combine(dir!.FullName, "src", "DynamicAi.Api", "appsettings.json");
+        File.Exists(appSettingsPath).Should().BeTrue();
+
+        using var doc = JsonDocument.Parse(File.ReadAllText(appSettingsPath));
+        var auth = doc.RootElement.GetProperty("Auth");
+        auth.GetProperty("Mode").GetString().Should().Be("Strict");
+        auth.GetProperty("ApiKeys").GetArrayLength().Should().Be(0, "API keys must be supplied via env vars or user-secrets");
+
+        var integration = doc.RootElement.GetProperty("Integration");
+        integration.GetProperty("AllowLegacyConnectionString").GetBoolean().Should().BeTrue();
+        integration.GetProperty("AllowedLegacyServers").GetArrayLength().Should().Be(0);
     }
 }

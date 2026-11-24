@@ -82,6 +82,12 @@ public class LiveApiE2ETests
                 Timeout = TimeSpan.FromSeconds(75)
             };
 
+            var e2eApiKey = Environment.GetEnvironmentVariable("E2E_API_KEY");
+            if (!string.IsNullOrWhiteSpace(e2eApiKey))
+            {
+                http.DefaultRequestHeaders.Add("X-Api-Key", e2eApiKey.Trim());
+            }
+
             // Step 1: Wait for /AIQuery/ping
             var pingResponse = await WaitForPingAsync(http);
             pingResponse.StatusCode.Should().Be(HttpStatusCode.OK);

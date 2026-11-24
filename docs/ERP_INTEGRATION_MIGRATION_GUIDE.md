@@ -1,87 +1,61 @@
-# دليل ترحيل وتأمين تكامل نظام الـ ERP مع DynamicAi
+# دليل تأمين وتكامل نظام الـ ERP مع DynamicAi
 
-يوضح هذا الدليل خطوات الانتقال الآمن للعملاء (ERP Clients) للعمل مع طبقة الأمان الجديدة في **DynamicAi** بدون توقف للخدمة (Zero-Downtime Migration)، وذلك عبر ثلاث خطوات تدريجية:
+يوضح هذا الدليل خطوات تكامل عملاء الـ **ERP** مع **DynamicAi** وفق **الوضع المعتمد للشركات المتعددة (Option 1 — Strict `X-Api-Key` + Dynamic `connectionString`)** دون الحاجة لتسجيل قاعدة بيانات كل شركة مسبقاً في خادم الذكاء الاصطناعي:
 
-1. **تفعيل مصادقة الـ API Key (`X-Api-Key`)** والانتقال من وضع `WarnOnly` إلى `Strict`.
-2. **استبدال `connectionString` بـ `tenantKey`** وحماية خادم قاعدة البيانات بصلاحيات القراءة فقط (`db_datareader`).
-3. **استخدام `isVisible: false`** للأعمدة التقنية والداخلية في `ColumnDefinition` لتحسين دقة وجودة النتائج.
+1. **إلزام مصادقة الـ API Key (`X-Api-Key`)** في الوضع الصارم (`Auth:Mode = Strict`).
+2. **إرسال `connectionString` ديناميكياً** لكل شركة عبر HTTPS مع حساب SQL بصلاحية القراءة فقط (`db_datareader`) *(مع توفر `tenantKey` كخيار بديل للبيئات المركزية ذات قواعد البيانات الثابتة)*.
+3. *(اختياري)* **استخدام `isVisible: false`** للأعمدة التقنية والداخلية في `ColumnDefinition` لتحسين نظافة وجودة النتائج.
 
 ---
 
-## الخطوة الأولى: إضافة ترويسة المصادقة (`X-Api-Key`)
+## الخطوة الأولى: تفعيل وإرسال ترويسة المصادقة (`X-Api-Key`)
 
-تم تأمين جميع نقاط النهاية في DynamicAi:
+تم تأمين جميع نقاط النهاية في DynamicAi، والوضع الافتراضي الآن في `appsettings.json` هو **`Strict`**:
 - نقاط تكامل الـ ERP (`/AIQuery/integration/directed-page-ask`) تتطلب صلاحية `Integration` أو `Admin` (باستثناء `GET /AIQuery/ping` المتاحة لفحص الجاهزية).
 - نقاط الإدارة والتشغيل (`/api/feedback`, `/api/maintenance`, `/api/llm-costs`, `/api/query-cache`, `/api/config`, `/api/metrics`) تتطلب سياسة `AdminOnly` (دور `Admin`).
 
 ### 1. إعداد المفاتيح في DynamicAi (عبر متغيرات البيئة أو User Secrets — بدون كتابة أسرار داخل الكود)
 
-مثال عبر متغيرات البيئة (Environment Variables):
+مثال عبر متغيرات البيئة (Environment Variables / `.env`):
 
 ```bash
-Auth__Mode=WarnOnly
-Auth__ApiKeys__0__Name=ERP-Production
+Auth__Mode=Strict
+Auth__ApiKeys__0__Name=ERP-Integration
 Auth__ApiKeys__0__Role=Integration
 Auth__ApiKeys__0__Key=REPLACE_WITH_STRONG_RANDOM_API_KEY
-Auth__ApiKeys__1__Name=Ops-Admin
+Auth__ApiKeys__1__Name=Admin-Dashboard
 Auth__ApiKeys__1__Role=Admin
 Auth__ApiKeys__1__Key=REPLACE_WITH_STRONG_ADMIN_API_KEY
 ```
 
 ### 2. تحديث كود الـ ERP لإرسال الترويسة
 
-يمكن إرسال المفتاح عبر `X-Api-Key` (الموصى به) أو `Authorization: Bearer <key>`:
+أضف المفتاح في `HttpClient` عبر `X-Api-Key` (الموصى به) أو `Authorization: Bearer <key>`:
 
 ```csharp
 using var client = new HttpClient();
 client.DefaultRequestHeaders.Add("X-Api-Key", erpApiKey);
 ```
 
-### 3. الانتقال إلى الوضع الصارم (`Strict`)
-
-بعد التأكد من تحديث جميع عملاء الـ ERP وعدم وجود تحذيرات `WarnOnly auth bypass` في السجلات (Logs)، يتم تغيير الإعداد إلى:
-
-```json
-"Auth": {
-  "Mode": "Strict",
-  "ApiKeys": []
-}
-```
-
 > **ملاحظة:** في وضع `Strict`، أي طلب بدون مفتاح صالح سيعيد `401 Unauthorized`، وأي مفتاح بدور `Integration` يحاول استدعاء لوحات الإدارة سيعيد `403 Forbidden`.
 
 ---
 
-## الخطوة الثانية: استبدال `connectionString` بـ `tenantKey`
+## الخطوة الثانية: الاتصال الديناميكي بقاعدة البيانات وحساب القراءة فقط
 
-إرسال `connectionString` الخام داخل جسم الطلب يعرّض بيانات الاعتماد للتسريب وقد يفتح ثغرات SSRF. يدعم النظام الآن وضع الدعم المزدوج (**Dual-Support**) لتسهيل الانتقال.
+### الوضع المعتمد (Multi-Company ERP): إرسال `connectionString` ديناميكياً
 
-### 1. تسجيل سلاسل الاتصال على خادم DynamicAi
-
-يتم تعريف `Integration:TenantConnections` في إعدادات الخادم (يفضل عبر Environment Variables أو Secret Manager):
-
-```bash
-Integration__AllowLegacyConnectionString=true
-Integration__AllowedLegacyServers__0=10.10.20.5
-Integration__TenantConnections__erp_main_tenant="Server=10.10.20.5,1433;Database=ERP_Prod;User Id=dynamicai_readonly;Password=STRONG_PASSWORD;Encrypt=True;TrustServerCertificate=False;"
-```
-
-- `AllowLegacyConnectionString`: عند ضبطه على `true` يسمح مؤقتاً للعملاء القدامى بإرسال `connectionString` مع تسجيل تحذير deprecation في السجلات.
-- `AllowedLegacyServers`: قائمة بيضاء اختيارية (Allowlist) لأسماء أو عناوين الـ SQL Server المسموح بها أثناء الفترة الانتقالية لمنع SSRF.
-- **مهم:** عند إرسال `tenantKey` غير معروف أو غير مصرح به، يرفض الخادم الطلب مباشرة برمز `403 Forbidden` ولا يرجع أبداً إلى `connectionString`.
-- بعد ترحيل كل العملاء إلى `tenantKey`، اضبط `Integration:AllowLegacyConnectionString` على `false`.
-
-### 2. تعديل طلب الـ JSON المرسل من الـ ERP
-
-**الطلب الجديد (الموصى به):**
+عند ربط نظام ERP يخدم عدة شركات متغيرة بحيث يمرّر كل طلب سلسلة الاتصال الخاصة بشركته:
+- يظل `Integration:AllowLegacyConnectionString = true` مفعّلاً افتراضياً ليقبل `connectionString` ديناميكياً بعد حماية الـ API بـ `Auth:Mode = Strict` (مع إمكانية تقييد `AllowedLegacyServers` اختيارياً إذا كانت عناوين السيرفرات محددة).
+- يجب التأكد من مرور الطلبات عبر **HTTPS** واستخدام حساب SQL مقيد بصلاحية **`db_datareader` فقط**:
 
 ```json
 {
   "question": "كم إجمالي فواتير المبيعات هذا الشهر؟",
   "tenantId": "company-01",
-  "tenantKey": "erp_main_tenant",
   "comID": 1,
   "pageId": 105,
+  "connectionString": "Server=erp-sql.company.local,1433;Database=ERP_Prod;User Id=dynamicai_readonly;Password=...;Encrypt=True;TrustServerCertificate=False;",
   "explicitContext": {
     "pageId": 105,
     "pageName": "SalesInvoices",
@@ -95,9 +69,15 @@ Integration__TenantConnections__erp_main_tenant="Server=10.10.20.5,1433;Database
 }
 ```
 
-### 3. إنشاء مستخدم SQL Server بصلاحية القراءة فقط (`db_datareader`)
+### خيار بديل (للبيئات الثابتة فقط): استخدام `tenantKey`
 
-يجب ألا يتصل DynamicAi بقاعدة بيانات الـ ERP بصلاحيات `sa` أو `db_owner`. نفّذ السكربت التالي على قاعدة بيانات الـ ERP:
+إذا كنت تدير عدداً محدوداً وثابتاً من قواعد البيانات ولا تريد إرسال `connectionString` في جسم الطلب:
+- سجّل المفاتيح في الخادم تحت `Integration:TenantConnections__erp_main_tenant="..."` واضبط `Integration:AllowLegacyConnectionString = false`، ثم أرسل `"tenantKey": "erp_main_tenant"` بدلاً من `"connectionString"`.
+- **مهم:** عند إرسال `tenantKey` غير معروف أو غير مصرح به، يرفض الخادم الطلب مباشرة برمز `403 Forbidden` ولا يرجع أبداً إلى `connectionString`.
+
+### إنشاء مستخدم SQL Server بصلاحية القراءة فقط (`db_datareader`)
+
+يجب ألا يتصل DynamicAi بقاعدة بيانات الـ ERP بصلاحيات `sa` أو `db_owner`. نفّذ السكربت التالي على قاعدة بيانات الـ ERP في كل شركة:
 
 ```sql
 USE [master];

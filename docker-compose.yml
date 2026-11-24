@@ -25,8 +25,16 @@ services:
       # If not set, you must provide it in your .env file
       - ConnectionStrings__DefaultConnection=${PRODUCTION_DB_CONNECTION_STRING}
 
-      # Secrets (Set these in .env)
+      # Secrets & Auth (Set these in .env)
       - Gemini__ApiKey=${GEMINI_API_KEY}
+      - Auth__Mode=${AUTH_MODE:-Strict}
+      - Auth__ApiKeys__0__Name=ERP-Integration
+      - Auth__ApiKeys__0__Role=Integration
+      - Auth__ApiKeys__0__Key=${ERP_API_KEY:-}
+      - Auth__ApiKeys__1__Name=Admin-Dashboard
+      - Auth__ApiKeys__1__Role=Admin
+      - Auth__ApiKeys__1__Key=${ADMIN_API_KEY:-}
+      - Integration__AllowLegacyConnectionString=${ALLOW_DYNAMIC_CONNECTION_STRING:-true}
       - Database__Name=${PRODUCTION_DB_NAME:-QualityControl}
       - Observability__OtlpEnabled=${Observability__OtlpEnabled:-false}
       - Observability__OtlpEndpoint=${Observability__OtlpEndpoint:-http://aspire-dashboard:18889}

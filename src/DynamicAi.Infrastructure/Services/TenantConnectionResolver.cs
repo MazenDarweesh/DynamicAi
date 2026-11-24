@@ -127,8 +127,8 @@ public class TenantConnectionResolver : ITenantConnectionResolver
                     UsedLegacyFallback: false);
             }
 
-            _logger.LogWarning(
-                "Deprecated raw ConnectionString used for PageId={PageId}, Server={ServerHost}. Migrate ERP client to TenantKey.",
+            _logger.LogInformation(
+                "Resolved dynamic ConnectionString for PageId={PageId}, Server={ServerHost}.",
                 pageId,
                 serverHost);
 
