@@ -44,6 +44,7 @@ export class DashboardComponent implements OnInit {
     public barChartData: ChartConfiguration<'bar'>['data'] = { labels: [], datasets: [] };
 
     loading = true;
+    authError = '';
 
     ngOnInit() {
         this.loadData();
@@ -51,25 +52,32 @@ export class DashboardComponent implements OnInit {
 
     loadData() {
         this.loading = true;
-        console.log('[Dashboard] Loading data...');
+        this.authError = '';
+        const captureAuthError = (err: any) => {
+            if (err?.status === 401) {
+                this.authError = '🔑 مطلوب إدخال مفتاح Admin في خانة X-Api-Key بالشريط العلوي لعرض لوحة المؤشرات.';
+            } else if (err?.status === 403 && !this.authError) {
+                this.authError = '⛔ المفتاح الحالي لا يملك صلاحية Admin المطلوبة لعرض لوحة المؤشرات.';
+            }
+        };
 
         // Use forkJoin with catchError per observable to prevent silent failures
         // Using 30d period to show historical data
         forkJoin({
             performance: this.metricsService.getPerformanceMetrics('30d').pipe(
-                catchError((err: any) => { console.error('[Dashboard] Performance error:', err); return of(null); })
+                catchError((err: any) => { captureAuthError(err); console.error('[Dashboard] Performance error:', err); return of(null); })
             ),
             experience: this.metricsService.getUserExperience('30d').pipe(
-                catchError((err: any) => { console.error('[Dashboard] Experience error:', err); return of(null); })
+                catchError((err: any) => { captureAuthError(err); console.error('[Dashboard] Experience error:', err); return of(null); })
             ),
             costs: this.metricsService.getCostBreakdown('30d').pipe(
-                catchError((err: any) => { console.error('[Dashboard] Costs error:', err); return of(null); })
+                catchError((err: any) => { captureAuthError(err); console.error('[Dashboard] Costs error:', err); return of(null); })
             ),
             intents: this.metricsService.getIntentDistribution('30d').pipe(
-                catchError((err: any) => { console.error('[Dashboard] Intents error:', err); return of([] as IntentDistributionItem[]); })
+                catchError((err: any) => { captureAuthError(err); console.error('[Dashboard] Intents error:', err); return of([] as IntentDistributionItem[]); })
             ),
             queries: this.metricsService.getProblematicQueries().pipe(
-                catchError((err: any) => { console.error('[Dashboard] Queries error:', err); return of([] as ProblematicQuery[]); })
+                catchError((err: any) => { captureAuthError(err); console.error('[Dashboard] Queries error:', err); return of([] as ProblematicQuery[]); })
             )
         }).subscribe({
             next: (results) => {

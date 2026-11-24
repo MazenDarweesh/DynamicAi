@@ -23,6 +23,7 @@ export class CostDashboardComponent implements OnInit, OnDestroy {
     dailyTotal?: DayCost;
     operationCosts: OperationCost[] = [];
     recentLogs: UsageLog[] = [];
+    loadError = '';
 
     // Trend Chart Data
     public trendLineChartData: ChartConfiguration<'line'>['data'] = {
@@ -125,55 +126,82 @@ export class CostDashboardComponent implements OnInit, OnDestroy {
     }
 
     loadData(): void {
-        // 1. Budget Info
-        this.costService.getBudgetStatus().subscribe(info => {
-            this.budgetInfo = info;
+        this.loadError = '';
+        const handleErr = (err: any) => {
+            if (err?.status === 401) {
+                this.loadError = '🔑 مطلوب إدخال مفتاح Admin في خانة X-Api-Key بالشريط العلوي لعرض بيانات التكلفة.';
+            } else if (err?.status === 403) {
+                this.loadError = '⛔ المفتاح الحالي لا يملك صلاحية Admin المطلوبة لعرض لوحة التكلفة.';
+            } else if (!this.loadError) {
+                this.loadError = '⚠️ تعذر تحميل بيانات التكلفة من الخادم.';
+            }
             this.cdr.markForCheck();
+        };
+
+        // 1. Budget Info
+        this.costService.getBudgetStatus().subscribe({
+            next: info => {
+                this.budgetInfo = info;
+                this.cdr.markForCheck();
+            },
+            error: handleErr
         });
 
         // 2. Daily Total
-        this.costService.getDailyTotal().subscribe(total => {
-            this.dailyTotal = total;
-            this.cdr.markForCheck();
+        this.costService.getDailyTotal().subscribe({
+            next: total => {
+                this.dailyTotal = total;
+                this.cdr.markForCheck();
+            },
+            error: handleErr
         });
 
         // 3. Trend
-        this.costService.getTrend(7).subscribe(trend => {
-            this.trendLineChartData = {
-                ...this.trendLineChartData,
-                labels: trend.map(t => new Date(t.date).toLocaleDateString()),
-                datasets: [{
-                    ...this.trendLineChartData.datasets[0],
-                    data: trend.map(t => t.costUsd)
-                }]
-            };
-            this.cdr.markForCheck();
+        this.costService.getTrend(7).subscribe({
+            next: trend => {
+                this.trendLineChartData = {
+                    ...this.trendLineChartData,
+                    labels: trend.map(t => new Date(t.date).toLocaleDateString()),
+                    datasets: [{
+                        ...this.trendLineChartData.datasets[0],
+                        data: trend.map(t => t.costUsd)
+                    }]
+                };
+                this.cdr.markForCheck();
+            },
+            error: handleErr
         });
 
         // 4. By Operation
-        this.costService.getCostByOperation().subscribe(ops => {
-            const labels = Object.keys(ops).map(op => this.formatOperationLabel(op));
-            const data = Object.values(ops).map(o => o.costUsd);
+        this.costService.getCostByOperation().subscribe({
+            next: ops => {
+                const labels = Object.keys(ops).map(op => this.formatOperationLabel(op));
+                const data = Object.values(ops).map(o => o.costUsd);
 
-            this.pieChartData = {
-                ...this.pieChartData,
-                labels: labels,
-                datasets: [{
-                    ...this.pieChartData.datasets[0],
-                    data: data
-                }]
-            };
-            this.cdr.markForCheck();
+                this.pieChartData = {
+                    ...this.pieChartData,
+                    labels: labels,
+                    datasets: [{
+                        ...this.pieChartData.datasets[0],
+                        data: data
+                    }]
+                };
+                this.cdr.markForCheck();
+            },
+            error: handleErr
         });
 
         // 5. Recent Logs
-        this.costService.getRecentLogs(20).subscribe(logs => {
-            this.recentLogs = logs.map(l => ({
-                ...l,
-                // Force UTC interpretation if 'Z' is missing, so Angular pipe converts correctly
-                createdAt: l.createdAt.endsWith('Z') ? l.createdAt : l.createdAt + 'Z'
-            }));
-            this.cdr.markForCheck();
+        this.costService.getRecentLogs(20).subscribe({
+            next: logs => {
+                this.recentLogs = logs.map(l => ({
+                    ...l,
+                    // Force UTC interpretation if 'Z' is missing, so Angular pipe converts correctly
+                    createdAt: l.createdAt.endsWith('Z') ? l.createdAt : l.createdAt + 'Z'
+                }));
+                this.cdr.markForCheck();
+            },
+            error: handleErr
         });
     }
 

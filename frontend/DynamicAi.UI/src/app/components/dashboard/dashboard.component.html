@@ -4,6 +4,12 @@
         <span class="refresh-badge" (click)="loadData()">🔄 Refresh</span>
     </div>
 
+    <div *ngIf="authError" class="glass"
+        style="padding: 1rem 1.25rem; margin-bottom: 1rem; border: 1px solid rgba(251, 146, 60, 0.45); display: flex; align-items: center; justify-content: space-between; gap: 1rem; color: #fed7aa;">
+        <span>{{ authError }}</span>
+        <span class="refresh-badge" (click)="loadData()">🔄 إعادة المحاولة</span>
+    </div>
+
     <!-- KPI Cards -->
     <div class="kpi-grid" *ngIf="!loading; else loadingState">
         <div class="kpi-card glass">

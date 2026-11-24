@@ -34,8 +34,8 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     private chatSignal = inject(ChatSignalService);
     private pocSettings = inject(PocSettingsService);
 
-    status = 'Connected! ✅';
-    connectionState: 'connected' | 'checking' | 'error' = 'connected';
+    status = 'جاري فحص النظام...';
+    connectionState: 'connected' | 'checking' | 'error' = 'checking';
     errorMsg = '';
 
     question = '';
@@ -255,10 +255,18 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
             error: (err) => {
                 this.clearingCache = false;
                 this.cacheActionError = true;
-                this.cacheActionMessage =
-                    err?.error?.detail ||
-                    err?.error?.message ||
-                    `❌ فشل مسح الكاش للصفحة (${targetPageId}).`;
+                if (err?.status === 401) {
+                    this.cacheActionMessage =
+                        '🔑 مطلوب إدخال مفتاح X-Api-Key صالح في الشريط العلوي (وضع الحماية Strict مفعّل).';
+                } else if (err?.status === 403) {
+                    this.cacheActionMessage =
+                        '⛔ هذا الإجراء يتطلب مفتاح X-Api-Key بدور Admin.';
+                } else {
+                    this.cacheActionMessage =
+                        err?.error?.detail ||
+                        err?.error?.message ||
+                        `❌ فشل مسح الكاش للصفحة (${targetPageId}).`;
+                }
                 this.cdr.detectChanges();
             }
         });
@@ -370,6 +378,18 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
             this.cdr.detectChanges();
             return;
         }
+
+        if (!this.connectionString.trim() && !this.tenantKey.trim()) {
+            this.showSettingsPanel = true;
+            this.cacheActionError = true;
+            this.cacheActionMessage =
+                '⚠️ يرجى إدخال ConnectionString (أو TenantKey) في لوحة إعدادات السياق أعلاه قبل إرسال السؤال.';
+            this.cdr.detectChanges();
+            return;
+        }
+
+        this.cacheActionMessage = '';
+        this.cacheActionError = false;
 
         const currentQ = this.question;
         this.messages.push({ isAi: false, text: currentQ });
@@ -586,6 +606,12 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
                 } else if (err.status === 0) {
                     errorMsg =
                         '⚠️ لا يمكن الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى.';
+                } else if (err.status === 401) {
+                    errorMsg =
+                        '🔑 مطلوب إدخال مفتاح X-Api-Key صالح في الشريط العلوي (وضع الحماية Strict مفعّل).';
+                } else if (err.status === 403) {
+                    errorMsg =
+                        '⛔ مفتاح X-Api-Key الحالي لا يملك صلاحية تنفيذ هذا الإجراء أو أن TenantKey غير مصرح به.';
                 } else if (err.error && typeof err.error === 'object' && err.error.detail) {
                     errorMsg = err.error.detail;
                     sql = err.error.extensions?.sql ?? err.error.sql ?? undefined;

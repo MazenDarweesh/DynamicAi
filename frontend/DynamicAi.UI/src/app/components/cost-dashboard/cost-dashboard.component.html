@@ -2,6 +2,15 @@
     <!-- Local header removed in favor of global shell header -->
     <p class="subtitle">Monitor AI token consumption, costs, and budget health.</p>
 
+    <div *ngIf="loadError" class="glass"
+        style="padding: 1rem 1.25rem; margin-bottom: 1rem; border: 1px solid rgba(251, 146, 60, 0.45); display: flex; align-items: center; justify-content: space-between; gap: 1rem; color: #fed7aa;">
+        <span>{{ loadError }}</span>
+        <button type="button" (click)="loadData()"
+            style="padding: 0.4rem 0.85rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color: #fff; cursor: pointer;">
+            🔄 تحديث
+        </button>
+    </div>
+
     <!-- KPI Cards -->
     <div class="stats-grid" *ngIf="budgetInfo">
         <div class="stat-card glass">
