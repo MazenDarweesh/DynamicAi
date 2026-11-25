@@ -1,6 +1,6 @@
 # 🐳 DynamicAi Docker Maintenance & Configuration Guide
 
-This document explains how the root [Dockerfile](file:///e:/Mazen/EGYD/DynamicAi/Dockerfile) and [docker-compose.yml](file:///e:/Mazen/EGYD/DynamicAi/docker-compose.yml) build, configure, and run DynamicAi v2.0.
+This document explains how the root [Dockerfile](../../Dockerfile) and [docker-compose.yml](../../docker-compose.yml) build, configure, and run DynamicAi v2.0.
 
 ---
 
@@ -61,7 +61,7 @@ Observability__OtlpEndpoint="http://aspire-dashboard:18889"
 - **`sqlserver`** (`mcr.microsoft.com/mssql/server:2022-latest`): Stores `DynamicAi_AppDb` on `1434:1433` using `sqlvolume` with a `sqlcmd` healthcheck.
 - **`aspire-dashboard`** (`--profile observability`): Runs `mcr.microsoft.com/dotnet/aspire-dashboard:latest` on `18888:18888` (UI) and `4317:18889` (OTLP gRPC).
 
-> **Legacy Files:** Older Compose files in `infra/docker/` (`docker-compose.yml`, `docker-compose.team.yml`) are kept only as historical references; use the root [docker-compose.yml](file:///e:/Mazen/EGYD/DynamicAi/docker-compose.yml) for all v2.0 deployments.
+> **Legacy Files:** Older Compose files in `infra/docker/` (`docker-compose.yml`, `docker-compose.team.yml`) are kept only as historical references; use the root [docker-compose.yml](../../docker-compose.yml) for all v2.0 deployments.
 
 ---
 

@@ -120,7 +120,7 @@ dotnet user-secrets set "Auth:ApiKeys:1:Role" "Admin" --project "src/DynamicAi.A
 dotnet user-secrets set "Auth:ApiKeys:1:Key" "<YOUR_ADMIN_API_KEY>" --project "src/DynamicAi.Api/DynamicAi.Api.csproj"
 ```
 
-See [SECRETS_GUIDE.md](file:///e:/Mazen/EGYD/DynamicAi/docs/security/SECRETS_GUIDE.md) for connection string options.
+See [docs/security/SECRETS_GUIDE.md](docs/security/SECRETS_GUIDE.md) for connection string options.
 
 ### 2. Run Backend + Frontend Locally
 
@@ -160,11 +160,11 @@ dotnet test tools/legacy/SchemaTools.sln
 
 ## 📚 Documentation
 
-- **Frontend UI & POC Console:** [frontend/DynamicAi.UI/README.md](file:///e:/Mazen/EGYD/DynamicAi/frontend/DynamicAi.UI/README.md)
-- **ERP Integration & Security Migration:** [ERP_INTEGRATION_MIGRATION_GUIDE.md](file:///e:/Mazen/EGYD/DynamicAi/docs/ERP_INTEGRATION_MIGRATION_GUIDE.md)
-- **Secrets Management:** [SECRETS_GUIDE.md](file:///e:/Mazen/EGYD/DynamicAi/docs/security/SECRETS_GUIDE.md)
-- **Testing & Opt-In Live Suites:** [TESTING_GUIDE.md](file:///e:/Mazen/EGYD/DynamicAi/docs/testing/TESTING_GUIDE.md) & [Evaluation/README.md](file:///e:/Mazen/EGYD/DynamicAi/tests/DynamicAI.Tests/Evaluation/README.md)
-- **Docker Guides:** [DOCKER_TEAM_GUIDE.md](file:///e:/Mazen/EGYD/DynamicAi/docs/docker/DOCKER_TEAM_GUIDE.md) & [DOCKER_MAINTENANCE.md](file:///e:/Mazen/EGYD/DynamicAi/infra/docker/DOCKER_MAINTENANCE.md)
+- **Frontend UI & POC Console:** [frontend/DynamicAi.UI/README.md](frontend/DynamicAi.UI/README.md)
+- **ERP Integration & Security Migration:** [docs/ERP_INTEGRATION_MIGRATION_GUIDE.md](docs/ERP_INTEGRATION_MIGRATION_GUIDE.md)
+- **Secrets Management:** [docs/security/SECRETS_GUIDE.md](docs/security/SECRETS_GUIDE.md)
+- **Testing & Opt-In Live Suites:** [docs/testing/TESTING_GUIDE.md](docs/testing/TESTING_GUIDE.md) & [tests/DynamicAI.Tests/Evaluation/README.md](tests/DynamicAI.Tests/Evaluation/README.md)
+- **Docker Guides:** [docs/docker/DOCKER_TEAM_GUIDE.md](docs/docker/DOCKER_TEAM_GUIDE.md) & [infra/docker/DOCKER_MAINTENANCE.md](infra/docker/DOCKER_MAINTENANCE.md)
 
 ---
 

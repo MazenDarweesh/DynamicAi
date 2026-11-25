@@ -7,9 +7,9 @@
 
 ## 📋 Current Compose Architecture (`docker-compose.yml`)
 
-Since Phase 4, **Qdrant has been completely removed** from the DynamicAi runtime. The root [docker-compose.yml](file:///e:/Mazen/EGYD/DynamicAi/docker-compose.yml) defines:
+Since Phase 4, **Qdrant has been completely removed** from the DynamicAi runtime. The root [docker-compose.yml](../../docker-compose.yml) defines:
 
-- **`dynamicai-app`** (`mazendarweesh/dynamicai:v2.0.0`, built from root [Dockerfile](file:///e:/Mazen/EGYD/DynamicAi/Dockerfile)): Combined .NET 8 API + Angular 21 UI served on port `8080:8080` (`appuser` non-root).
+- **`dynamicai-app`** (`mazendarweesh/dynamicai:v2.0.0`, built from root [Dockerfile](../../Dockerfile)): Combined .NET 8 API + Angular 21 UI served on port `8080:8080` (`appuser` non-root).
 - **`sqlserver`** (`mcr.microsoft.com/mssql/server:2022-latest`): Local SQL Server for `DynamicAi_AppDb` (EF Core logs, feedback, LLM costs) exposed on `1434:1433` with `sqlcmd` healthcheck.
 - **`aspire-dashboard`** (`mcr.microsoft.com/dotnet/aspire-dashboard:latest`, optional `--profile observability`): Local OpenTelemetry UI on port `18888` (`http://localhost:18888`) and OTLP gRPC receiver on `4317:18889`.
 

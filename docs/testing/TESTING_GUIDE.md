@@ -72,4 +72,4 @@ dotnet test DynamicAi.sln --filter "FullyQualifiedName~LiveApiE2ETests"
 
 > **Note:** Step 4 of `LiveApiE2ETests` queries `/api/llm-costs/*`, which requires an `Admin` role `X-Api-Key` when `Auth:Mode = Strict`.
 
-See [Evaluation/README.md](file:///e:/Mazen/EGYD/DynamicAi/tests/DynamicAI.Tests/Evaluation/README.md) for details on the Golden and Shadow Mode evaluation datasets.
+See [Evaluation/README.md](../../tests/DynamicAI.Tests/Evaluation/README.md) for details on the Golden and Shadow Mode evaluation datasets.

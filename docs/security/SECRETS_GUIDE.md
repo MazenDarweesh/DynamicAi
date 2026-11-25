@@ -57,7 +57,7 @@ dotnet user-secrets set "ConnectionStrings:AppDbContextConnection" "Server=local
 dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=<SQL_SERVER_HOST>;Database=<ERP_DATABASE>;User Id=dynamicai_readonly;Password=<READONLY_PASSWORD>;TrustServerCertificate=True;" --project "src/DynamicAi.Api/DynamicAi.Api.csproj"
 ```
 
-See [ERP_INTEGRATION_MIGRATION_GUIDE.md](file:///e:/Mazen/EGYD/DynamicAi/docs/ERP_INTEGRATION_MIGRATION_GUIDE.md) for the T-SQL script to create the `db_datareader` SQL login.
+See [ERP_INTEGRATION_MIGRATION_GUIDE.md](../ERP_INTEGRATION_MIGRATION_GUIDE.md) for the T-SQL script to create the `db_datareader` SQL login.
 
 ---
 
