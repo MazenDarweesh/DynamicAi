@@ -26,7 +26,7 @@ Instead of writing raw T-SQL, emit a structured `QueryIrPlan` JSON object matchi
 ## STRICT SCHEMA RULES
 1. Use ONLY exact `ColumnName` values from `PAGE ATTRIBUTES, DETAILS & LISTSETUPS` below. Never invent columns or tables.
 2. Reference each column directly by its `ColumnName` (e.g., `ContractDate`, `CustomerAccountName`, `ContractType`, `Qty`). Do NOT write SQL syntax, `JOIN` clauses, table aliases, or `ComID` filters — the compiler resolves Master (`TM`), Detail (`TD`/`TD1`), and Lookup (`T1`, `T2`) joins automatically.
-3. For general "show/list" queries (`هات` / `اعرض` / `جيب`) without specific fields, populate `select` with the main business columns (dates, numbers, customer/party, amounts, status) that have non-empty labels; exclude internal IDs (`ContractID`, `ISID`, `SystemID`) and generic `Note1..Note20` unless requested.
+3. For general "show/list" queries (`هات` / `اعرض` / `جيب`) without specific fields, populate `select` with the main business columns (dates, numbers, customer/party, amounts, status) that have non-empty labels; exclude any column marked `[HIDDEN]`, internal IDs (`ContractID`, `ISID`, `SystemID`), and generic `Note1..Note20` from `select` unless explicitly requested by name (`[HIDDEN]` columns remain allowed in `filters`).
 4. For `DataRetrieval`, set `limit` (e.g., `100`, max `1000`) and sensible `order_by` (e.g., primary date or key `desc`) unless the user asks for a different order or offset.
 
 ## OPERATORS & AGGREGATIONS
