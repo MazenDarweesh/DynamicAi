@@ -293,6 +293,88 @@ public class QueryOrchestratorTests
     }
 
     [Fact]
+    public async Task HandleDirectedPageQueryAsync_WhenClarificationRequired_ShouldPersistAmbiguousQueryLogInBackground()
+    {
+        var persistedLogTcs = new TaskCompletionSource<QueryLog>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queryLogRepo = A.Fake<IQueryLogRepository>();
+        A.CallTo(() => queryLogRepo.AddAsync(A<QueryLog>._, A<CancellationToken>._))
+            .Invokes(call => persistedLogTcs.TrySetResult(call.GetArgument<QueryLog>(0)!))
+            .ReturnsLazily(call => Task.FromResult(call.GetArgument<QueryLog>(0)!));
+
+        var scope = A.Fake<IServiceScope>();
+        var serviceProvider = A.Fake<IServiceProvider>();
+        A.CallTo(() => scope.ServiceProvider).Returns(serviceProvider);
+        A.CallTo(() => serviceProvider.GetService(typeof(IQueryLogRepository))).Returns(queryLogRepo);
+
+        var scopeFactory = A.Fake<IServiceScopeFactory>();
+        A.CallTo(() => scopeFactory.CreateScope()).Returns(scope);
+
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Caching:QueryCache:Enabled"] = "false"
+            })
+            .Build();
+
+        var sut = new QueryOrchestrator(
+            _unifiedHandler,
+            _predictionService,
+            _queryCacheService,
+            _contextService,
+            _usageTracker,
+            _logger,
+            config,
+            scopeFactory);
+
+        var request = CreateSampleRequest(244);
+
+        A.CallTo(() => _unifiedHandler.HandleAsync(request.Question, A<IntentHandlerContext>._, A<CancellationToken>._))
+            .Returns(Task.FromResult(new QueryExecutionResult
+            {
+                ErrorMessage = "CLARIFICATION_REQUIRED: هل تقصد فواتير الشهر الحالي؟",
+                ConfidenceScore = 0.42f,
+                Intent = "DataRetrieval",
+                PageId = 244,
+                SchemaContext = "ContractViewWithPaid",
+                InputTokens = 320,
+                OutputTokens = 45,
+                LlmCostUsd = 0.0021m
+            }));
+
+        InteractionRequiredException? thrown = null;
+        try
+        {
+            await sut.HandleDirectedPageQueryAsync(request);
+        }
+        catch (InteractionRequiredException ex)
+        {
+            thrown = ex;
+        }
+
+        thrown.Should().NotBeNull();
+        thrown!.QueryLogId.Should().NotBe(Guid.Empty);
+
+        var completed = await Task.WhenAny(persistedLogTcs.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        completed.Should().Be(persistedLogTcs.Task);
+
+        var savedLog = await persistedLogTcs.Task;
+        savedLog.Id.Should().Be(thrown.QueryLogId);
+        savedLog.RawQuestion.Should().Be(request.Question);
+        savedLog.TenantId.Should().Be("default");
+        savedLog.CompanyId.Should().Be(5);
+        savedLog.PageId.Should().Be(244);
+        savedLog.IsAmbiguous.Should().BeTrue();
+        savedLog.WasSuccessful.Should().BeFalse();
+        savedLog.ErrorMessage.Should().Be("هل تقصد فواتير الشهر الحالي؟");
+        savedLog.ConfidenceScore.Should().BeApproximately(0.42f, 0.001f);
+        savedLog.SchemaContext.Should().Be("ContractViewWithPaid");
+        savedLog.InputTokens.Should().Be(320);
+        savedLog.OutputTokens.Should().Be(45);
+        savedLog.GeminiCost.Should().Be(0.0021m);
+        savedLog.HandlerType.Should().Be("DirectedIntegration_DataRetrieval");
+    }
+
+    [Fact]
     public async Task HandleDirectedPageQueryAsync_WhenComIdIsNull_ShouldPassZeroToCacheLookupAndStore()
     {
         var sut = CreateSut(queryCacheEnabled: true);

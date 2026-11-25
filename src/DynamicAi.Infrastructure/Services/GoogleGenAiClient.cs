@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using Google.GenAI;
@@ -11,40 +12,83 @@ using Polly.Retry;
 using Polly.Timeout;
 using SchemaType = Google.GenAI.Types.Type;
 
+[assembly: InternalsVisibleTo("DynamicAI.Tests")]
+
 namespace DynamicAi.Infrastructure.Services;
 
 /// <summary>
 /// Google.GenAI SDK implementation of <see cref="ILlmClient"/> with Polly resilience
-/// (45s per-attempt timeout, up to 2 exponential-backoff retries with jitter) and
-/// native JSON response schema enforcement.
+/// (45s per-attempt timeout, up to 2 exponential-backoff retries with jitter),
+/// ordered fallback model switching on transient failures, and native JSON response schema enforcement.
 /// </summary>
 public sealed class GoogleGenAiClient : ILlmClient
 {
     private const string DefaultChatModel = "gemini-3.5-flash-lite";
-    private static readonly TimeSpan AttemptTimeout = TimeSpan.FromSeconds(45);
+    private static readonly string[] DefaultFallbackModels = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
+    private static readonly TimeSpan DefaultAttemptTimeout = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan DefaultRetryBaseDelay = TimeSpan.FromSeconds(2);
     private static readonly Schema UnifiedResponseSchema = BuildUnifiedResponseSchema();
     private static readonly Schema QueryIrResponseSchema = BuildQueryIrResponseSchema();
 
-    private readonly Client _client;
+    private readonly Client? _client;
     private readonly string _defaultModel;
+    private readonly string[] _fallbackModels;
     private readonly ILogger<GoogleGenAiClient> _logger;
     private readonly ResiliencePipeline _resiliencePipeline;
+    private readonly Func<string, string, GenerateContentConfig, CancellationToken, Task<GenerateContentResponse>> _generateContentAsync;
 
     public GoogleGenAiClient(
         Client client,
         IConfiguration configuration,
         ILogger<GoogleGenAiClient> logger)
+        : this(
+            client ?? throw new ArgumentNullException(nameof(client)),
+            configuration,
+            logger,
+            generateContentAsync: null,
+            retryBaseDelay: null,
+            attemptTimeout: null)
     {
-        _client = client ?? throw new ArgumentNullException(nameof(client));
+    }
+
+    internal GoogleGenAiClient(
+        IConfiguration configuration,
+        ILogger<GoogleGenAiClient> logger,
+        Func<string, string, GenerateContentConfig, CancellationToken, Task<GenerateContentResponse>> generateContentAsync,
+        TimeSpan? retryBaseDelay = null,
+        TimeSpan? attemptTimeout = null)
+        : this(
+            client: null,
+            configuration,
+            logger,
+            generateContentAsync ?? throw new ArgumentNullException(nameof(generateContentAsync)),
+            retryBaseDelay,
+            attemptTimeout)
+    {
+    }
+
+    private GoogleGenAiClient(
+        Client? client,
+        IConfiguration configuration,
+        ILogger<GoogleGenAiClient> logger,
+        Func<string, string, GenerateContentConfig, CancellationToken, Task<GenerateContentResponse>>? generateContentAsync,
+        TimeSpan? retryBaseDelay,
+        TimeSpan? attemptTimeout)
+    {
         ArgumentNullException.ThrowIfNull(configuration);
+        _client = client;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _generateContentAsync = generateContentAsync ?? ExecuteSdkCallAsync;
 
         var configuredModel = configuration["Gemini:ChatModel"];
         _defaultModel = string.IsNullOrWhiteSpace(configuredModel)
             ? DefaultChatModel
             : configuredModel.Trim();
 
-        _resiliencePipeline = BuildResiliencePipeline();
+        _fallbackModels = ResolveFallbackModels(configuration);
+        _resiliencePipeline = BuildResiliencePipeline(
+            retryBaseDelay ?? DefaultRetryBaseDelay,
+            attemptTimeout ?? DefaultAttemptTimeout);
     }
 
     /// <inheritdoc />
@@ -52,31 +96,51 @@ public sealed class GoogleGenAiClient : ILlmClient
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var model = string.IsNullOrWhiteSpace(request.Model)
-            ? _defaultModel
-            : request.Model.Trim();
-
+        var candidateModels = BuildCandidateModels(request.Model);
         var config = BuildGenerateContentConfig(request);
         var sw = Stopwatch.StartNew();
 
-        var response = await _resiliencePipeline.ExecuteAsync(async ct =>
+        GenerateContentResponse? response = null;
+        var succeededModel = candidateModels[0];
+
+        for (var i = 0; i < candidateModels.Count; i++)
         {
-            var callTask = _client.Models.GenerateContentAsync(model, request.UserMessage, config);
+            var candidateModel = candidateModels[i];
+            try
+            {
+                response = await _resiliencePipeline.ExecuteAsync(async ct =>
+                {
+                    var callTask = _generateContentAsync(candidateModel, request.UserMessage, config, ct);
 
-            // Prevent UnobservedTaskException if WaitAsync exits early on timeout or caller cancellation.
-            _ = callTask.ContinueWith(
-                static t => _ = t.Exception,
-                CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
+                    // Prevent UnobservedTaskException if WaitAsync exits early on timeout or caller cancellation.
+                    _ = callTask.ContinueWith(
+                        static t => _ = t.Exception,
+                        CancellationToken.None,
+                        TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                        TaskScheduler.Default);
 
-            return await callTask.WaitAsync(ct).ConfigureAwait(false);
-        }, cancellationToken).ConfigureAwait(false);
+                    return await callTask.WaitAsync(ct).ConfigureAwait(false);
+                }, cancellationToken).ConfigureAwait(false);
+
+                succeededModel = candidateModel;
+                break;
+            }
+            catch (Exception ex) when (i < candidateModels.Count - 1 && IsTransientException(ex, cancellationToken))
+            {
+                var nextModel = candidateModels[i + 1];
+                _logger.LogWarning(
+                    ex,
+                    "[GoogleGenAiClient] Model {FailedModel} failed transiently ({ErrorType}); falling back to {FallbackModel}.",
+                    candidateModel,
+                    ex.GetType().Name,
+                    nextModel);
+            }
+        }
 
         sw.Stop();
 
-        var text = ExtractResponseText(response);
-        var usage = response.UsageMetadata;
+        var text = ExtractResponseText(response!);
+        var usage = response!.UsageMetadata;
         var inputTokens = usage?.PromptTokenCount ?? 0;
         var outputTokens = usage?.CandidatesTokenCount ?? 0;
         var cachedTokens = usage?.CachedContentTokenCount ?? 0;
@@ -85,15 +149,65 @@ public sealed class GoogleGenAiClient : ILlmClient
         if (activity is not null)
         {
             activity.SetTag("llm.provider", "Google.GenAI");
-            activity.SetTag("llm.model", model);
+            activity.SetTag("llm.model", succeededModel);
             activity.SetTag("llm.tokens.cached", cachedTokens);
+            if (!string.Equals(succeededModel, candidateModels[0], StringComparison.OrdinalIgnoreCase))
+            {
+                activity.SetTag("llm.fallback_used", true);
+                activity.SetTag("llm.primary_model", candidateModels[0]);
+            }
         }
 
         _logger.LogDebug(
             "[GoogleGenAiClient] Generated response via {Model} in {ElapsedMs}ms (In:{InputTokens}, Out:{OutputTokens}, Cached:{CachedTokens})",
-            model, sw.ElapsedMilliseconds, inputTokens, outputTokens, cachedTokens);
+            succeededModel, sw.ElapsedMilliseconds, inputTokens, outputTokens, cachedTokens);
 
-        return new LlmResponse(text, inputTokens, outputTokens, cachedTokens, model);
+        return new LlmResponse(text, inputTokens, outputTokens, cachedTokens, succeededModel);
+    }
+
+    private Task<GenerateContentResponse> ExecuteSdkCallAsync(
+        string model,
+        string userMessage,
+        GenerateContentConfig config,
+        CancellationToken _)
+    {
+        return _client!.Models.GenerateContentAsync(model, userMessage, config);
+    }
+
+    private static string[] ResolveFallbackModels(IConfiguration configuration)
+    {
+        var configured = configuration.GetSection("Gemini:FallbackModels")
+            .GetChildren()
+            .Select(c => c.Value?.Trim())
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!)
+            .ToArray();
+
+        return configured.Length > 0 ? configured : DefaultFallbackModels;
+    }
+
+    private List<string> BuildCandidateModels(string? requestedModel)
+    {
+        var primaryModel = string.IsNullOrWhiteSpace(requestedModel)
+            ? _defaultModel
+            : requestedModel.Trim();
+
+        var candidates = new List<string>(1 + _fallbackModels.Length) { primaryModel };
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { primaryModel };
+
+        foreach (var fallback in _fallbackModels)
+        {
+            if (!string.IsNullOrWhiteSpace(fallback))
+            {
+                var trimmed = fallback.Trim();
+                if (seen.Add(trimmed))
+                {
+                    candidates.Add(trimmed);
+                }
+            }
+        }
+
+        return candidates;
     }
 
     private static GenerateContentConfig BuildGenerateContentConfig(LlmRequest request)
@@ -309,7 +423,7 @@ public sealed class GoogleGenAiClient : ILlmClient
         };
     }
 
-    private ResiliencePipeline BuildResiliencePipeline()
+    private ResiliencePipeline BuildResiliencePipeline(TimeSpan retryBaseDelay, TimeSpan attemptTimeout)
     {
         return new ResiliencePipelineBuilder()
             .AddRetry(new RetryStrategyOptions
@@ -317,7 +431,7 @@ public sealed class GoogleGenAiClient : ILlmClient
                 MaxRetryAttempts = 2,
                 BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
-                Delay = TimeSpan.FromSeconds(2),
+                Delay = retryBaseDelay,
                 ShouldHandle = args =>
                 {
                     if (args.Context.CancellationToken.IsCancellationRequested)
@@ -338,7 +452,7 @@ public sealed class GoogleGenAiClient : ILlmClient
                     return ValueTask.CompletedTask;
                 }
             })
-            .AddTimeout(AttemptTimeout)
+            .AddTimeout(attemptTimeout)
             .Build();
     }
 

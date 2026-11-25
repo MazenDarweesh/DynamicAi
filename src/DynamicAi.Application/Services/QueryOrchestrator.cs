@@ -150,8 +150,10 @@ public class QueryOrchestrator : IQueryOrchestrator
             _logger.LogInformation("[Orchestrator] Directed Pipeline Completed in {Duration}ms", totalDurationMs);
             return result;
         }
-        catch (InteractionRequiredException)
+        catch (InteractionRequiredException ex)
         {
+            var latencyMs = (int)Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
+            PersistClarificationInBackground(request, ex, result, queryLogId, latencyMs);
             throw;
         }
         catch (Exception ex)
@@ -251,73 +253,55 @@ public class QueryOrchestrator : IQueryOrchestrator
         int latencyMs)
     {
         var finalHandlerType = "DirectedIntegration_" + (result.Intent ?? "DataRetrieval");
-        var parentCtx = Activity.Current?.Context ?? default;
 
-        _ = Task.Run(async () =>
+        RunBackgroundPersistence(queryLogId, "success", "Background persistence", async services =>
         {
-            Activity.Current = null;
-            using var bgActivity = DynamicAiTelemetry.ActivitySource.StartActivity(
-                "bg.persist_telemetry",
-                ActivityKind.Internal,
-                parentContext: default,
-                links: parentCtx != default ? new[] { new ActivityLink(parentCtx) } : null);
-            bgActivity?.SetTag("query.log_id", queryLogId.ToString());
-            bgActivity?.SetTag("bg.outcome", "success");
+            var queryLogRepo = services.GetRequiredService<IQueryLogRepository>();
+            var contextService = services.GetRequiredService<IConversationContextService>();
+            var queryCacheService = services.GetRequiredService<IQueryCacheService>();
+            var feedbackService = services.GetRequiredService<IFeedbackService>();
 
-            try
+            await queryLogRepo.AddAsync(new QueryLog
             {
-                using var scope = _scopeFactory.CreateScope();
-                var queryLogRepo = scope.ServiceProvider.GetRequiredService<IQueryLogRepository>();
-                var contextService = scope.ServiceProvider.GetRequiredService<IConversationContextService>();
-                var queryCacheService = scope.ServiceProvider.GetRequiredService<IQueryCacheService>();
-                var feedbackService = scope.ServiceProvider.GetRequiredService<IFeedbackService>();
+                Id = queryLogId,
+                RawQuestion = request.Question,
+                GeneratedSql = result.RewrittenSql,
+                WasSuccessful = true,
+                SchemaContext = result.SchemaContext,
+                TenantId = request.TenantId,
+                CompanyId = request.ComID,
+                PageId = request.PageId,
+                CreatedAt = DateTime.UtcNow,
+                LatencyMs = latencyMs,
+                HandlerType = finalHandlerType,
+                InputTokens = result.InputTokens,
+                OutputTokens = result.OutputTokens,
+                GeminiCost = result.LlmCostUsd,
+                ConfidenceScore = result.ConfidenceScore,
+                SelfHealingUsed = result.SelfHealingUsed
+            });
 
-                await queryLogRepo.AddAsync(new QueryLog
-                {
-                    Id = queryLogId,
-                    RawQuestion = request.Question,
-                    GeneratedSql = result.RewrittenSql,
-                    WasSuccessful = true,
-                    SchemaContext = result.SchemaContext,
-                    TenantId = request.TenantId,
-                    CompanyId = request.ComID,
-                    PageId = request.PageId,
-                    CreatedAt = DateTime.UtcNow,
-                    LatencyMs = latencyMs,
-                    HandlerType = finalHandlerType,
-                    InputTokens = result.InputTokens,
-                    OutputTokens = result.OutputTokens,
-                    GeminiCost = result.LlmCostUsd,
-                    ConfidenceScore = result.ConfidenceScore,
-                    SelfHealingUsed = result.SelfHealingUsed
-                });
+            await feedbackService.AutoCaptureExampleAsync(queryLogId, request.ComID);
 
-                await feedbackService.AutoCaptureExampleAsync(queryLogId, request.ComID);
-
-                if (_queryCacheEnabled && !hasActiveHistory && !string.IsNullOrWhiteSpace(result.RewrittenSql))
-                {
-                    await queryCacheService.StoreCachedSqlAsync(
-                        queryLogId,
-                        request.Question,
-                        result.RewrittenSql,
-                        request.PageId,
-                        request.TenantId,
-                        request.ComID ?? 0,
-                        finalHandlerType);
-                }
-
-                await contextService.SaveTurnAsync(
-                    sessionId,
+            if (_queryCacheEnabled && !hasActiveHistory && !string.IsNullOrWhiteSpace(result.RewrittenSql))
+            {
+                await queryCacheService.StoreCachedSqlAsync(
+                    queryLogId,
                     request.Question,
-                    finalHandlerType,
                     result.RewrittenSql,
-                    result.Data,
-                    request.PageId);
+                    request.PageId,
+                    request.TenantId,
+                    request.ComID ?? 0,
+                    finalHandlerType);
             }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[Orchestrator] Background persistence failed for QueryLog {LogId}", queryLogId);
-            }
+
+            await contextService.SaveTurnAsync(
+                sessionId,
+                request.Question,
+                finalHandlerType,
+                result.RewrittenSql,
+                result.Data,
+                request.PageId);
         });
     }
 
@@ -327,47 +311,57 @@ public class QueryOrchestrator : IQueryOrchestrator
         Guid queryLogId,
         int latencyMs)
     {
-        var parentCtx = Activity.Current?.Context ?? default;
-
-        _ = Task.Run(async () =>
+        PersistQueryLogInBackground(queryLogId, "cache_hit", "Background Cache-HIT logging", new QueryLog
         {
-            Activity.Current = null;
-            using var bgActivity = DynamicAiTelemetry.ActivitySource.StartActivity(
-                "bg.persist_telemetry",
-                ActivityKind.Internal,
-                parentContext: default,
-                links: parentCtx != default ? new[] { new ActivityLink(parentCtx) } : null);
-            bgActivity?.SetTag("query.log_id", queryLogId.ToString());
-            bgActivity?.SetTag("bg.outcome", "cache_hit");
+            Id = queryLogId,
+            RawQuestion = request.Question,
+            GeneratedSql = result.RewrittenSql,
+            WasSuccessful = true,
+            SchemaContext = "Served from Directed Cache",
+            TenantId = request.TenantId,
+            CompanyId = request.ComID,
+            PageId = request.PageId,
+            CreatedAt = DateTime.UtcNow,
+            LatencyMs = latencyMs,
+            HandlerType = "DirectedCacheHit",
+            InputTokens = 0,
+            OutputTokens = 0,
+            GeminiCost = result.LlmCostUsd,
+            ConfidenceScore = 1.0f
+        });
+    }
 
-            try
-            {
-                using var scope = _scopeFactory.CreateScope();
-                var queryLogRepo = scope.ServiceProvider.GetRequiredService<IQueryLogRepository>();
+    private void PersistClarificationInBackground(
+        DirectedPageAskRequest request,
+        InteractionRequiredException ex,
+        QueryExecutionResult? result,
+        Guid queryLogId,
+        int latencyMs)
+    {
+        var intent = !string.IsNullOrEmpty(result?.Intent) && result.Intent != "Unknown"
+            ? result.Intent
+            : "ClarificationRequired";
 
-                await queryLogRepo.AddAsync(new QueryLog
-                {
-                    Id = queryLogId,
-                    RawQuestion = request.Question,
-                    GeneratedSql = result.RewrittenSql,
-                    WasSuccessful = true,
-                    SchemaContext = "Served from Directed Cache",
-                    TenantId = request.TenantId,
-                    CompanyId = request.ComID,
-                    PageId = request.PageId,
-                    CreatedAt = DateTime.UtcNow,
-                    LatencyMs = latencyMs,
-                    HandlerType = "DirectedCacheHit",
-                    InputTokens = 0,
-                    OutputTokens = 0,
-                    GeminiCost = result.LlmCostUsd,
-                    ConfidenceScore = 1.0f
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[Orchestrator] Background Cache-HIT logging failed for QueryLog {LogId}", queryLogId);
-            }
+        PersistQueryLogInBackground(queryLogId, "clarification", "Background clarification logging", new QueryLog
+        {
+            Id = queryLogId,
+            RawQuestion = request.Question,
+            GeneratedSql = result?.RewrittenSql,
+            WasSuccessful = false,
+            ErrorMessage = ex.ClarificationMessage,
+            SchemaContext = result?.SchemaContext,
+            TenantId = request.TenantId,
+            CompanyId = request.ComID,
+            PageId = request.PageId,
+            CreatedAt = DateTime.UtcNow,
+            LatencyMs = latencyMs,
+            HandlerType = $"DirectedIntegration_{intent}",
+            InputTokens = result?.InputTokens,
+            OutputTokens = result?.OutputTokens,
+            GeminiCost = result?.LlmCostUsd,
+            ConfidenceScore = ex.ConfidenceScore,
+            IsAmbiguous = true,
+            SelfHealingUsed = result?.SelfHealingUsed ?? false
         });
     }
 
@@ -378,6 +372,36 @@ public class QueryOrchestrator : IQueryOrchestrator
         int latencyMs,
         string handlerType)
     {
+        PersistQueryLogInBackground(queryLogId, "error", "Background error logging", new QueryLog
+        {
+            Id = queryLogId,
+            RawQuestion = request.Question,
+            WasSuccessful = false,
+            ErrorMessage = errorMessage,
+            TenantId = request.TenantId,
+            CompanyId = request.ComID,
+            PageId = request.PageId,
+            CreatedAt = DateTime.UtcNow,
+            LatencyMs = latencyMs,
+            HandlerType = handlerType
+        });
+    }
+
+    private void PersistQueryLogInBackground(Guid queryLogId, string outcome, string failureContext, QueryLog entry)
+    {
+        RunBackgroundPersistence(queryLogId, outcome, failureContext, async services =>
+        {
+            var queryLogRepo = services.GetRequiredService<IQueryLogRepository>();
+            await queryLogRepo.AddAsync(entry);
+        });
+    }
+
+    private void RunBackgroundPersistence(
+        Guid queryLogId,
+        string outcome,
+        string failureContext,
+        Func<IServiceProvider, Task> persistAsync)
+    {
         var parentCtx = Activity.Current?.Context ?? default;
 
         _ = Task.Run(async () =>
@@ -389,30 +413,16 @@ public class QueryOrchestrator : IQueryOrchestrator
                 parentContext: default,
                 links: parentCtx != default ? new[] { new ActivityLink(parentCtx) } : null);
             bgActivity?.SetTag("query.log_id", queryLogId.ToString());
-            bgActivity?.SetTag("bg.outcome", "error");
+            bgActivity?.SetTag("bg.outcome", outcome);
 
             try
             {
                 using var scope = _scopeFactory.CreateScope();
-                var queryLogRepo = scope.ServiceProvider.GetRequiredService<IQueryLogRepository>();
-
-                await queryLogRepo.AddAsync(new QueryLog
-                {
-                    Id = queryLogId,
-                    RawQuestion = request.Question,
-                    WasSuccessful = false,
-                    ErrorMessage = errorMessage,
-                    TenantId = request.TenantId,
-                    CompanyId = request.ComID,
-                    PageId = request.PageId,
-                    CreatedAt = DateTime.UtcNow,
-                    LatencyMs = latencyMs,
-                    HandlerType = handlerType
-                });
+                await persistAsync(scope.ServiceProvider);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[Orchestrator] Background error logging failed for QueryLog {LogId}", queryLogId);
+                _logger.LogWarning(ex, "[Orchestrator] {FailureContext} failed for QueryLog {LogId}", failureContext, queryLogId);
             }
         });
     }

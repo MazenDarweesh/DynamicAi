@@ -3,6 +3,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
 namespace DynamicAi.Api.Security;
@@ -84,6 +86,11 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<AuthenticationS
         }
 
         var hasProvidedKey = !string.IsNullOrWhiteSpace(providedKey);
+        if (!hasProvidedKey && Context.GetEndpoint()?.Metadata.GetMetadata<IAllowAnonymous>() != null)
+        {
+            return Task.FromResult(AuthenticateResult.NoResult());
+        }
+
         if (string.Equals(options.Mode, "Strict", StringComparison.OrdinalIgnoreCase))
         {
             Logger.LogWarning(

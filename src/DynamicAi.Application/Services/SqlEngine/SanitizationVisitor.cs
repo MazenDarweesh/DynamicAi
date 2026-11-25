@@ -29,6 +29,15 @@ namespace DynamicAi.Application.Services.SqlEngine
         public List<string> ValidationErrors => GenerateConsolidatedErrors();
 
         private readonly List<string> _otherValidationErrors = new List<string>();
+        private readonly HashSet<string> _otherValidationErrorSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Lexical scope stacks for nested QuerySpecifications (subqueries / CTEs / derived tables)
+        private readonly Stack<Dictionary<string, string>> _aliasScopes = new();
+        private readonly Stack<HashSet<string>> _selectAliasScopes = new();
+        private readonly Stack<HashSet<string>> _derivedAliasScopes = new();
+        private readonly Stack<HashSet<string>> _cteScopes = new();
+        private readonly HashSet<string> _fallbackCteNames = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _fallbackDerivedAliases = new(StringComparer.OrdinalIgnoreCase);
 
         // Internal accumulator: TableName → (InvalidColumns, ValidColumns)
         private readonly Dictionary<string, (HashSet<string> InvalidCols, HashSet<string> ValidCols)>
@@ -37,7 +46,7 @@ namespace DynamicAi.Application.Services.SqlEngine
         private string _currentClause = "UNKNOWN";
 
         // SELECT Aliases المعرّفة (مثل SUM(x) AS TotalSales)
-        // نتجاهلها عند فحص ORDER BY / GROUP BY
+        // نتجاهلها عند فحص ORDER BY / GROUP BY (fallback when outside QuerySpecification)
         private readonly HashSet<string> _selectAliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // قائمة بالكلمات المحجوزة والأجزاء المتعلقة بالتواريخ التي يعاملها البارسر كأعمدة بالخطأ
@@ -60,88 +69,175 @@ namespace DynamicAi.Application.Services.SqlEngine
         }
 
         // ============================================================================
-        // PHASE 1: Alias Mapping (FROM / JOIN)
+        // PHASE 1: Alias Mapping (FROM / JOIN / CTEs / Derived Tables)
         // ============================================================================
 
-        public override void Visit(NamedTableReference node)
+        public override void ExplicitVisit(SelectStatement node)
         {
-            _currentClause = "FROM/JOIN";
-            // استخراج اسم الجدول الحقيقي
-            string realTableName = node.SchemaObject.BaseIdentifier.Value;
-
-            // التحقق من وجود الجدول في الـ Schema (Strict Mode)
-            if (!_schemaMap.ContainsKey(realTableName))
+            var cteScope = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (node.WithCtesAndXmlNamespaces?.CommonTableExpressions != null)
             {
-                var error = $"Table '{realTableName}' is not defined in the schema database.";
-                Warnings.Add($"[Sanitizer] {error}");
-                _otherValidationErrors.Add(error);
-                return;
+                foreach (var cte in node.WithCtesAndXmlNamespaces.CommonTableExpressions)
+                {
+                    if (!string.IsNullOrWhiteSpace(cte.ExpressionName?.Value))
+                    {
+                        cteScope.Add(cte.ExpressionName.Value);
+                    }
+                }
             }
 
-            // تسجيل الـ Alias إذا وجد
-            if (node.Alias != null)
+            _cteScopes.Push(cteScope);
+            try
             {
-                AliasMap[node.Alias.Value] = realTableName;
+                Visit(node);
+                node.AcceptChildren(this);
             }
-            else
+            finally
             {
-                // إذا لم يكن هناك Alias، فالاسم نفسه هو الـ key
-                AliasMap[realTableName] = realTableName;
+                _cteScopes.Pop();
+            }
+        }
+
+        public override void Visit(CommonTableExpression node)
+        {
+            var cteName = node.ExpressionName?.Value;
+            if (!string.IsNullOrWhiteSpace(cteName))
+            {
+                if (_cteScopes.Count > 0)
+                {
+                    _cteScopes.Peek().Add(cteName);
+                }
+                else
+                {
+                    _fallbackCteNames.Add(cteName);
+                }
             }
 
             base.Visit(node);
         }
 
-        // ============================================================================
-        // PHASE 2: Column Validation (SELECT)
-        // ============================================================================
-
-        public override void Visit(QuerySpecification node)
+        public override void Visit(QueryDerivedTable node)
         {
-            // نحن هنا ندخل داخل جملة SELECT ... FROM ...
-            // عملية الـ Visit للأبناء ستتم تلقائياً، لكن نحتاج تحديد أننا في الـ Select Elements
-            
-            // زيارة الـ FROM أولاً لبناء الـ Aliases (مهم جداً)
-            if (node.FromClause != null)
+            var alias = node.Alias?.Value;
+            if (!string.IsNullOrWhiteSpace(alias))
             {
-                node.FromClause.Accept(this);
-            }
-
-            // ثم زيارة الـ SELECT Elements للتحقق من الأعمدة
-            _currentClause = "SELECT";
-            foreach (var element in node.SelectElements)
-            {
-                // جمع الـ Aliases المعرّفة في SELECT (مثل: AS TotalSales)
-                if (element is SelectScalarExpression scalarExpr && scalarExpr.ColumnName != null)
+                RegisterAlias(alias, alias);
+                if (_derivedAliasScopes.Count > 0)
                 {
-                    _selectAliases.Add(scalarExpr.ColumnName.Value);
+                    _derivedAliasScopes.Peek().Add(alias);
                 }
-                element.Accept(this);
+                else
+                {
+                    _fallbackDerivedAliases.Add(alias);
+                }
             }
 
-            // زيارة باقي الأجزاء (Where, GroupBy, OrderBy, etc.) للبحث عن الأعمدة غير الصالحة فيها أيضاً
-            if (node.WhereClause != null) 
+            base.Visit(node);
+        }
+
+        public override void Visit(NamedTableReference node)
+        {
+            _currentClause = "FROM/JOIN";
+            // استخراج اسم الجدول الحقيقي
+            string? realTableName = node.SchemaObject?.BaseIdentifier?.Value;
+            if (string.IsNullOrWhiteSpace(realTableName))
             {
-                _currentClause = "WHERE";
-                node.WhereClause.Accept(this);
+                return;
             }
 
-            if (node.OrderByClause != null) 
+            bool isCte = IsCteName(realTableName);
+
+            // التحقق من وجود الجدول في الـ Schema (Strict Mode)
+            if (!isCte && !_schemaMap.ContainsKey(realTableName))
             {
-                _currentClause = "ORDER BY";
-                node.OrderByClause.Accept(this);
+                var error = $"Table '{realTableName}' is not defined in the schema database.";
+                AddOtherValidationError(error);
+                return;
             }
 
-            if (node.GroupByClause != null) 
-            {
-                _currentClause = "GROUP BY";
-                node.GroupByClause.Accept(this);
-            }
+            // تسجيل الـ Alias إذا وجد، وإلا فالاسم نفسه هو الـ key
+            string aliasKey = node.Alias != null ? node.Alias.Value : realTableName;
+            RegisterAlias(aliasKey, realTableName);
 
-            if (node.HavingClause != null) 
+            base.Visit(node);
+        }
+
+        // ============================================================================
+        // PHASE 2: Column Validation (SELECT / WHERE / GROUP BY / HAVING / ORDER BY)
+        // ============================================================================
+
+        public override void ExplicitVisit(QuerySpecification node)
+        {
+            var previousClause = _currentClause;
+            _aliasScopes.Push(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+            _selectAliasScopes.Push(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            _derivedAliasScopes.Push(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+            try
             {
-                _currentClause = "HAVING";
-                node.HavingClause.Accept(this);
+                // زيارة الـ FROM أولاً لبناء الـ Aliases (مهم جداً)
+                if (node.FromClause != null)
+                {
+                    _currentClause = "FROM/JOIN";
+                    node.FromClause.Accept(this);
+                }
+
+                // ثم زيارة الـ SELECT Elements للتحقق من الأعمدة
+                _currentClause = "SELECT";
+                var currentSelectAliases = _selectAliasScopes.Peek();
+                foreach (var element in node.SelectElements)
+                {
+                    // جمع الـ Aliases المعرّفة في SELECT (مثل: AS TotalSales)
+                    if (element is SelectScalarExpression scalarExpr && scalarExpr.ColumnName != null)
+                    {
+                        currentSelectAliases.Add(scalarExpr.ColumnName.Value);
+                    }
+                    element.Accept(this);
+                }
+
+                if (node.TopRowFilter != null)
+                {
+                    _currentClause = "TOP";
+                    node.TopRowFilter.Accept(this);
+                }
+
+                // زيارة باقي الأجزاء (Where, GroupBy, OrderBy, etc.) للبحث عن الأعمدة غير الصالحة فيها أيضاً
+                if (node.WhereClause != null)
+                {
+                    _currentClause = "WHERE";
+                    node.WhereClause.Accept(this);
+                }
+
+                if (node.GroupByClause != null)
+                {
+                    _currentClause = "GROUP BY";
+                    node.GroupByClause.Accept(this);
+                }
+
+                if (node.HavingClause != null)
+                {
+                    _currentClause = "HAVING";
+                    node.HavingClause.Accept(this);
+                }
+
+                if (node.OrderByClause != null)
+                {
+                    _currentClause = "ORDER BY";
+                    node.OrderByClause.Accept(this);
+                }
+
+                if (node.OffsetClause != null)
+                {
+                    _currentClause = "OFFSET";
+                    node.OffsetClause.Accept(this);
+                }
+            }
+            finally
+            {
+                _aliasScopes.Pop();
+                _selectAliasScopes.Pop();
+                _derivedAliasScopes.Pop();
+                _currentClause = previousClause;
             }
         }
 
@@ -154,15 +250,6 @@ namespace DynamicAi.Application.Services.SqlEngine
                 return;
             }
 
-            // سابقاً كنا نتحقق فقط من جملة SELECT، ولكن إذا تُرك عمود خاطئ في WHERE أو GROUP BY 
-            // سيفشل الاستعلام بأكمله في SQL Server. لذا يجب فحصه في كل مكان.
-
-            // استخراج اسم العمود
-            // MultiPartIdentifier قد يكون:
-            // - ColName (Length 1)
-            // - Alias.ColName (Length 2)
-            // - Schema.Table.ColName (Length 3)
-            
             var identifiers = node.MultiPartIdentifier.Identifiers;
             string columnName = identifiers.Last().Value; // دائماً الأخير هو اسم العمود
             string? tableNameOrAlias = null;
@@ -175,8 +262,12 @@ namespace DynamicAi.Application.Services.SqlEngine
 
             // تجاهل SELECT Aliases في ORDER BY / GROUP BY
             // مثل: SUM(finaltotal) AS TotalSales ... ORDER BY TotalSales
+            var currentSelectAliases = _selectAliasScopes.Count > 0
+                ? _selectAliasScopes.Peek()
+                : _selectAliases;
+
             if (identifiers.Count == 1 && (_currentClause == "ORDER BY" || _currentClause == "GROUP BY")
-                && _selectAliases.Contains(columnName))
+                && currentSelectAliases.Contains(columnName))
             {
                 return; // هذا alias معرّف في SELECT، مش column حقيقي
             }
@@ -187,43 +278,33 @@ namespace DynamicAi.Application.Services.SqlEngine
                 tableNameOrAlias = identifiers[identifiers.Count - 2].Value;
             }
 
-            // 1. إذا لم نعرف الجدول (لا يوجد Alias)، هل هو موجود في أي من الجداول المعروفة؟
-            // هذه حالة صعبة (Ambiguous)، لكن في الـ Sanitization، إذا لم نعرف المصدر، نفترض أنه صحيح (Innocent until proven guilty).
-            // إلا إذا كان لدينا جدول واحد فقط في الـ FROM، وقتها يمكننا التحقق.
-            string? targetRealTable = null;
+            string? targetRealTable;
+            bool isDerivedAlias;
 
             if (tableNameOrAlias != null)
             {
-                // محاولة حل الـ Alias
-                if (AliasMap.TryGetValue(tableNameOrAlias, out var mappedTable))
+                // حل الـ Alias من النطاق الداخلي إلى الخارجي (يدعم Correlated Subqueries)
+                targetRealTable = ResolveQualifiedTable(tableNameOrAlias, out isDerivedAlias);
+                if (targetRealTable == null)
                 {
-                    targetRealTable = mappedTable;
-                }
-                else
-                {
-                    // الـ Alias نفسه غير معروف!
                     var error = $"Table alias '{tableNameOrAlias}' for column '{columnName}' is not defined in the FROM/JOIN clauses.";
-                    Warnings.Add($"[Sanitizer] {error}");
-                    _otherValidationErrors.Add(error);
-                    return; 
+                    AddOtherValidationError(error);
+                    return;
                 }
             }
             else
             {
-                // لا يوجد Alias. 
-                // إذا كان لدينا جدول واحد فقط في الخريطة، نستخدمه.
-                if (AliasMap.Count == 1)
+                // لا يوجد Alias: التحقق ضمن النطاق الحالي (أو النطاقات المحيطة إذا كان النطاق الحالي فارغاً)
+                targetRealTable = ResolveUnqualifiedTable(columnName, out isDerivedAlias);
+                if (targetRealTable == null)
                 {
-                    targetRealTable = AliasMap.Values.First();
-                }
-                else
-                {
-                    // أكثر من جدول ولا يوجد Alias. خطأ صريح في الاستعلام المعقد
-                    var error = $"Ambiguous column '{columnName}'. You must use an exact table alias (e.g. T1.{columnName}) when multiple tables are present.";
-                    Warnings.Add($"[Sanitizer] {error}");
-                    _otherValidationErrors.Add(error);
                     return;
                 }
+            }
+
+            if (isDerivedAlias || IsCteName(targetRealTable))
+            {
+                return;
             }
 
             // الآن لدينا: targetRealTable + columnName
@@ -250,6 +331,110 @@ namespace DynamicAi.Application.Services.SqlEngine
                 }
             }
             // إذا الجدول نفسه غير موجود في الـ Schema (لم يظهر في الـ Check الأول)، نتجاوز.
+        }
+
+        private void RegisterAlias(string aliasKey, string realTableName)
+        {
+            if (_aliasScopes.Count > 0)
+            {
+                _aliasScopes.Peek()[aliasKey] = realTableName;
+            }
+
+            if (_aliasScopes.Count <= 1)
+            {
+                AliasMap[aliasKey] = realTableName;
+            }
+            else
+            {
+                AliasMap.TryAdd(aliasKey, realTableName);
+            }
+        }
+
+        private bool IsCteName(string tableName)
+        {
+            foreach (var cteScope in _cteScopes)
+            {
+                if (cteScope.Contains(tableName))
+                {
+                    return true;
+                }
+            }
+            return _fallbackCteNames.Contains(tableName);
+        }
+
+        private string? ResolveQualifiedTable(string tableNameOrAlias, out bool isDerivedAlias)
+        {
+            if (_aliasScopes.Count > 0)
+            {
+                foreach (var (aliasScope, derivedScope) in _aliasScopes.Zip(_derivedAliasScopes))
+                {
+                    if (aliasScope.TryGetValue(tableNameOrAlias, out var mappedTable))
+                    {
+                        isDerivedAlias = derivedScope.Contains(tableNameOrAlias);
+                        return mappedTable;
+                    }
+                }
+            }
+            else if (AliasMap.TryGetValue(tableNameOrAlias, out var fallbackTable))
+            {
+                isDerivedAlias = _fallbackDerivedAliases.Contains(tableNameOrAlias);
+                return fallbackTable;
+            }
+
+            isDerivedAlias = false;
+            return null;
+        }
+
+        private string? ResolveUnqualifiedTable(string columnName, out bool isDerivedAlias)
+        {
+            if (_aliasScopes.Count > 0)
+            {
+                foreach (var (scope, derivedScope) in _aliasScopes.Zip(_derivedAliasScopes))
+                {
+                    if (scope.Count == 1)
+                    {
+                        var singleEntry = scope.First();
+                        isDerivedAlias = derivedScope.Contains(singleEntry.Key);
+                        return singleEntry.Value;
+                    }
+
+                    if (scope.Count > 1)
+                    {
+                        var error = $"Ambiguous column '{columnName}'. You must use an exact table alias (e.g. T1.{columnName}) when multiple tables are present.";
+                        AddOtherValidationError(error);
+                        isDerivedAlias = false;
+                        return null;
+                    }
+                }
+
+                isDerivedAlias = false;
+                return null;
+            }
+
+            if (AliasMap.Count == 1)
+            {
+                var singleEntry = AliasMap.First();
+                isDerivedAlias = _fallbackDerivedAliases.Contains(singleEntry.Key);
+                return singleEntry.Value;
+            }
+
+            if (AliasMap.Count > 1)
+            {
+                var error = $"Ambiguous column '{columnName}'. You must use an exact table alias (e.g. T1.{columnName}) when multiple tables are present.";
+                AddOtherValidationError(error);
+            }
+
+            isDerivedAlias = false;
+            return null;
+        }
+
+        private void AddOtherValidationError(string error)
+        {
+            if (_otherValidationErrorSet.Add(error))
+            {
+                Warnings.Add($"[Sanitizer] {error}");
+                _otherValidationErrors.Add(error);
+            }
         }
 
         // ============================================================================

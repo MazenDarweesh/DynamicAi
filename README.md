@@ -14,9 +14,10 @@ ERP Client / Angular 21 POC UI (frontend/DynamicAi.UI)
   ▼  HTTPS + X-Api-Key (Integration / Admin)
 ┌──────────────────────────────────────────────────────────────────────┐
 │ 1. Middleware & Security Pipeline (src/DynamicAi.Api)                │
-│    • CorrelationIdMiddleware (X-Correlation-ID propagation)          │
-│    • Strict X-Api-Key Auth (Integration | AdminOnly policies)        │
-│    • LlmBudgetLimitMiddleware ($2.00/day hard limit, 60s cache)      │
+│    • CorrelationIdMiddleware + UseSerilogRequestLogging (pre-mapped) │
+│    • ExceptionHandlingMiddleware (200 RFC-7807 Clarification / err)  │
+│    • Strict X-Api-Key Auth (Integration: queries+feedback | Admin)   │
+│    • LlmBudgetLimitMiddleware ($2.00/day hard limit, post-auth)      │
 └──────────────────────────────────┬───────────────────────────────────┘
                                    ▼
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -29,8 +30,9 @@ ERP Client / Angular 21 POC UI (frontend/DynamicAi.UI)
                                    ▼  (on cache miss)
 ┌──────────────────────────────────────────────────────────────────────┐
 │ 3. Unified Query Handler (UnifiedQueryHandler)                       │
-│    • Google.GenAI SDK (0.10.0) + gemini-3.5-flash-lite               │
-│    • Native Structured Outputs + SystemInstruction Implicit Caching  │
+│    • Google.GenAI SDK (0.10.0) + Gemini:FallbackModels chain         │
+│      (gemini-3.5-flash-lite → 2.5-flash-lite → 2.5-flash)            │
+│    • Live schema phantom-column filtering (PageContextFormatter)     │
 │    • Optional deterministic QueryIrCompiler & Shadow Mode            │
 │      (Features:UseQueryIrCompiler / Features:QueryIrShadowMode)      │
 │    • Self-healing SQL retry loop on sanitization/DB errors           │
@@ -39,6 +41,7 @@ ERP Client / Angular 21 POC UI (frontend/DynamicAi.UI)
 ┌──────────────────────────────────────────────────────────────────────┐
 │ 4. Single-Pass SqlGuardPipeline (TSql160Parser AST)                  │
 │    • Read-only AST validation (SecurityVisitor — blocks DML/DDL/EXEC)│
+│    • SanitizationVisitor lexical subquery/CTE scope validation       │
 │    • TableWhitelistMode (AuditOnly / Strict)                         │
 │    • Mandatory ComID (@CurrentCompanyId) + Scoped TailCondition      │
 └──────────────────────────────────┬───────────────────────────────────┘
@@ -59,7 +62,7 @@ ERP Client / Angular 21 POC UI (frontend/DynamicAi.UI)
 ## 🔑 Key Capabilities
 
 - **Directed-Page Integration (`POST /AIQuery/integration/directed-page-ask`):** Accepts `ExplicitContext` (`MasterSetup`, `DetailSetups`, `Columns`, `TailCondition`, `IsVisible`), `ComID`, `TenantId`, and either a dynamic `ConnectionString` (HTTPS + `db_datareader`) or an optional configured `TenantKey`.
-- **Strict API Key Authentication & RBAC:** `ApiKeyAuthenticationHandler` (`Auth:Mode = Strict` by default) enforces `X-Api-Key` / `Authorization: Bearer` with `Integration` role for query endpoints and `AdminOnly` policy for management/cost/cache dashboards. `GET /AIQuery/ping` remains anonymous for health checks.
+- **Strict API Key Authentication & RBAC:** `ApiKeyAuthenticationHandler` (`Auth:Mode = Strict` by default) enforces `X-Api-Key` / `Authorization: Bearer` with `Integration` role for `POST /AIQuery/integration/directed-page-ask` and user feedback (`POST /api/feedback/like/{queryLogId}`, `POST /api/feedback/dislike`), while `/api/feedback/training/*`, `/api/feedback/synonyms/*`, and management/cost/cache dashboards require `AdminOnly`. `GET /AIQuery/ping` stays anonymous without warning noise.
 - **Zero-Vector Exact Query Cache:** `ExactQueryCacheService` uses a bounded `IMemoryCache` (`MaxEntries = 10000`, `TTLDays = 7`) with Arabic diacritic/letter/numeral normalization and strict `TenantId` + `CompanyId` + `PageId` scoping (`<5ms` hits, `$0` embedding cost).
 - **Optional Deterministic Query IR Compiler:** Feature-flagged (`Features:UseQueryIrCompiler`, `Features:QueryIrShadowMode`) `QueryIrCompiler` compiles structured `QueryIrPlan` JSON into parameterized T-SQL (`@p0`, `@p1`, ...) with automatic `TM`/`TD` and dropdown `T1`/`T2` joins and automatic fallback to `unified_master` raw SQL for advanced queries.
 - **LLM Financial Governance:** Real token extraction (`InputTokens`, `OutputTokens`, `CachedTokens`) from `Google.GenAI` `UsageMetadata`, USD cost tracking (`$0.30` / `$2.50` / `$0.03` per 1M tokens for `gemini-3.5-flash-lite`), and `LlmBudgetLimitMiddleware` enforcing `DailyBudgetUsd = 2.00` (with 60s cached budget checks).
@@ -83,7 +86,7 @@ DynamicAi/
 │   │                                    # SandboxedSqlExecutor, TenantConnectionResolver, EF Core
 │   └── DynamicAi.Api/                   # Controllers, Middleware, Auth, Serilog/OTel setup
 ├── tests/
-│   └── DynamicAI.Tests/                 # 287 automated tests (Unit, Security Red-Team,
+│   └── DynamicAI.Tests/                 # 317 automated tests (Unit, Security Red-Team,
 │                                        # Integration, Golden Evaluation & Shadow Mode)
 ├── frontend/
 │   └── DynamicAi.UI/                    # Angular 21 POC Tester & Admin Console
@@ -149,7 +152,7 @@ docker compose --profile observability up -d
 ```powershell
 $env:DOTNET_ROLL_FORWARD = "Major"
 
-# Main test suite (287 tests: Unit, Security Red-Team, Integration, Evaluation)
+# Main test suite (317 tests: Unit, Security Red-Team, Integration, Evaluation)
 dotnet test DynamicAi.sln
 
 # Isolated legacy schema tools smoke tests (10 tests)

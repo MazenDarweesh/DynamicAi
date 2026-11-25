@@ -21,8 +21,13 @@ public static class PageContextFormatter
 
     /// <summary>
     /// Compresses ShippedPageContext into compact pipe-delimited format for the LLM prompt.
+    /// When <paramref name="actualSchemaMap"/> is provided and contains a view name, phantom columns
+    /// that do not exist in the database view are filtered out (case-insensitive).
     /// </summary>
-    public static string CompressPageContextForPrompt(ShippedPageContext ctx, List<ColumnSynonym> approvedSynonyms)
+    public static string CompressPageContextForPrompt(
+        ShippedPageContext ctx,
+        List<ColumnSynonym> approvedSynonyms,
+        IReadOnlyDictionary<string, HashSet<string>>? actualSchemaMap = null)
     {
         var sb = new StringBuilder();
 
@@ -34,7 +39,7 @@ public static class PageContextFormatter
             sb.AppendLine($"[MASTER.TailCondition] {ctx.MasterSetup.TailCondition.Trim()}");
 
         sb.AppendLine("[MASTER.COLUMNS] SearchName | ColumnName | InsertType | arLabel | enLabel | DroInfo");
-        AppendColumnRows(sb, ctx.MasterSetup.TableName, ctx.MasterSetup.Columns, approvedSynonyms);
+        AppendColumnRows(sb, ctx.MasterSetup.TableName, ctx.MasterSetup.Columns, approvedSynonyms, actualSchemaMap);
         sb.AppendLine();
 
         var detailSetups = ctx.DetailSetups ?? new();
@@ -47,21 +52,57 @@ public static class PageContextFormatter
                 sb.AppendLine($"[DETAIL.TailCondition] {detail.TailCondition.Trim()}");
 
             sb.AppendLine("[DETAIL.COLUMNS] SearchName | ColumnName | InsertType | arLabel | enLabel | DroInfo");
-            AppendColumnRows(sb, detail.TableName, detail.Columns, approvedSynonyms);
+            AppendColumnRows(sb, detail.TableName, detail.Columns, approvedSynonyms, actualSchemaMap);
             sb.AppendLine();
         }
 
         return sb.ToString().Trim();
     }
 
+    private static HashSet<string>? ResolveViewColumns(
+        IReadOnlyDictionary<string, HashSet<string>>? actualSchemaMap,
+        string? tableName)
+    {
+        if (actualSchemaMap == null || string.IsNullOrWhiteSpace(tableName))
+            return null;
+
+        HashSet<string>? rawCols = null;
+        if (!actualSchemaMap.TryGetValue(tableName, out rawCols))
+        {
+            foreach (var kvp in actualSchemaMap)
+            {
+                if (string.Equals(kvp.Key, tableName, StringComparison.OrdinalIgnoreCase))
+                {
+                    rawCols = kvp.Value;
+                    break;
+                }
+            }
+        }
+
+        if (rawCols == null)
+            return null;
+
+        return rawCols.Comparer.Equals(StringComparer.OrdinalIgnoreCase)
+            ? rawCols
+            : new HashSet<string>(rawCols, StringComparer.OrdinalIgnoreCase);
+    }
+
     private static void AppendColumnRows(
         StringBuilder sb,
         string tableName,
         IEnumerable<DynamicAi.Application.Models.DirectIntegration.ColumnDefinition> columns,
-        List<ColumnSynonym> approvedSynonyms)
+        List<ColumnSynonym> approvedSynonyms,
+        IReadOnlyDictionary<string, HashSet<string>>? actualSchemaMap = null)
     {
+        var actualViewColumns = ResolveViewColumns(actualSchemaMap, tableName);
+
         foreach (var col in columns)
         {
+            if (actualViewColumns != null &&
+                (string.IsNullOrWhiteSpace(col.ColumnName) || !actualViewColumns.Contains(col.ColumnName)))
+            {
+                continue;
+            }
             bool includeDro = string.Equals(col.InsertType, "dropdown", StringComparison.OrdinalIgnoreCase)
                 && !string.IsNullOrWhiteSpace(col.DroModel)
                 && !string.Equals(col.ColumnName, "CreateBy", StringComparison.OrdinalIgnoreCase)

@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -36,7 +37,11 @@ public class AuthenticationAndAuthzTests
     }
 
     private static async Task<(AuthenticateResult Result, DefaultHttpContext HttpContext, ApiKeyAuthenticationHandler Handler)>
-        AuthenticateAsync(AuthOptions authOptions, Action<HttpRequest>? configureRequest = null)
+        AuthenticateAsync(
+            AuthOptions authOptions,
+            Action<HttpRequest>? configureRequest = null,
+            Action<HttpContext>? configureContext = null,
+            ILoggerFactory? loggerFactory = null)
     {
         var schemeMonitor = A.Fake<IOptionsMonitor<AuthenticationSchemeOptions>>();
         A.CallTo(() => schemeMonitor.Get(ApiKeyAuthenticationHandler.SchemeName))
@@ -46,7 +51,7 @@ public class AuthenticationAndAuthzTests
 
         var handler = new ApiKeyAuthenticationHandler(
             schemeMonitor,
-            NullLoggerFactory.Instance,
+            loggerFactory ?? NullLoggerFactory.Instance,
             UrlEncoder.Default,
             Options.Create(authOptions));
 
@@ -54,6 +59,7 @@ public class AuthenticationAndAuthzTests
         httpContext.Request.Method = HttpMethods.Post;
         httpContext.Request.Path = "/AIQuery/integration/directed-page-ask";
         configureRequest?.Invoke(httpContext.Request);
+        configureContext?.Invoke(httpContext);
 
         var scheme = new AuthenticationScheme(
             ApiKeyAuthenticationHandler.SchemeName,
@@ -63,6 +69,34 @@ public class AuthenticationAndAuthzTests
         await handler.InitializeAsync(scheme, httpContext);
         var result = await handler.AuthenticateAsync();
         return (result, httpContext, handler);
+    }
+
+    private sealed class RecordingLoggerFactory : ILoggerFactory
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = new();
+
+        public void AddProvider(ILoggerProvider provider) { }
+
+        public ILogger CreateLogger(string categoryName) => new RecordingLogger(Entries);
+
+        public void Dispose() { }
+
+        private sealed class RecordingLogger(List<(LogLevel Level, string Message)> entries) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                entries.Add((logLevel, formatter(state, exception)));
+            }
+        }
     }
 
     private static AuthOptions CreateStrictAuthOptions() => new()
@@ -96,6 +130,83 @@ public class AuthenticationAndAuthzTests
 
         result.Succeeded.Should().BeFalse();
         result.Failure.Should().NotBeNull();
+
+        await handler.ChallengeAsync(new AuthenticationProperties());
+        httpContext.Response.StatusCode.Should().Be(StatusCodes.Status401Unauthorized);
+    }
+
+    [Fact]
+    public async Task StrictMode_AllowAnonymousEndpoint_MissingKey_ShouldReturnNoResultSilently()
+    {
+        var loggerFactory = new RecordingLoggerFactory();
+
+        var (result, _, _) = await AuthenticateAsync(
+            CreateStrictAuthOptions(),
+            req =>
+            {
+                req.Method = HttpMethods.Get;
+                req.Path = "/AIQuery/ping";
+            },
+            ctx => ctx.SetEndpoint(new Endpoint(
+                _ => Task.CompletedTask,
+                new EndpointMetadataCollection(new AllowAnonymousAttribute()),
+                "Ping")),
+            loggerFactory);
+
+        result.None.Should().BeTrue();
+        result.Succeeded.Should().BeFalse();
+        result.Failure.Should().BeNull();
+        loggerFactory.Entries.Should().NotContain(e => e.Level >= LogLevel.Warning);
+        loggerFactory.Entries.Should().NotContain(e => e.Message.Contains("API key authentication failed"));
+    }
+
+    [Fact]
+    public async Task StrictMode_AllowAnonymousEndpoint_InvalidKey_ShouldStillFailAndChallenge401()
+    {
+        var loggerFactory = new RecordingLoggerFactory();
+
+        var (result, httpContext, handler) = await AuthenticateAsync(
+            CreateStrictAuthOptions(),
+            req =>
+            {
+                req.Method = HttpMethods.Get;
+                req.Path = "/AIQuery/ping";
+                req.Headers[ApiKeyAuthenticationHandler.ApiKeyHeaderName] = "wrong-api-key";
+            },
+            ctx => ctx.SetEndpoint(new Endpoint(
+                _ => Task.CompletedTask,
+                new EndpointMetadataCollection(new AllowAnonymousAttribute()),
+                "Ping")),
+            loggerFactory);
+
+        result.None.Should().BeFalse();
+        result.Succeeded.Should().BeFalse();
+        result.Failure.Should().NotBeNull();
+        loggerFactory.Entries.Should().ContainSingle(e =>
+            e.Level == LogLevel.Warning && e.Message.Contains("API key authentication failed"));
+
+        await handler.ChallengeAsync(new AuthenticationProperties());
+        httpContext.Response.StatusCode.Should().Be(StatusCodes.Status401Unauthorized);
+    }
+
+    [Fact]
+    public async Task StrictMode_ProtectedEndpoint_MissingKey_ShouldFailAndChallenge401()
+    {
+        var loggerFactory = new RecordingLoggerFactory();
+
+        var (result, httpContext, handler) = await AuthenticateAsync(
+            CreateStrictAuthOptions(),
+            configureContext: ctx => ctx.SetEndpoint(new Endpoint(
+                _ => Task.CompletedTask,
+                new EndpointMetadataCollection(new AuthorizeAttribute()),
+                "DirectedPageAsk")),
+            loggerFactory: loggerFactory);
+
+        result.None.Should().BeFalse();
+        result.Succeeded.Should().BeFalse();
+        result.Failure.Should().NotBeNull();
+        loggerFactory.Entries.Should().ContainSingle(e =>
+            e.Level == LogLevel.Warning && e.Message.Contains("API key authentication failed"));
 
         await handler.ChallengeAsync(new AuthenticationProperties());
         httpContext.Response.StatusCode.Should().Be(StatusCodes.Status401Unauthorized);

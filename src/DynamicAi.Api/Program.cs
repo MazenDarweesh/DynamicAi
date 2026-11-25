@@ -29,10 +29,9 @@ try
     var app = builder.Build();
 
     app.UseMiddleware<CorrelationIdMiddleware>();
+    app.UseSerilogRequestLogging();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
     app.UseMiddleware<RequestMetricsMiddleware>();
-    app.UseMiddleware<LlmBudgetLimitMiddleware>();
-    app.UseSerilogRequestLogging();
 
     if (app.Environment.IsDevelopment())
     {
@@ -40,13 +39,18 @@ try
         app.UseSwaggerUI();
     }
 
-    app.UseHttpsRedirection();
+    if (!app.Environment.IsDevelopment())
+    {
+        app.UseHttpsRedirection();
+    }
+
     app.UseDefaultFiles();
     app.UseStaticFiles();
 
     app.UseCors("AllowAngularDev");
     app.UseAuthentication();
     app.UseAuthorization();
+    app.UseMiddleware<LlmBudgetLimitMiddleware>();
     app.MapControllers();
 
     app.Run();

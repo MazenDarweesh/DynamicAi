@@ -160,6 +160,7 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
                 currentPageId,
                 context,
                 approvedSynonyms,
+                schemaPrefetchTask,
                 cancellationToken);
         }
 
@@ -184,13 +185,16 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask,
         CancellationToken cancellationToken)
     {
+        var actualSchemaMap = await ResolveActualSchemaMapAsync(schemaPrefetchTask, cancellationToken);
+
         var (irPrompt, schemaChars) = await RenderPromptTemplateAsync(
             "ir_planner",
             finalContext,
             context,
             companyId,
             currentPageId,
-            approvedSynonyms);
+            approvedSynonyms,
+            actualSchemaMap);
 
         DynamicAiTelemetry.PromptChars.Record(
             irPrompt.Length,
@@ -353,6 +357,8 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         decimal priorCostUsd,
         CancellationToken cancellationToken)
     {
+        var actualSchemaMap = await ResolveActualSchemaMapAsync(schemaPrefetchTask, cancellationToken);
+
         // Render Master Prompt (static/cacheable per schema & context, excluding userQuestion)
         var (renderedPrompt, schemaChars) = await RenderPromptTemplateAsync(
             "unified_master",
@@ -360,7 +366,8 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
             context,
             companyId,
             currentPageId,
-            approvedSynonyms);
+            approvedSynonyms,
+            actualSchemaMap);
 
         Activity.Current?.SetTag("schema.chars", schemaChars);
 
@@ -511,6 +518,7 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         int currentPageId,
         IntentHandlerContext? context,
         List<ColumnSynonym> approvedSynonyms,
+        Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask,
         CancellationToken cancellationToken)
     {
         using var shadowActivity = DynamicAiTelemetry.ActivitySource.StartActivity("ir.shadow");
@@ -520,13 +528,15 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
 
         try
         {
+            var actualSchemaMap = await ResolveActualSchemaMapAsync(schemaPrefetchTask, cancellationToken);
             var (irPrompt, _) = await RenderPromptTemplateAsync(
                 "ir_planner",
                 finalContext,
                 context,
                 companyId,
                 currentPageId,
-                approvedSynonyms);
+                approvedSynonyms,
+                actualSchemaMap);
 
             var irRequest = new LlmRequest
             {
@@ -673,16 +683,48 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         return synonyms;
     }
 
+    private async Task<IReadOnlyDictionary<string, HashSet<string>>?> ResolveActualSchemaMapAsync(
+        Task<Dictionary<string, HashSet<string>>>? schemaPrefetchTask,
+        CancellationToken cancellationToken)
+    {
+        if (schemaPrefetchTask == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var schemaMap = await schemaPrefetchTask;
+            if (schemaMap == null || schemaMap.Count == 0)
+            {
+                _logger.LogWarning("[UnifiedHandler] Schema prefetch returned null or empty schema map; skipping phantom column filtering (fail-open).");
+                return null;
+            }
+
+            return schemaMap;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[UnifiedHandler] Schema prefetch failed; skipping phantom column filtering (fail-open).");
+            return null;
+        }
+    }
+
     private async Task<(string Prompt, int SchemaChars)> RenderPromptTemplateAsync(
         string templateName,
         ShippedPageContext finalContext,
         IntentHandlerContext? context,
         int? companyId,
         int currentPageId,
-        List<ColumnSynonym> approvedSynonyms)
+        List<ColumnSynonym> approvedSynonyms,
+        IReadOnlyDictionary<string, HashSet<string>>? actualSchemaMap = null)
     {
         string schemaContent = _compactDirectedContext
-            ? PageContextFormatter.CompressPageContextForPrompt(finalContext, approvedSynonyms)
+            ? PageContextFormatter.CompressPageContextForPrompt(finalContext, approvedSynonyms, actualSchemaMap)
             : JsonSerializer.Serialize(finalContext, _jsonOptions);
 
         string rulesContent = finalContext.BusinessRules?.Any() == true

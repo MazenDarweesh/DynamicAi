@@ -34,19 +34,29 @@ namespace DynamicAi.Api.Middleware
                 var durationMs = (DateTime.UtcNow - start).TotalMilliseconds;
                 var problem = ExceptionMapper.Map(ex, context, durationMs);
 
-                // Determine log level based on status code
-                var level = problem.Status >= 500 ? LogLevel.Error :
-                            problem.Status >= 400 ? LogLevel.Warning :
-                            LogLevel.Information;
+                var statusCode = problem.Status ?? StatusCodes.Status500InternalServerError;
 
-                _logger.Log(level, ex,
-                    "[API] {Path} → {Status} ({Duration:F0}ms) – {Title}",
-                    context.Request.Path,
-                    problem.Status,
-                    durationMs,
-                    problem.Title);
+                if (statusCode < 400)
+                {
+                    _logger.LogInformation(
+                        "[API] {Path} → {Status} ({Duration:F0}ms) – {Title}",
+                        context.Request.Path,
+                        statusCode,
+                        durationMs,
+                        problem.Title);
+                }
+                else
+                {
+                    var level = statusCode >= 500 ? LogLevel.Error : LogLevel.Warning;
+                    _logger.Log(level, ex,
+                        "[API] {Path} → {Status} ({Duration:F0}ms) – {Title}",
+                        context.Request.Path,
+                        statusCode,
+                        durationMs,
+                        problem.Title);
+                }
 
-                context.Response.StatusCode = problem.Status ?? 500;
+                context.Response.StatusCode = statusCode;
                 context.Response.ContentType = "application/problem+json";
 
                 var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
