@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using DynamicAi.Application.Models.DirectIntegration;
+using DynamicAi.Application.Services.SqlEngine;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
 
 /// <summary>
@@ -43,9 +44,11 @@ public class SqlHardeningVisitor : TSqlFragmentVisitor
         _topRows = topRows;
         _companyId = companyId;
         _enforceCompanyFilter = enforceCompanyFilter;
-        _masterViewName = masterViewName;
+        var normalizedMaster = SqlIdentifierNormalizer.NormalizeTableName(masterViewName);
+        _masterViewName = string.IsNullOrWhiteSpace(normalizedMaster) ? null : normalizedMaster;
         _tailConditions = tailConditions?
-            .Where(e => !string.IsNullOrWhiteSpace(e.Condition) && !string.IsNullOrWhiteSpace(e.ViewName))
+            .Where(e => !string.IsNullOrWhiteSpace(e.Condition) &&
+                        !string.IsNullOrWhiteSpace(SqlIdentifierNormalizer.NormalizeTableName(e.ViewName)))
             .ToList() ?? new List<TailConditionEntry>();
     }
 
@@ -99,7 +102,7 @@ public class SqlHardeningVisitor : TSqlFragmentVisitor
     {
         if (_queryStack.TryPeek(out var currentQuery))
         {
-            var tableName = node.SchemaObject?.BaseIdentifier?.Value ?? string.Empty;
+            var tableName = SqlIdentifierNormalizer.NormalizeTableName(node.SchemaObject?.BaseIdentifier?.Value);
             var alias = node.Alias?.Value;
             if (!string.IsNullOrEmpty(tableName) || !string.IsNullOrEmpty(alias))
             {
@@ -154,8 +157,10 @@ public class SqlHardeningVisitor : TSqlFragmentVisitor
 
         if (!string.IsNullOrWhiteSpace(_masterViewName))
         {
+            var normalizedMaster = SqlIdentifierNormalizer.NormalizeTableName(_masterViewName);
             var match = tables.FirstOrDefault(t =>
-                t.TableName.Equals(_masterViewName, StringComparison.OrdinalIgnoreCase));
+                SqlIdentifierNormalizer.NormalizeTableName(t.TableName)
+                    .Equals(normalizedMaster, StringComparison.OrdinalIgnoreCase));
             return !string.IsNullOrEmpty(match.TableName) ? match.Alias : null;
         }
 
@@ -184,11 +189,14 @@ public class SqlHardeningVisitor : TSqlFragmentVisitor
         TailConditionEntry entry,
         out string? effectiveAlias)
     {
+        var normalizedEntryView = SqlIdentifierNormalizer.NormalizeTableName(entry.ViewName);
+
         // 1. Exact (ViewName, SqlAlias) match — prevents TD1/TD2 cross-contamination.
         if (!string.IsNullOrWhiteSpace(entry.SqlAlias))
         {
             var exact = tables.FirstOrDefault(t =>
-                t.TableName.Equals(entry.ViewName, StringComparison.OrdinalIgnoreCase) &&
+                SqlIdentifierNormalizer.NormalizeTableName(t.TableName)
+                    .Equals(normalizedEntryView, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(t.Alias, entry.SqlAlias, StringComparison.OrdinalIgnoreCase));
 
             if (!string.IsNullOrEmpty(exact.TableName))
@@ -201,7 +209,8 @@ public class SqlHardeningVisitor : TSqlFragmentVisitor
         // 2. Fallback: ViewName matches with a different/absent alias only when unambiguous
         //    (single entry for that ViewName, and the table's alias isn't owned by another entry).
         int entriesForView = _tailConditions.Count(e =>
-            e.ViewName.Equals(entry.ViewName, StringComparison.OrdinalIgnoreCase));
+            SqlIdentifierNormalizer.NormalizeTableName(e.ViewName)
+                .Equals(normalizedEntryView, StringComparison.OrdinalIgnoreCase));
         if (entriesForView == 1)
         {
             var claimedAliases = _tailConditions
@@ -210,7 +219,8 @@ public class SqlHardeningVisitor : TSqlFragmentVisitor
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             var fallback = tables.FirstOrDefault(t =>
-                t.TableName.Equals(entry.ViewName, StringComparison.OrdinalIgnoreCase) &&
+                SqlIdentifierNormalizer.NormalizeTableName(t.TableName)
+                    .Equals(normalizedEntryView, StringComparison.OrdinalIgnoreCase) &&
                 (string.IsNullOrWhiteSpace(t.Alias) || !claimedAliases.Contains(t.Alias)));
 
             if (!string.IsNullOrEmpty(fallback.TableName))

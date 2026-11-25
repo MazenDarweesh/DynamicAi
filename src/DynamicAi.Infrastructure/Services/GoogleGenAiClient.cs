@@ -1,6 +1,9 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using DynamicAi.Application.Interfaces;
 using DynamicAi.Application.Models;
 using Google.GenAI;
@@ -19,23 +22,34 @@ namespace DynamicAi.Infrastructure.Services;
 /// <summary>
 /// Google.GenAI SDK implementation of <see cref="ILlmClient"/> with Polly resilience
 /// (45s per-attempt timeout, up to 2 exponential-backoff retries with jitter),
-/// ordered fallback model switching on transient failures, and native JSON response schema enforcement.
+/// ordered fallback model switching with per-model cooldown tracking on transient/quota failures,
+/// and native JSON response schema enforcement.
 /// </summary>
 public sealed class GoogleGenAiClient : ILlmClient
 {
     private const string DefaultChatModel = "gemini-3.5-flash-lite";
+    private const int DefaultModelCooldownSeconds = 180;
+    private const int DefaultQuotaCooldownSeconds = 1800;
     private static readonly string[] DefaultFallbackModels = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
     private static readonly TimeSpan DefaultAttemptTimeout = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan DefaultRetryBaseDelay = TimeSpan.FromSeconds(2);
+    private static readonly Regex RetryDelayRegex = new(
+        @"retryDelay[""']?\s*[:=]\s*[""']?(\d+(?:\.\d+)?)s",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
     private static readonly Schema UnifiedResponseSchema = BuildUnifiedResponseSchema();
     private static readonly Schema QueryIrResponseSchema = BuildQueryIrResponseSchema();
 
     private readonly Client? _client;
     private readonly string _defaultModel;
     private readonly string[] _fallbackModels;
+    private readonly TimeSpan _modelCooldownDuration;
+    private readonly TimeSpan _quotaCooldownDuration;
     private readonly ILogger<GoogleGenAiClient> _logger;
     private readonly ResiliencePipeline _resiliencePipeline;
     private readonly Func<string, string, GenerateContentConfig, CancellationToken, Task<GenerateContentResponse>> _generateContentAsync;
+    private readonly Func<DateTimeOffset> _utcNowProvider;
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _modelCooldownUntil = new(StringComparer.OrdinalIgnoreCase);
 
     public GoogleGenAiClient(
         Client client,
@@ -47,7 +61,8 @@ public sealed class GoogleGenAiClient : ILlmClient
             logger,
             generateContentAsync: null,
             retryBaseDelay: null,
-            attemptTimeout: null)
+            attemptTimeout: null,
+            utcNowProvider: null)
     {
     }
 
@@ -56,14 +71,16 @@ public sealed class GoogleGenAiClient : ILlmClient
         ILogger<GoogleGenAiClient> logger,
         Func<string, string, GenerateContentConfig, CancellationToken, Task<GenerateContentResponse>> generateContentAsync,
         TimeSpan? retryBaseDelay = null,
-        TimeSpan? attemptTimeout = null)
+        TimeSpan? attemptTimeout = null,
+        Func<DateTimeOffset>? utcNowProvider = null)
         : this(
             client: null,
             configuration,
             logger,
             generateContentAsync ?? throw new ArgumentNullException(nameof(generateContentAsync)),
             retryBaseDelay,
-            attemptTimeout)
+            attemptTimeout,
+            utcNowProvider)
     {
     }
 
@@ -73,12 +90,14 @@ public sealed class GoogleGenAiClient : ILlmClient
         ILogger<GoogleGenAiClient> logger,
         Func<string, string, GenerateContentConfig, CancellationToken, Task<GenerateContentResponse>>? generateContentAsync,
         TimeSpan? retryBaseDelay,
-        TimeSpan? attemptTimeout)
+        TimeSpan? attemptTimeout,
+        Func<DateTimeOffset>? utcNowProvider)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         _client = client;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _generateContentAsync = generateContentAsync ?? ExecuteSdkCallAsync;
+        _utcNowProvider = utcNowProvider ?? (() => DateTimeOffset.UtcNow);
 
         var configuredModel = configuration["Gemini:ChatModel"];
         _defaultModel = string.IsNullOrWhiteSpace(configuredModel)
@@ -86,6 +105,8 @@ public sealed class GoogleGenAiClient : ILlmClient
             : configuredModel.Trim();
 
         _fallbackModels = ResolveFallbackModels(configuration);
+        _modelCooldownDuration = ResolveDurationSeconds(configuration, "Gemini:ModelCooldownSeconds", DefaultModelCooldownSeconds);
+        _quotaCooldownDuration = ResolveDurationSeconds(configuration, "Gemini:QuotaCooldownSeconds", DefaultQuotaCooldownSeconds);
         _resiliencePipeline = BuildResiliencePipeline(
             retryBaseDelay ?? DefaultRetryBaseDelay,
             attemptTimeout ?? DefaultAttemptTimeout);
@@ -96,6 +117,9 @@ public sealed class GoogleGenAiClient : ILlmClient
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        var primaryModel = string.IsNullOrWhiteSpace(request.Model)
+            ? _defaultModel
+            : request.Model.Trim();
         var candidateModels = BuildCandidateModels(request.Model);
         var config = BuildGenerateContentConfig(request);
         var sw = Stopwatch.StartNew();
@@ -122,17 +146,42 @@ public sealed class GoogleGenAiClient : ILlmClient
                     return await callTask.WaitAsync(ct).ConfigureAwait(false);
                 }, cancellationToken).ConfigureAwait(false);
 
+                _modelCooldownUntil.TryRemove(candidateModel, out _);
                 succeededModel = candidateModel;
                 break;
             }
-            catch (Exception ex) when (i < candidateModels.Count - 1 && IsTransientException(ex, cancellationToken))
+            catch (Exception ex) when (IsDailyQuotaExhausted(ex))
             {
+                SetCooldown(candidateModel, _quotaCooldownDuration);
+                if (i == candidateModels.Count - 1)
+                {
+                    throw;
+                }
+
                 var nextModel = candidateModels[i + 1];
                 _logger.LogWarning(
-                    ex,
-                    "[GoogleGenAiClient] Model {FailedModel} failed transiently ({ErrorType}); falling back to {FallbackModel}.",
+                    "[GoogleGenAiClient] Model {FailedModel} exhausted daily quota ({ErrorType}: {ErrorMessage}); cooling down for {CooldownSeconds}s and falling back to {FallbackModel}.",
                     candidateModel,
                     ex.GetType().Name,
+                    SummarizeErrorMessage(ex),
+                    (int)_quotaCooldownDuration.TotalSeconds,
+                    nextModel);
+            }
+            catch (Exception ex) when (IsTransientException(ex, cancellationToken))
+            {
+                SetCooldown(candidateModel, _modelCooldownDuration);
+                if (i == candidateModels.Count - 1)
+                {
+                    throw;
+                }
+
+                var nextModel = candidateModels[i + 1];
+                _logger.LogWarning(
+                    "[GoogleGenAiClient] Model {FailedModel} failed transiently ({ErrorType}: {ErrorMessage}); cooling down for {CooldownSeconds}s and falling back to {FallbackModel}.",
+                    candidateModel,
+                    ex.GetType().Name,
+                    SummarizeErrorMessage(ex),
+                    (int)_modelCooldownDuration.TotalSeconds,
                     nextModel);
             }
         }
@@ -151,10 +200,10 @@ public sealed class GoogleGenAiClient : ILlmClient
             activity.SetTag("llm.provider", "Google.GenAI");
             activity.SetTag("llm.model", succeededModel);
             activity.SetTag("llm.tokens.cached", cachedTokens);
-            if (!string.Equals(succeededModel, candidateModels[0], StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(succeededModel, primaryModel, StringComparison.OrdinalIgnoreCase))
             {
                 activity.SetTag("llm.fallback_used", true);
-                activity.SetTag("llm.primary_model", candidateModels[0]);
+                activity.SetTag("llm.primary_model", primaryModel);
             }
         }
 
@@ -186,13 +235,21 @@ public sealed class GoogleGenAiClient : ILlmClient
         return configured.Length > 0 ? configured : DefaultFallbackModels;
     }
 
+    private static TimeSpan ResolveDurationSeconds(IConfiguration configuration, string key, int defaultSeconds)
+    {
+        var raw = configuration[key];
+        return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds) && seconds >= 0
+            ? TimeSpan.FromSeconds(seconds)
+            : TimeSpan.FromSeconds(defaultSeconds);
+    }
+
     private List<string> BuildCandidateModels(string? requestedModel)
     {
         var primaryModel = string.IsNullOrWhiteSpace(requestedModel)
             ? _defaultModel
             : requestedModel.Trim();
 
-        var candidates = new List<string>(1 + _fallbackModels.Length) { primaryModel };
+        var orderedModels = new List<string>(1 + _fallbackModels.Length) { primaryModel };
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { primaryModel };
 
         foreach (var fallback in _fallbackModels)
@@ -202,12 +259,58 @@ public sealed class GoogleGenAiClient : ILlmClient
                 var trimmed = fallback.Trim();
                 if (seen.Add(trimmed))
                 {
-                    candidates.Add(trimmed);
+                    orderedModels.Add(trimmed);
                 }
             }
         }
 
-        return candidates;
+        var now = _utcNowProvider();
+        var healthy = new List<string>(orderedModels.Count);
+        var cooledDown = new List<string>(orderedModels.Count);
+
+        foreach (var model in orderedModels)
+        {
+            if (IsInCooldown(model, now))
+            {
+                cooledDown.Add(model);
+            }
+            else
+            {
+                healthy.Add(model);
+            }
+        }
+
+        healthy.AddRange(cooledDown);
+        return healthy;
+    }
+
+    private bool IsInCooldown(string model, DateTimeOffset now)
+    {
+        if (_modelCooldownUntil.TryGetValue(model, out var cooldownUntil))
+        {
+            if (cooldownUntil > now)
+            {
+                return true;
+            }
+
+            _modelCooldownUntil.TryRemove(new KeyValuePair<string, DateTimeOffset>(model, cooldownUntil));
+        }
+
+        return false;
+    }
+
+    private void SetCooldown(string model, TimeSpan duration)
+    {
+        if (duration <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        var until = _utcNowProvider() + duration;
+        _modelCooldownUntil.AddOrUpdate(
+            model,
+            until,
+            (_, existing) => existing > until ? existing : until);
     }
 
     private static GenerateContentConfig BuildGenerateContentConfig(LlmRequest request)
@@ -440,15 +543,22 @@ public sealed class GoogleGenAiClient : ILlmClient
                     }
 
                     var ex = args.Outcome.Exception;
+                    if (IsDailyQuotaExhausted(ex))
+                    {
+                        return ValueTask.FromResult(false);
+                    }
+
                     return ValueTask.FromResult(IsTransientException(ex, args.Context.CancellationToken));
                 },
                 OnRetry = args =>
                 {
+                    var ex = args.Outcome.Exception;
                     _logger.LogWarning(
-                        args.Outcome.Exception,
-                        "[GoogleGenAiClient] Transient LLM failure. Retry #{AttemptNumber} after {DelayMs}ms.",
+                        "[GoogleGenAiClient] Transient LLM failure ({ErrorType}: {ErrorMessage}). Retry #{AttemptNumber} after {DelayMs}ms.",
+                        ex?.GetType().Name ?? "Unknown",
+                        SummarizeErrorMessage(ex),
                         args.AttemptNumber + 1,
-                        args.RetryDelay.TotalMilliseconds);
+                        (int)args.RetryDelay.TotalMilliseconds);
                     return ValueTask.CompletedTask;
                 }
             })
@@ -456,9 +566,51 @@ public sealed class GoogleGenAiClient : ILlmClient
             .Build();
     }
 
-    private static bool IsTransientException(Exception? ex, CancellationToken outerCancellationToken)
+    internal static bool IsDailyQuotaExhausted(Exception? ex)
     {
         if (ex is null)
+        {
+            return false;
+        }
+
+        var clientError = ex as ClientError ?? ex.InnerException as ClientError;
+        if (clientError is null)
+        {
+            return false;
+        }
+
+        var msg = clientError.Message;
+        if (string.IsNullOrWhiteSpace(msg))
+        {
+            return false;
+        }
+
+        if (msg.Contains("GenerateRequestsPerDay", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("free_tier_requests", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("limit: 20", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (msg.Contains("Quota exceeded", StringComparison.OrdinalIgnoreCase)
+            && msg.Contains("per day", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var retryDelayMatch = RetryDelayRegex.Match(msg);
+        return retryDelayMatch.Success
+            && double.TryParse(
+                retryDelayMatch.Groups[1].Value,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out var retryDelaySeconds)
+            && retryDelaySeconds > 60;
+    }
+
+    private static bool IsTransientException(Exception? ex, CancellationToken outerCancellationToken)
+    {
+        if (ex is null || IsDailyQuotaExhausted(ex))
         {
             return false;
         }
@@ -483,5 +635,18 @@ public sealed class GoogleGenAiClient : ILlmClient
         }
 
         return false;
+    }
+
+    private static string SummarizeErrorMessage(Exception? ex, int maxLength = 240)
+    {
+        if (ex is null || string.IsNullOrWhiteSpace(ex.Message))
+        {
+            return "No message";
+        }
+
+        var singleLine = WhitespaceRegex.Replace(ex.Message, " ").Trim();
+        return singleLine.Length <= maxLength
+            ? singleLine
+            : string.Concat(singleLine.AsSpan(0, maxLength), "...");
     }
 }

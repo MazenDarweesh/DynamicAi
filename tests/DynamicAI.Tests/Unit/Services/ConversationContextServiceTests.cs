@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DynamicAi.Domain.Entities;
 using DynamicAi.Infrastructure.Services;
 using FluentAssertions;
@@ -11,6 +12,25 @@ namespace DynamicAI.Tests.Unit.Services
 {
     public class ConversationContextServiceTests
     {
+        private sealed class RecordingLogger : ILogger<ConversationContextService>
+        {
+            public List<(LogLevel Level, string Message)> Entries { get; } = new();
+
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                Entries.Add((logLevel, formatter(state, exception)));
+            }
+        }
+
         private readonly ConversationContextService _sut;
         private readonly IMemoryCache _cache;
         private readonly ILogger<ConversationContextService> _logger;
@@ -145,6 +165,159 @@ namespace DynamicAI.Tests.Unit.Services
             await act.Should().NotThrowAsync();
             var finalContext = await _sut.GetRecentContextAsync(sessionId, limit: 10, pageId: 1);
             finalContext.Count.Should().BeLessThanOrEqualTo(5);
+        }
+
+        [Fact]
+        public void Constructor_ShouldLogSessionMemoryInitializedAtDebug_NotInformation()
+        {
+            // Arrange
+            var cache = new MemoryCache(new MemoryCacheOptions());
+            var recordingLogger = new RecordingLogger();
+
+            // Act
+            _ = new ConversationContextService(cache, recordingLogger, _configuration);
+
+            // Assert
+            recordingLogger.Entries.Should().Contain(e =>
+                e.Level == LogLevel.Debug &&
+                e.Message.Contains("SessionMemory Initialized", StringComparison.Ordinal));
+
+            recordingLogger.Entries.Should().NotContain(e =>
+                e.Level == LogLevel.Information &&
+                e.Message.Contains("SessionMemory Initialized", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public async Task SaveTurnAsync_FourRowResult_DoesNotDuplicateRowsAcrossFirstLastRandom()
+        {
+            // Arrange
+            var sessionId = "four-row-sample-session";
+            var rows = Enumerable.Range(1, 4)
+                .Select(i => (dynamic)new Dictionary<string, object>
+                {
+                    ["Id"] = i,
+                    ["Name"] = $"Item-{i}",
+                    ["Amount"] = i * 100m
+                })
+                .ToList();
+
+            // Act
+            await _sut.SaveTurnAsync(sessionId, "Top items", "SQL", "SELECT * FROM Items", rows, pageId: 244);
+            var context = await _sut.GetRecentContextAsync(sessionId, limit: 1, pageId: 244);
+
+            // Assert
+            context.Should().ContainSingle();
+            var json = context[0].ResultSampleJson;
+            json.Should().NotBeNullOrWhiteSpace();
+            json.Should().NotContain("\"first3\"");
+            json.Should().NotContain("\"last3\"");
+            json.Should().NotContain("\"random3\"");
+
+            using var doc = JsonDocument.Parse(json!);
+            var sampledRows = doc.RootElement.GetProperty("rows");
+            sampledRows.GetArrayLength().Should().Be(3);
+
+            var ids = sampledRows.EnumerateArray()
+                .Select(r => r.GetProperty("Id").GetInt32())
+                .ToList();
+            ids.Should().BeEquivalentTo(new[] { 1, 2, 3 });
+            ids.Should().OnlyHaveUniqueItems();
+
+            doc.RootElement.GetProperty("summary").GetProperty("total_rows").GetInt32().Should().Be(4);
+        }
+
+        [Fact]
+        public async Task SaveTurnAsync_MoreThanSixRows_TakesTwoFirstAndOneLastDistinctRow()
+        {
+            // Arrange
+            var sessionId = "ten-row-sample-session";
+            var rows = Enumerable.Range(1, 10)
+                .Select(i => (dynamic)new Dictionary<string, object>
+                {
+                    ["Id"] = i,
+                    ["Code"] = $"C-{i}"
+                })
+                .ToList();
+
+            // Act
+            await _sut.SaveTurnAsync(sessionId, "All items", "SQL", "SELECT * FROM Items", rows, pageId: 244);
+            var context = await _sut.GetRecentContextAsync(sessionId, limit: 1, pageId: 244);
+
+            // Assert
+            context.Should().ContainSingle();
+            using var doc = JsonDocument.Parse(context[0].ResultSampleJson!);
+            var ids = doc.RootElement.GetProperty("rows")
+                .EnumerateArray()
+                .Select(r => r.GetProperty("Id").GetInt32())
+                .ToList();
+
+            ids.Should().Equal(1, 2, 10);
+            doc.RootElement.GetProperty("summary").GetProperty("total_rows").GetInt32().Should().Be(10);
+        }
+
+        [Fact]
+        public async Task SaveTurnAsync_WideMultiColumnResults_BoundsColumnsTo8AndTotalJsonTo2000Chars()
+        {
+            // Arrange
+            var sessionId = "wide-multi-column-session";
+            var rows = Enumerable.Range(1, 12)
+                .Select(rowIdx =>
+                {
+                    var dict = new Dictionary<string, object>();
+                    for (int colIdx = 1; colIdx <= 25; colIdx++)
+                    {
+                        dict[$"VeryLongColumnName_{colIdx:D2}"] = $"Row{rowIdx}-Val{colIdx}-" + new string('X', 260);
+                    }
+                    return (dynamic)dict;
+                })
+                .ToList();
+
+            // Act
+            await _sut.SaveTurnAsync(sessionId, "Wide query", "SQL", "SELECT * FROM WideView", rows, pageId: 244);
+            var context = await _sut.GetRecentContextAsync(sessionId, limit: 1, pageId: 244);
+
+            // Assert
+            context.Should().ContainSingle();
+            var json = context[0].ResultSampleJson;
+            json.Should().NotBeNullOrWhiteSpace();
+            json!.Length.Should().BeLessThanOrEqualTo(2000);
+
+            using var doc = JsonDocument.Parse(json);
+            var summary = doc.RootElement.GetProperty("summary");
+            summary.GetProperty("total_rows").GetInt32().Should().Be(12);
+            summary.GetProperty("columns").GetArrayLength().Should().BeLessThanOrEqualTo(15);
+        }
+
+        [Fact]
+        public async Task SaveTurnAsync_ModerateWideResult_ProjectsEachSampleRowToAtMost8Columns()
+        {
+            // Arrange
+            var sessionId = "moderate-wide-session";
+            var rows = Enumerable.Range(1, 3)
+                .Select(rowIdx =>
+                {
+                    var dict = new Dictionary<string, object>();
+                    for (int colIdx = 1; colIdx <= 14; colIdx++)
+                    {
+                        dict[$"Col{colIdx}"] = rowIdx * 10 + colIdx;
+                    }
+                    return (dynamic)dict;
+                })
+                .ToList();
+
+            // Act
+            await _sut.SaveTurnAsync(sessionId, "Wide numeric query", "SQL", "SELECT * FROM WideView", rows, pageId: 244);
+            var context = await _sut.GetRecentContextAsync(sessionId, limit: 1, pageId: 244);
+
+            // Assert
+            context.Should().ContainSingle();
+            var json = context[0].ResultSampleJson!;
+            json.Length.Should().BeLessThanOrEqualTo(2000);
+
+            using var doc = JsonDocument.Parse(json);
+            var sampledRows = doc.RootElement.GetProperty("rows");
+            sampledRows.GetArrayLength().Should().Be(3);
+            sampledRows[0].EnumerateObject().Count().Should().Be(8);
         }
     }
 }

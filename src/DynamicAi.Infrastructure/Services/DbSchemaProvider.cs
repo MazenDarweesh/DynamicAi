@@ -1,5 +1,6 @@
 using Dapper;
 using DynamicAi.Application.Interfaces;
+using DynamicAi.Application.Services.SqlEngine;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
@@ -69,7 +70,13 @@ public class DbSchemaProvider : IDbSchemaProvider
         IEnumerable<string> viewNames,
         CancellationToken ct = default)
     {
-        var viewList = viewNames.Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v.ToLower()).Distinct().OrderBy(v => v).ToList();
+        var viewList = (viewNames ?? Enumerable.Empty<string>())
+            .Select(SqlIdentifierNormalizer.NormalizeTableName)
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v.ToLowerInvariant())
+            .Distinct()
+            .OrderBy(v => v)
+            .ToList();
 
         if (!viewList.Any())
         {

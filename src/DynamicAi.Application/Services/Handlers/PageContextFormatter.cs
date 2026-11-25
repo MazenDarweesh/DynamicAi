@@ -1,4 +1,5 @@
 using DynamicAi.Application.Models.DirectIntegration;
+using DynamicAi.Application.Services.SqlEngine;
 using DynamicAi.Domain.Entities;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
 using System.Text;
@@ -66,12 +67,20 @@ public static class PageContextFormatter
         if (actualSchemaMap == null || string.IsNullOrWhiteSpace(tableName))
             return null;
 
+        var normalizedTableName = SqlIdentifierNormalizer.NormalizeTableName(tableName);
+        if (string.IsNullOrWhiteSpace(normalizedTableName))
+            return null;
+
         HashSet<string>? rawCols = null;
-        if (!actualSchemaMap.TryGetValue(tableName, out rawCols))
+        if (!actualSchemaMap.TryGetValue(tableName, out rawCols) &&
+            !actualSchemaMap.TryGetValue(normalizedTableName, out rawCols))
         {
             foreach (var kvp in actualSchemaMap)
             {
-                if (string.Equals(kvp.Key, tableName, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(
+                    SqlIdentifierNormalizer.NormalizeTableName(kvp.Key),
+                    normalizedTableName,
+                    StringComparison.OrdinalIgnoreCase))
                 {
                     rawCols = kvp.Value;
                     break;
@@ -113,8 +122,10 @@ public static class PageContextFormatter
                 ? $"Dro:{col.DroModel}:{col.DroValue}:{col.DroText}"
                 : string.Empty;
 
+            var normalizedTableName = SqlIdentifierNormalizer.NormalizeTableName(tableName);
             var colSynonyms = approvedSynonyms
-                .Where(s => s.TableName.Equals(tableName, StringComparison.OrdinalIgnoreCase)
+                .Where(s => SqlIdentifierNormalizer.NormalizeTableName(s.TableName)
+                                .Equals(normalizedTableName, StringComparison.OrdinalIgnoreCase)
                          && s.ColumnName.Equals(col.ColumnName, StringComparison.OrdinalIgnoreCase))
                 .Select(s => s.UserTerm)
                 .ToList();
@@ -191,8 +202,9 @@ public static class PageContextFormatter
         {
             if (node.SchemaObject?.BaseIdentifier?.Value != null)
             {
-                var tableName = node.SchemaObject.BaseIdentifier.Value;
-                if (!tableName.Equals("DUMMY", StringComparison.OrdinalIgnoreCase))
+                var tableName = SqlIdentifierNormalizer.NormalizeTableName(node.SchemaObject.BaseIdentifier.Value);
+                if (!string.IsNullOrWhiteSpace(tableName) &&
+                    !tableName.Equals("DUMMY", StringComparison.OrdinalIgnoreCase))
                 {
                     Tables.Add(tableName);
                 }

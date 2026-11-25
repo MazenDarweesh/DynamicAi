@@ -33,7 +33,7 @@ public class RequestMetricsMiddleware
             var elapsedMs = sw.ElapsedMilliseconds;
 
             // Log as a structured event for easy querying
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "RequestCompleted {Method} {Path} responded {StatusCode} in {DurationMs}ms",
                 method, path, statusCode, elapsedMs);
 

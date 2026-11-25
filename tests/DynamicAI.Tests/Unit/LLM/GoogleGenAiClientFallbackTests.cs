@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using DynamicAi.Application.Models;
 using DynamicAi.Infrastructure.Services;
@@ -37,7 +38,11 @@ public class GoogleGenAiClientFallbackTests
             }
         };
 
-    private static IConfiguration BuildConfig(string? chatModel = "gemini-3.5-flash-lite", string[]? fallbackModels = null)
+    private static IConfiguration BuildConfig(
+        string? chatModel = "gemini-3.5-flash-lite",
+        string[]? fallbackModels = null,
+        int? modelCooldownSeconds = null,
+        int? quotaCooldownSeconds = null)
     {
         var dict = new Dictionary<string, string?>();
         if (chatModel is not null)
@@ -53,6 +58,16 @@ public class GoogleGenAiClientFallbackTests
             }
         }
 
+        if (modelCooldownSeconds is not null)
+        {
+            dict["Gemini:ModelCooldownSeconds"] = modelCooldownSeconds.Value.ToString();
+        }
+
+        if (quotaCooldownSeconds is not null)
+        {
+            dict["Gemini:QuotaCooldownSeconds"] = quotaCooldownSeconds.Value.ToString();
+        }
+
         return new ConfigurationBuilder()
             .AddInMemoryCollection(dict)
             .Build();
@@ -60,6 +75,15 @@ public class GoogleGenAiClientFallbackTests
 
     private static ServerError CreateServerError() =>
         (ServerError)RuntimeHelpers.GetUninitializedObject(typeof(ServerError));
+
+    private static ClientError CreateClientError(string message)
+    {
+        var error = (ClientError)RuntimeHelpers.GetUninitializedObject(typeof(ClientError));
+        typeof(Exception)
+            .GetField("_message", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(error, message);
+        return error;
+    }
 
     [Fact]
     public async Task GenerateAsync_WhenPrimaryAndFirstFallbackThrowServerError_ShouldFallBackToSecondModelAndTagActivity()
@@ -333,5 +357,206 @@ public class GoogleGenAiClientFallbackTests
 
         await act.Should().ThrowAsync<ServerError>();
         distinctModels.Should().Equal("gemini-3.5-flash-lite", "gemini-2.5-flash-lite");
+    }
+
+    [Fact]
+    public async Task GenerateAsync_WhenPrimaryFailsWithServerError_ShouldSkipPrimaryDuringCooldownOnSubsequentCalls()
+    {
+        var attemptedModels = new List<string>();
+        var logger = A.Fake<ILogger<GoogleGenAiClient>>();
+        var utcNow = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
+        var config = BuildConfig(
+            chatModel: "gemini-3.5-flash-lite",
+            fallbackModels: ["gemini-2.5-flash-lite", "gemini-2.5-flash"],
+            modelCooldownSeconds: 180);
+
+        var client = new GoogleGenAiClient(
+            config,
+            logger,
+            (model, _, _, _) =>
+            {
+                attemptedModels.Add(model);
+                if (model == "gemini-3.5-flash-lite")
+                {
+                    throw CreateServerError();
+                }
+
+                return Task.FromResult(CreateResponse($"ok-{model}"));
+            },
+            retryBaseDelay: TimeSpan.FromMilliseconds(1),
+            utcNowProvider: () => utcNow);
+
+        var firstResult = await client.GenerateAsync(new LlmRequest { UserMessage = "first" });
+        firstResult.ModelUsed.Should().Be("gemini-2.5-flash-lite");
+
+        // Advance within the 180s cooldown window; primary should be skipped on the next call.
+        utcNow = utcNow.AddSeconds(60);
+        attemptedModels.Clear();
+
+        var secondResult = await client.GenerateAsync(new LlmRequest { UserMessage = "second" });
+        secondResult.ModelUsed.Should().Be("gemini-2.5-flash-lite");
+        attemptedModels.Should().Equal("gemini-2.5-flash-lite");
+
+        // Transient retry/fallback warnings should be concise single-line logs without raw Exception stack traces.
+        A.CallTo(logger)
+            .Where(call => call.Method.Name == "Log"
+                && call.GetArgument<LogLevel>(0) == LogLevel.Warning
+                && call.GetArgument<Exception?>(3) == null)
+            .MustHaveHappened();
+    }
+
+    [Fact]
+    public async Task GenerateAsync_WhenCooldownExpires_ShouldAutomaticallyRecoverAndUsePrimaryModelAgain()
+    {
+        var attemptedModels = new List<string>();
+        var failPrimary = true;
+        var utcNow = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
+        var config = BuildConfig(
+            chatModel: "gemini-3.5-flash-lite",
+            fallbackModels: ["gemini-2.5-flash-lite"],
+            modelCooldownSeconds: 180);
+
+        var client = new GoogleGenAiClient(
+            config,
+            A.Fake<ILogger<GoogleGenAiClient>>(),
+            (model, _, _, _) =>
+            {
+                attemptedModels.Add(model);
+                if (failPrimary && model == "gemini-3.5-flash-lite")
+                {
+                    throw CreateServerError();
+                }
+
+                return Task.FromResult(CreateResponse($"ok-{model}"));
+            },
+            retryBaseDelay: TimeSpan.FromMilliseconds(1),
+            utcNowProvider: () => utcNow);
+
+        var first = await client.GenerateAsync(new LlmRequest { UserMessage = "req-1" });
+        first.ModelUsed.Should().Be("gemini-2.5-flash-lite");
+
+        utcNow = utcNow.AddSeconds(179);
+        attemptedModels.Clear();
+        var duringCooldown = await client.GenerateAsync(new LlmRequest { UserMessage = "req-2" });
+        duringCooldown.ModelUsed.Should().Be("gemini-2.5-flash-lite");
+        attemptedModels.Should().Equal("gemini-2.5-flash-lite");
+
+        utcNow = utcNow.AddSeconds(2);
+        failPrimary = false;
+        attemptedModels.Clear();
+        var recovered = await client.GenerateAsync(new LlmRequest { UserMessage = "req-3" });
+        recovered.ModelUsed.Should().Be("gemini-3.5-flash-lite");
+        attemptedModels.Should().Equal("gemini-3.5-flash-lite");
+    }
+
+    [Fact]
+    public async Task GenerateAsync_WhenDailyQuotaExhausted_ShouldFallbackImmediatelyWithoutPollyRetriesAndApplyLongCooldown()
+    {
+        var attemptedModels = new List<string>();
+        var failPrimaryWithQuota = true;
+        var utcNow = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
+        var config = BuildConfig(
+            chatModel: "gemini-3.5-flash-lite",
+            fallbackModels: ["gemini-2.5-flash-lite"],
+            modelCooldownSeconds: 180,
+            quotaCooldownSeconds: 1800);
+
+        var client = new GoogleGenAiClient(
+            config,
+            A.Fake<ILogger<GoogleGenAiClient>>(),
+            (model, _, _, _) =>
+            {
+                attemptedModels.Add(model);
+                if (failPrimaryWithQuota && model == "gemini-3.5-flash-lite")
+                {
+                    throw CreateClientError(
+                        "429 RESOURCE_EXHAUSTED: Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier");
+                }
+
+                return Task.FromResult(CreateResponse($"ok-{model}"));
+            },
+            retryBaseDelay: TimeSpan.FromMilliseconds(1),
+            utcNowProvider: () => utcNow);
+
+        var first = await client.GenerateAsync(new LlmRequest { UserMessage = "req-1" });
+        first.ModelUsed.Should().Be("gemini-2.5-flash-lite");
+        // Zero Polly retries: primary is attempted exactly once before immediate fallback.
+        attemptedModels.Should().Equal("gemini-3.5-flash-lite", "gemini-2.5-flash-lite");
+
+        // Well past ModelCooldownSeconds (180s), still inside QuotaCooldownSeconds (1800s).
+        utcNow = utcNow.AddSeconds(600);
+        attemptedModels.Clear();
+        var duringQuotaCooldown = await client.GenerateAsync(new LlmRequest { UserMessage = "req-2" });
+        duringQuotaCooldown.ModelUsed.Should().Be("gemini-2.5-flash-lite");
+        attemptedModels.Should().Equal("gemini-2.5-flash-lite");
+
+        // After QuotaCooldownSeconds expires, primary recovers.
+        utcNow = utcNow.AddSeconds(1201);
+        failPrimaryWithQuota = false;
+        attemptedModels.Clear();
+        var afterQuotaCooldown = await client.GenerateAsync(new LlmRequest { UserMessage = "req-3" });
+        afterQuotaCooldown.ModelUsed.Should().Be("gemini-3.5-flash-lite");
+        attemptedModels.Should().Equal("gemini-3.5-flash-lite");
+    }
+
+    [Fact]
+    public async Task GenerateAsync_WhenAllModelsInCooldown_ShouldUseLastResortOrderingWithoutDroppingCandidates()
+    {
+        var distinctModels = new List<string>();
+        var failAll = true;
+        var utcNow = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
+        var config = BuildConfig(
+            chatModel: "gemini-3.5-flash-lite",
+            fallbackModels: ["gemini-2.5-flash-lite", "gemini-2.5-flash"],
+            modelCooldownSeconds: 180);
+
+        var client = new GoogleGenAiClient(
+            config,
+            A.Fake<ILogger<GoogleGenAiClient>>(),
+            (model, _, _, _) =>
+            {
+                if (distinctModels.Count == 0 || distinctModels[^1] != model)
+                {
+                    distinctModels.Add(model);
+                }
+
+                if (failAll || model != "gemini-2.5-flash")
+                {
+                    throw CreateServerError();
+                }
+
+                return Task.FromResult(CreateResponse("last-resort-ok"));
+            },
+            retryBaseDelay: TimeSpan.FromMilliseconds(1),
+            utcNowProvider: () => utcNow);
+
+        var act = async () => await client.GenerateAsync(new LlmRequest { UserMessage = "req-1" });
+        await act.Should().ThrowAsync<ServerError>();
+        distinctModels.Should().Equal("gemini-3.5-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash");
+
+        // All 3 models are now in cooldown; next call must still try all candidates in primary -> fallback order.
+        utcNow = utcNow.AddSeconds(30);
+        distinctModels.Clear();
+        failAll = false;
+
+        var recovered = await client.GenerateAsync(new LlmRequest { UserMessage = "req-2" });
+        recovered.Text.Should().Be("last-resort-ok");
+        recovered.ModelUsed.Should().Be("gemini-2.5-flash");
+        distinctModels.Should().Equal("gemini-3.5-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash");
+    }
+
+    [Theory]
+    [InlineData("Quota exceeded for quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier", true)]
+    [InlineData("Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests", true)]
+    [InlineData("429 RESOURCE_EXHAUSTED: limit: 20 exceeded", true)]
+    [InlineData("Quota exceeded: requests per day limit reached", true)]
+    [InlineData("429 RESOURCE_EXHAUSTED, \"retryDelay\": \"120s\"", true)]
+    [InlineData("429 RESOURCE_EXHAUSTED: rate limit exceeded, \"retryDelay\": \"15s\"", false)]
+    [InlineData("429 Too Many Requests", false)]
+    public void IsDailyQuotaExhausted_ShouldClassifyDailyQuotaVsTransientRateLimit(string message, bool expected)
+    {
+        var error = CreateClientError(message);
+
+        GoogleGenAiClient.IsDailyQuotaExhausted(error).Should().Be(expected);
     }
 }

@@ -11,6 +11,9 @@ namespace DynamicAi.Infrastructure.Services;
 
 public class ConversationContextService : IConversationContextService
 {
+    private const int MaxSampleColumns = 8;
+    private const int MaxSampleJsonChars = 2000;
+
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks =
         new(StringComparer.Ordinal);
 
@@ -34,7 +37,7 @@ public class ConversationContextService : IConversationContextService
         _ttlMinutes = section.GetValue<int>("TTLMinutes", 30);
         _maxHistoryTurns = section.GetValue<int>("MaxHistoryTurns", 5);
 
-        _logger.LogInformation("SessionMemory Initialized: Enabled={Enabled}, TTL={TTL}m, MaxHistory={Max}", 
+        _logger.LogDebug("SessionMemory Initialized: Enabled={Enabled}, TTL={TTL}m, MaxHistory={Max}",
             _enabled, _ttlMinutes, _maxHistoryTurns);
     }
 
@@ -53,36 +56,22 @@ public class ConversationContextService : IConversationContextService
         {
             string? sampleJson = null;
 
-            // ✅ Statistical Sample logic
+            // ✅ Bounded Statistical Sample logic
             if (resultData != null && intent != "Chat")
             {
                 object? resultObj = (object?)resultData;
-                _logger.LogInformation("ContextService: Processing resultData of type {Type}", resultObj?.GetType()?.Name ?? "Null");
+                _logger.LogDebug("ContextService: Processing resultData of type {Type}", resultObj?.GetType()?.Name ?? "Null");
 
-                IEnumerable<dynamic> resultsEnumerable = resultData as IEnumerable<dynamic> ?? new List<dynamic>();
-                var resultsList = resultsEnumerable.ToList();
+                var resultsList = resultObj is System.Collections.IEnumerable rawEnumerable && resultObj is not string
+                    ? rawEnumerable.Cast<object>().ToList()
+                    : new List<object>();
 
-                _logger.LogInformation("ContextService: Result list count: {Count}", resultsList.Count);
+                _logger.LogDebug("ContextService: Result list count: {Count}", resultsList.Count);
 
                 if (resultsList.Count > 0)
                 {
-                    var firstRow = resultsList.First() as IDictionary<string, object>;
-                    var columns = firstRow?.Keys.ToList() ?? new List<string>();
-
-                    var sample = new
-                    {
-                        first3 = resultsList.Take(3),
-                        last3 = resultsList.TakeLast(3),
-                        random3 = resultsList.OrderBy(_ => Guid.NewGuid()).Take(3),
-                        summary = new
-                        {
-                            total_rows = resultsList.Count,
-                            columns = columns
-                        }
-                    };
-
-                    sampleJson = JsonSerializer.Serialize(sample);
-                    _logger.LogInformation("ContextService: Sample JSON generated. Length: {Length}", sampleJson.Length);
+                    sampleJson = BuildBoundedSampleJson(resultsList);
+                    _logger.LogDebug("ContextService: Sample JSON generated. Length: {Length}", sampleJson.Length);
                 }
             }
 
@@ -325,5 +314,97 @@ public class ConversationContextService : IConversationContextService
         {
             _logger.LogWarning("[Context] ⚠️ Could not find any turn matching question \"{Question}\" to remove in session: {SessionId}", question, sessionId);
         }
+    }
+
+    private static string BuildBoundedSampleJson(IReadOnlyList<object> resultsList)
+    {
+        var columns = ExtractColumnNames(resultsList[0]);
+        var sampleColumns = columns.Take(MaxSampleColumns).ToList();
+
+        IEnumerable<object> selectedRows = resultsList.Count <= 6
+            ? resultsList.Take(3)
+            : resultsList.Take(2).Append(resultsList[^1]);
+
+        var projectedRows = selectedRows
+            .Select(row => ProjectSampleRow(row, sampleColumns))
+            .ToList();
+
+        var sample = new
+        {
+            rows = projectedRows,
+            summary = new
+            {
+                total_rows = resultsList.Count,
+                columns
+            }
+        };
+
+        var sampleJson = JsonSerializer.Serialize(sample);
+        if (sampleJson.Length > MaxSampleJsonChars)
+        {
+            sampleJson = JsonSerializer.Serialize(new
+            {
+                summary = new
+                {
+                    total_rows = resultsList.Count,
+                    columns = columns.Take(15).ToList()
+                }
+            });
+        }
+
+        return sampleJson;
+    }
+
+    private static List<string> ExtractColumnNames(object? firstRow)
+    {
+        if (firstRow is IDictionary<string, object> dict)
+        {
+            return dict.Keys.ToList();
+        }
+
+        if (firstRow is null)
+        {
+            return new List<string>();
+        }
+
+        return firstRow.GetType()
+            .GetProperties()
+            .Select(p => p.Name)
+            .ToList();
+    }
+
+    private static Dictionary<string, object?> ProjectSampleRow(object? row, IReadOnlyList<string> sampleColumns)
+    {
+        var projected = new Dictionary<string, object?>(sampleColumns.Count, StringComparer.OrdinalIgnoreCase);
+
+        if (row is IDictionary<string, object> dict)
+        {
+            foreach (var col in sampleColumns)
+            {
+                if (dict.TryGetValue(col, out var value))
+                {
+                    projected[col] = value;
+                }
+            }
+
+            return projected;
+        }
+
+        if (row is null)
+        {
+            return projected;
+        }
+
+        var rowType = row.GetType();
+        foreach (var col in sampleColumns)
+        {
+            var prop = rowType.GetProperty(col);
+            if (prop != null)
+            {
+                projected[col] = prop.GetValue(row);
+            }
+        }
+
+        return projected;
     }
 }

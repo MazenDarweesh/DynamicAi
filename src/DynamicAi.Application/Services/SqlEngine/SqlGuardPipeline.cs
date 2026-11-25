@@ -103,9 +103,13 @@ public class SqlGuardPipeline : ISqlGuardPipeline
 
             // 4. Hardening
             var entries = tailConditions?.ToList() ?? new List<TailConditionEntry>();
-            var effectiveMasterView = !string.IsNullOrWhiteSpace(masterViewName)
+            var rawMasterView = !string.IsNullOrWhiteSpace(masterViewName)
                 ? masterViewName
                 : entries.FirstOrDefault(e => e.SqlAlias.Equals("TM", StringComparison.OrdinalIgnoreCase))?.ViewName;
+            var normalizedMasterView = SqlIdentifierNormalizer.NormalizeTableName(rawMasterView);
+            var effectiveMasterView = !string.IsNullOrWhiteSpace(normalizedMasterView)
+                ? normalizedMasterView
+                : null;
 
             bool enforceCompanyFilter = ShouldEnforceCompanyFilter(
                 skipCompanyFilter, companyId, effectiveMasterView, schemaMap);
@@ -166,8 +170,19 @@ public class SqlGuardPipeline : ISqlGuardPipeline
             return;
         }
 
+        var normalizedAllowed = allowedTables
+            .Select(SqlIdentifierNormalizer.NormalizeTableName)
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (normalizedAllowed.Count == 0)
+        {
+            return;
+        }
+
         var disallowed = allReferencedTables
-            .Where(t => !allowedTables.Contains(t))
+            .Select(SqlIdentifierNormalizer.NormalizeTableName)
+            .Where(t => !string.IsNullOrWhiteSpace(t) && !normalizedAllowed.Contains(t))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -201,12 +216,30 @@ public class SqlGuardPipeline : ISqlGuardPipeline
             return false;
         }
 
-        if (!string.IsNullOrWhiteSpace(masterViewName) &&
-            schemaMap != null &&
-            schemaMap.TryGetValue(masterViewName, out var masterColumns) &&
-            !masterColumns.Contains("ComID", StringComparer.OrdinalIgnoreCase))
+        var normalizedMaster = SqlIdentifierNormalizer.NormalizeTableName(masterViewName);
+        if (!string.IsNullOrWhiteSpace(normalizedMaster) && schemaMap != null)
         {
-            return false;
+            HashSet<string>? masterColumns = null;
+            if (!schemaMap.TryGetValue(normalizedMaster, out masterColumns))
+            {
+                foreach (var kvp in schemaMap)
+                {
+                    if (string.Equals(
+                        SqlIdentifierNormalizer.NormalizeTableName(kvp.Key),
+                        normalizedMaster,
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        masterColumns = kvp.Value;
+                        break;
+                    }
+                }
+            }
+
+            if (masterColumns != null &&
+                !masterColumns.Contains("ComID", StringComparer.OrdinalIgnoreCase))
+            {
+                return false;
+            }
         }
 
         return true;

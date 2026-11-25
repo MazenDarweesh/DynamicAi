@@ -48,7 +48,7 @@ public class FeedbackService : IFeedbackService
 
             if (string.IsNullOrEmpty(queryLog.GeneratedSql) && !queryLog.IsAmbiguous)
             {
-                _logger.LogWarning("[Feedback] QueryLog has no SQL and is not ambiguous: {QueryLogId}", queryLogId);
+                _logger.LogInformation("[Feedback] QueryLog has no SQL and is not ambiguous: {QueryLogId}", queryLogId);
                 return false;
             }
 

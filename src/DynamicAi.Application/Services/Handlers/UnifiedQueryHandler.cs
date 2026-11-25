@@ -86,6 +86,19 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
         var finalContext = context?.InjectedContext;
         int currentPageId = finalContext?.PageId ?? context?.ExplicitPageId ?? 0;
 
+        if (ReadOnlyIntentGuard.TryRejectMutationRequest(userQuestion, out var refusalMessage))
+        {
+            _logger.LogInformation("[UnifiedHandler] Read-only guard rejected mutation request (PageId={PageId}).", currentPageId);
+            return new QueryExecutionResult
+            {
+                Intent = "Chat",
+                Data = new[] { new { Message = refusalMessage, IsReadOnly = true } },
+                ConfidenceScore = 1.0f,
+                QueryLogId = context?.QueryLogId,
+                PageId = currentPageId
+            };
+        }
+
         // Phase 0: Cache Bypass
         var cachedResult = await TryExecuteCachedSqlAsync(userQuestion, context, tenantId, companyId, finalContext, currentPageId, cancellationToken);
         if (cachedResult != null) return cachedResult;
