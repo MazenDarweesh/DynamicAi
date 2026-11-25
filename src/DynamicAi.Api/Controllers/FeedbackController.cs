@@ -11,7 +11,7 @@ namespace DynamicAi.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
+[Authorize]
 public class FeedbackController : ControllerBase
 {
     private readonly IFeedbackService _feedbackService;
@@ -68,6 +68,7 @@ public class FeedbackController : ControllerBase
     /// إدخال يدوي لمثال تدريب (للمطورين فقط).
     /// </summary>
     [HttpPost("training/manual")]
+    [Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
     public async Task<IActionResult> AddManualTrainingExample([FromBody] ManualTrainingRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.NaturalQuery) || string.IsNullOrWhiteSpace(request.Sql))
@@ -105,6 +106,7 @@ public class FeedbackController : ControllerBase
     /// تصدير أمثلة التدريب المعتمدة كـ JSONL للـ Fine-Tuning.
     /// </summary>
     [HttpGet("training/export")]
+    [Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
     public async Task<IActionResult> ExportTrainingData([FromQuery] bool verifiedOnly = true)
     {
         try
@@ -128,6 +130,7 @@ public class FeedbackController : ControllerBase
     /// إحصائيات الـ Golden Dataset ولوحة متابعة جودة التشغيل (Operational Health Dashboard).
     /// </summary>
     [HttpGet("training/stats")]
+    [Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
     public async Task<IActionResult> GetTrainingStats()
     {
         try
@@ -146,6 +149,7 @@ public class FeedbackController : ControllerBase
     /// جلب أمثلة التدريب الغير معتمدة للمراجعة.
     /// </summary>
     [HttpGet("training/pending")]
+    [Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
     public async Task<IActionResult> GetPendingExamples()
     {
         try
@@ -172,6 +176,7 @@ public class FeedbackController : ControllerBase
     /// اعتماد مثال تدريب بعد المراجعة.
     /// </summary>
     [HttpPost("training/verify/{id}")]
+    [Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
     public async Task<IActionResult> VerifyExample(Guid id, [FromBody] VerifyRequest? request = null)
     {
         try
@@ -198,6 +203,7 @@ public class FeedbackController : ControllerBase
     /// حذف مثال تدريب غير صالح.
     /// </summary>
     [HttpDelete("training/{id}")]
+    [Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
     public async Task<IActionResult> DeleteExample(Guid id)
     {
         try
@@ -226,6 +232,7 @@ public class FeedbackController : ControllerBase
 
     /// <summary>جلب المرادفات المعلقة التي تنتظر موافقة الأدمن</summary>
     [HttpGet("synonyms/pending")]
+    [Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
     public async Task<IActionResult> GetPendingSynonyms()
     {
         var pending = await _feedbackService.GetPendingSynonymsAsync(HttpContext.RequestAborted);
@@ -234,6 +241,7 @@ public class FeedbackController : ControllerBase
 
     /// <summary>الموافقة على مرادف واعتماده في الـ Prompt</summary>
     [HttpPost("synonyms/{id:guid}/approve")]
+    [Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
     public async Task<IActionResult> ApproveSynonym(Guid id, [FromQuery] string approvedBy = "admin")
     {
         var success = await _feedbackService.ApproveSynonymAsync(id, approvedBy, HttpContext.RequestAborted);
@@ -242,6 +250,7 @@ public class FeedbackController : ControllerBase
 
     /// <summary>رفض وحذف مرادف غير صحيح</summary>
     [HttpDelete("synonyms/{id:guid}/reject")]
+    [Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
     public async Task<IActionResult> RejectSynonym(Guid id)
     {
         var success = await _feedbackService.RejectSynonymAsync(id, HttpContext.RequestAborted);
@@ -250,6 +259,7 @@ public class FeedbackController : ControllerBase
 
     /// <summary>جلب المرادفات المعتمدة لصفحة محددة (للتشخيص)</summary>
     [HttpGet("synonyms/approved/{pageId:int}")]
+    [Authorize(Policy = ApiKeyAuthenticationHandler.AdminPolicyName)]
     public async Task<IActionResult> GetApprovedSynonymsByPage(int pageId)
     {
         var approved = await _feedbackService.GetApprovedSynonymsByPageAsync(pageId, HttpContext.RequestAborted);

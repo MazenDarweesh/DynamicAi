@@ -11,8 +11,8 @@
 ## الخطوة الأولى: تفعيل وإرسال ترويسة المصادقة (`X-Api-Key`)
 
 تم تأمين جميع نقاط النهاية في DynamicAi، والوضع الافتراضي الآن في `appsettings.json` هو **`Strict`**:
-- نقاط تكامل الـ ERP (`/AIQuery/integration/directed-page-ask`) تتطلب صلاحية `Integration` أو `Admin` (باستثناء `GET /AIQuery/ping` المتاحة لفحص الجاهزية).
-- نقاط الإدارة والتشغيل (`/api/feedback`, `/api/maintenance`, `/api/llm-costs`, `/api/query-cache`, `/api/config`, `/api/metrics`) تتطلب سياسة `AdminOnly` (دور `Admin`).
+- نقاط تكامل الـ ERP (`/AIQuery/integration/directed-page-ask`، بالإضافة إلى `POST /api/feedback/like/{queryLogId}` و `POST /api/feedback/dislike`) تتطلب صلاحية `Integration` أو `Admin` (باستثناء `GET /AIQuery/ping` المتاحة لفحص الجاهزية).
+- نقاط الإدارة والتشغيل (`/api/feedback/training/*`, `/api/feedback/synonyms/*`, `/api/maintenance`, `/api/llm-costs`, `/api/query-cache`, `/api/config`, `/api/metrics`) تتطلب سياسة `AdminOnly` (دور `Admin`).
 
 ### 1. إعداد المفاتيح في DynamicAi (عبر متغيرات البيئة أو User Secrets — بدون كتابة أسرار داخل الكود)
 
@@ -283,8 +283,8 @@ GO
 
 ### ملاحظة حول أزرار التقييم (`Like / Dislike`)
 
-تقع نقاط النهاية `POST /api/feedback/like/{queryLogId}` و `POST /api/feedback/dislike` داخل `FeedbackController` وهي محمية حالياً بسياسة **`AdminOnly`** (لا تقبل مفتاح بدور `Integration` مباشرة).
-- إذا أردت تفعيل أزرار 👍 / 👎 لمستخدمي الـ ERP مباشرة، يرجى التنسيق مع فريق DynamicAi قبل الإطلاق (إما بتمرير التقييم عبر Backend الـ ERP باستخدام مفتاح إداري أو بفتح الصلاحية لدور `Integration`).
+تقبل نقاط النهاية `POST /api/feedback/like/{queryLogId}` و `POST /api/feedback/dislike` مفتاح **`Integration`** (`X-Api-Key`) مباشرة، وبالتالي لا يلزم وضع أي مفتاح `Admin` داخل خادم الـ ERP لتشغيل أزرار 👍 / 👎.
+- بقية نقاط `FeedbackController` الإدارية (`/api/feedback/training/*` و `/api/feedback/synonyms/*`) تظل محمية بالكامل بسياسة **`AdminOnly`** (دور `Admin` فقط).
 
 ### قائمة مراجعة ما قبل التسليم والإطلاق (`Pre-Production Handoff Checklist`)
 

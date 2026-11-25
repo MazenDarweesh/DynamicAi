@@ -200,10 +200,51 @@ public class AuthenticationAndAuthzTests
         directedPageAskMethod.Should().NotBeNull();
         directedPageAskMethod!.GetCustomAttribute<AllowAnonymousAttribute>().Should().BeNull();
 
-        // 2. All admin/internal controllers must require AdminOnly policy
+        // 2. FeedbackController: [Authorize] on class so Integration & Admin can submit Like/Dislike,
+        // while all training and synonyms management actions remain AdminOnly.
+        var feedbackController = typeof(FeedbackController);
+        var feedbackAuthorize = feedbackController.GetCustomAttribute<AuthorizeAttribute>();
+        feedbackAuthorize.Should().NotBeNull("FeedbackController must be decorated with [Authorize]");
+        feedbackAuthorize!.Policy.Should().BeNull("FeedbackController class-level policy must allow Integration keys for Like/Dislike");
+        feedbackController.GetCustomAttribute<AllowAnonymousAttribute>().Should().BeNull();
+
+        var feedbackActions = feedbackController
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly)
+            .ToList();
+
+        feedbackActions.Where(m => m.GetCustomAttribute<AllowAnonymousAttribute>() != null)
+            .Should().BeEmpty("FeedbackController must not expose anonymous actions");
+
+        var erpFeedbackActionNames = new[]
+        {
+            nameof(FeedbackController.LikeResponse),
+            nameof(FeedbackController.DislikeResponse)
+        };
+
+        foreach (var actionName in erpFeedbackActionNames)
+        {
+            var action = feedbackActions.Single(m => m.Name == actionName);
+            action.GetCustomAttribute<AuthorizeAttribute>()?.Policy
+                .Should().BeNull($"{actionName} must inherit class-level [Authorize] so Integration keys can submit feedback");
+        }
+
+        var feedbackAdminActions = feedbackActions
+            .Where(m => !erpFeedbackActionNames.Contains(m.Name))
+            .ToList();
+
+        feedbackAdminActions.Should().HaveCount(10);
+        foreach (var adminAction in feedbackAdminActions)
+        {
+            var actionAuth = adminAction.GetCustomAttribute<AuthorizeAttribute>();
+            actionAuth.Should().NotBeNull($"{adminAction.Name} must be decorated with [Authorize]");
+            actionAuth!.Policy.Should().Be(
+                ApiKeyAuthenticationHandler.AdminPolicyName,
+                $"{adminAction.Name} must enforce AdminOnly policy");
+        }
+
+        // 3. All other admin/internal controllers must require AdminOnly policy
         var adminControllers = new[]
         {
-            typeof(FeedbackController),
             typeof(MaintenanceController),
             typeof(LlmCostController),
             typeof(QueryCacheController),
@@ -225,7 +266,7 @@ public class AuthenticationAndAuthzTests
             actionsWithAllowAnonymous.Should().BeEmpty($"{controller.Name} must not expose anonymous actions");
         }
 
-        controllerTypes.Should().BeEquivalentTo(adminControllers.Append(aiController));
+        controllerTypes.Should().BeEquivalentTo(adminControllers.Append(aiController).Append(feedbackController));
     }
 
     [Fact]

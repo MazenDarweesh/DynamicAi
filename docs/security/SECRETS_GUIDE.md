@@ -23,7 +23,7 @@ dotnet user-secrets set "Gemini:ApiKey" "<YOUR_GEMINI_API_KEY>" --project "src/D
 
 ## 3. Configure Strict API Key Authentication (`Auth:Mode = Strict`)
 
-`appsettings.json` defaults to `Auth:Mode = Strict`. Configure at least one `Integration` key (for ERP callers) and one `Admin` key (for `/api/llm-costs`, `/api/query-cache`, `/api/feedback`, `/api/metrics`, `/api/config`, `/api/maintenance`):
+`appsettings.json` defaults to `Auth:Mode = Strict`. Configure at least one `Integration` key (for ERP callers: `/AIQuery/integration/directed-page-ask`, `POST /api/feedback/like/{queryLogId}`, `POST /api/feedback/dislike`) and one `Admin` key (for `/api/llm-costs`, `/api/query-cache`, `/api/feedback/training/*`, `/api/feedback/synonyms/*`, `/api/metrics`, `/api/config`, `/api/maintenance`):
 
 ```powershell
 dotnet user-secrets set "Auth:Mode" "Strict" --project "src/DynamicAi.Api/DynamicAi.Api.csproj"
