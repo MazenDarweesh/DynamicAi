@@ -65,9 +65,9 @@ ERP Client / Angular 21 POC UI (frontend/DynamicAi.UI)
 
 ## 🔑 Key Capabilities
 
-- **Directed-Page Integration (`POST /AIQuery/integration/directed-page-ask`):** Accepts `ExplicitContext` (`MasterSetup`, `DetailSetups`, `Columns`, `TailCondition`, `IsVisible`), `ComID`, `TenantId`, and either a dynamic `ConnectionString` (HTTPS + `db_datareader`) or an optional configured `TenantKey`. `SqlIdentifierNormalizer` unifies bracketed/schema-qualified identifiers (`[dbo].[View]`) across schema prefetch, table whitelist, `ComID`, and `TailCondition` enforcement.
-- **Deterministic Read-Only Guard & Bounded Session Context:** `ReadOnlyIntentGuard` rejects explicit Arabic/English write/DML/DDL imperatives in `<1ms` at `$0` LLM cost (without blocking read queries about deleted/modified records), while `ConversationContextService` caps `ResultSampleJson` to 3 distinct rows, `MaxSampleColumns = 8`, and `MaxSampleJsonChars = 2000`.
-- **LLM Resilience & Quota Cooldowns:** `GoogleGenAiClient` pairs `Gemini:FallbackModels` with per-model cooldowns (`Gemini:ModelCooldownSeconds = 180`, `Gemini:QuotaCooldownSeconds = 1800`) and bypasses Polly retries on daily-quota `ClientError` exhaustion for immediate fallback.
+- **Directed-Page Integration (`POST /AIQuery/integration/directed-page-ask`):** Accepts `ExplicitContext` (`MasterSetup`, `DetailSetups`, `Columns`, `TailCondition`, `IsVisible`), `ComID`, `TenantId`, and either a dynamic `ConnectionString` (HTTPS + `db_datareader`) or an optional configured `TenantKey`. `SqlIdentifierNormalizer` unifies bracketed/schema-qualified identifiers (`[dbo].[View]`) across schema prefetch, table whitelist, `ComID`, and `TailCondition` enforcement; joinable dropdown lookup views (`SearchName == ColumnName`) are prefetched in parallel while `SearchName != ColumnName` columns omit redundant `Dro:` prompt metadata.
+- **Deterministic Read-Only Guard, Context Hygiene & Prediction Isolation:** `ReadOnlyIntentGuard` rejects explicit Arabic/English write/DML/DDL imperatives in `<1ms` at `$0` LLM cost (without blocking read queries about deleted/modified records), `ConversationHistoryFormatter` retains page-isolated clarifications while excluding sanitizer exhaustion failures, `PredictionService` computes linear regression on full retrieved data bounded by `PageId`, and `ConversationContextService` / `DbSchemaProvider` evict expired lock/semaphore entries via post-eviction callbacks.
+- **LLM Resilience, Prefix Caching & Schema-Linking Efficiency:** `GoogleGenAiClient` pairs `Gemini:FallbackModels` with per-model cooldowns (`Gemini:ModelCooldownSeconds = 180`, `Gemini:QuotaCooldownSeconds = 1800`), places lean `{user_term, mapped_to_column}` `schema_linking` before `content` in `ResponseSchema` for true Chain-of-Thought ordering, positions `conversation_history` last in `unified_master` for prefix cache stability, and offloads `LlmUsageTracker` DB writes off the critical path.
 - **Strict API Key Authentication & RBAC:** `ApiKeyAuthenticationHandler` (`Auth:Mode = Strict` by default) enforces `X-Api-Key` / `Authorization: Bearer` with `Integration` role for `POST /AIQuery/integration/directed-page-ask` and user feedback (`POST /api/feedback/like/{queryLogId}`, `POST /api/feedback/dislike`), while `/api/feedback/training/*`, `/api/feedback/synonyms/*`, and management/cost/cache dashboards require `AdminOnly`. `GET /AIQuery/ping` stays anonymous without warning noise.
 - **Zero-Vector Exact Query Cache:** `ExactQueryCacheService` uses a bounded `IMemoryCache` (`MaxEntries = 10000`, `TTLDays = 7`) with Arabic diacritic/letter/numeral normalization and strict `TenantId` + `CompanyId` + `PageId` scoping (`<5ms` hits, `$0` embedding cost).
 - **Optional Deterministic Query IR Compiler:** Feature-flagged (`Features:UseQueryIrCompiler`, `Features:QueryIrShadowMode`) `QueryIrCompiler` compiles structured `QueryIrPlan` JSON into parameterized T-SQL (`@p0`, `@p1`, ...) with automatic `TM`/`TD` and dropdown `T1`/`T2` joins and automatic fallback to `unified_master` raw SQL for advanced queries.
@@ -92,7 +92,7 @@ DynamicAi/
 │   │                                    # SandboxedSqlExecutor, TenantConnectionResolver, EF Core
 │   └── DynamicAi.Api/                   # Controllers, Middleware, Auth, Serilog/OTel setup
 ├── tests/
-│   └── DynamicAI.Tests/                 # 437 automated tests (Unit, Security Red-Team,
+│   └── DynamicAI.Tests/                 # 451 automated tests (Unit, Security Red-Team,
 │                                        # Integration, Golden Evaluation & Shadow Mode)
 ├── frontend/
 │   └── DynamicAi.UI/                    # Angular 21 POC Tester & Admin Console
@@ -158,7 +158,7 @@ docker compose --profile observability up -d
 ```powershell
 $env:DOTNET_ROLL_FORWARD = "Major"
 
-# Main test suite (437 tests: Unit, Security Red-Team, Integration, Evaluation)
+# Main test suite (451 tests: Unit, Security Red-Team, Integration, Evaluation)
 dotnet test DynamicAi.sln
 
 # Isolated legacy schema tools smoke tests (10 tests)
