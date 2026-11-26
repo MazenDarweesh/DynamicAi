@@ -52,19 +52,23 @@ public class FeedbackService : IFeedbackService
                 return false;
             }
 
-            var example = new TrainingExample
+            if (!await _trainingRepo.ExistsByQueryLogIdAsync(queryLogId, cancellationToken))
             {
-                NaturalQuery = queryLog.RawQuestion,
-                GeneratedSql = queryLog.GeneratedSql ?? string.Empty,
-                SchemaContext = queryLog.SchemaContext,
-                FeedbackSource = "UserLike",
-                TenantId = tenantId ?? queryLog.CompanyId,
-                OriginalQueryLogId = queryLogId,
-                PageId = queryLog.PageId,
-                IsVerified = false
-            };
+                var example = new TrainingExample
+                {
+                    NaturalQuery = queryLog.RawQuestion,
+                    GeneratedSql = queryLog.GeneratedSql ?? string.Empty,
+                    SchemaContext = queryLog.SchemaContext,
+                    FeedbackSource = "UserLike",
+                    TenantId = tenantId ?? queryLog.CompanyId,
+                    OriginalQueryLogId = queryLogId,
+                    PageId = queryLog.PageId,
+                    IsVerified = false
+                };
 
-            await _trainingRepo.AddAsync(example, cancellationToken);
+                await _trainingRepo.AddAsync(example, cancellationToken);
+            }
+
             await _queryLogRepo.UpdateFeedbackStatusAsync(queryLogId, "Like", cancellationToken);
 
             var count = await _trainingRepo.GetVerifiedCountAsync(cancellationToken);

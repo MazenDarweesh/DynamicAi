@@ -105,11 +105,18 @@ public class DbSchemaProvider : IDbSchemaProvider
             _logger.LogInformation("[DbSchemaProvider] 🔴 Cache MISS. Fetching targeted schema for views: [{Views}]", string.Join(", ", viewList));
 
             var schema = await FetchTargetedSchemaAsync(connectionString, viewList, ct);
-            _memoryCache.Set(cacheKey, schema, new MemoryCacheEntryOptions
+            var entryOptions = new MemoryCacheEntryOptions
             {
                 SlidingExpiration = TARGETED_SLIDING_EXPIRATION,
                 AbsoluteExpirationRelativeToNow = TARGETED_ABSOLUTE_EXPIRATION
+            }.RegisterPostEvictionCallback((_, _, reason, _) =>
+            {
+                if (reason != EvictionReason.Replaced)
+                {
+                    _fetchSemaphores.TryRemove(cacheKey, out _);
+                }
             });
+            _memoryCache.Set(cacheKey, schema, entryOptions);
 
             _logger.LogInformation("[DbSchemaProvider] ✅ Targeted schema fetched and cached. Views: {ViewCount}, Total columns: {ColCount}",
                 schema.Count, schema.Values.Sum(s => s.Count));

@@ -86,7 +86,18 @@ namespace DynamicAi.Infrastructure.Services
                         resolvedModel, _pricingConfig.ActiveProvider);
                 }
 
-                await SaveUsageLogAsync(new LlmUsageLog
+                lock (_lock)
+                {
+                    _sessionInputTokens += inputTokens;
+                    _sessionOutputTokens += outputTokens;
+                    _sessionCachedTokens += cachedTokens;
+                    _sessionCostUsd += (double)cost;
+                    _sessionCallCount++;
+                }
+
+                await IncrementCachedDailyTotalAsync(DateTime.UtcNow.Date, cost, cancellationToken);
+
+                _ = SaveUsageLogFireAndForgetAsync(new LlmUsageLog
                 {
                     RequestId = requestId,
                     OperationType = operationType,
@@ -98,18 +109,7 @@ namespace DynamicAi.Infrastructure.Services
                     CostUsd = cost,
                     TenantId = tenantId,
                     CompanyId = companyId
-                }, cancellationToken);
-
-                lock (_lock)
-                {
-                    _sessionInputTokens += inputTokens;
-                    _sessionOutputTokens += outputTokens;
-                    _sessionCachedTokens += cachedTokens;
-                    _sessionCostUsd += (double)cost;
-                    _sessionCallCount++;
-                }
-
-                await IncrementCachedDailyTotalAsync(DateTime.UtcNow.Date, cost, cancellationToken);
+                });
 
                 _logger.LogInformation(
                     "📊 LLM Usage: {Operation} | In:{Input} Out:{Output} Cache:{Cache} | Cost:${Cost:F6} | Provider:{Provider}/{Model}",
@@ -155,7 +155,16 @@ namespace DynamicAi.Infrastructure.Services
                         embeddingModel, _pricingConfig.ActiveProvider);
                 }
 
-                await SaveUsageLogAsync(new LlmUsageLog
+                lock (_lock)
+                {
+                    _sessionInputTokens += tokenCount;
+                    _sessionCostUsd += (double)cost;
+                    _sessionCallCount++;
+                }
+
+                await IncrementCachedDailyTotalAsync(DateTime.UtcNow.Date, cost, cancellationToken);
+
+                _ = SaveUsageLogFireAndForgetAsync(new LlmUsageLog
                 {
                     RequestId = requestId,
                     OperationType = operationType,
@@ -167,16 +176,7 @@ namespace DynamicAi.Infrastructure.Services
                     CostUsd = cost,
                     TenantId = tenantId,
                     CompanyId = companyId
-                }, cancellationToken);
-
-                lock (_lock)
-                {
-                    _sessionInputTokens += tokenCount;
-                    _sessionCostUsd += (double)cost;
-                    _sessionCallCount++;
-                }
-
-                await IncrementCachedDailyTotalAsync(DateTime.UtcNow.Date, cost, cancellationToken);
+                });
 
                 _logger.LogDebug(
                     "📊 Embedding Usage: {Operation} | Tokens:{Tokens} | Cost:${Cost:F6} | Model:{Model}",
@@ -289,6 +289,21 @@ namespace DynamicAi.Infrastructure.Services
             finally
             {
                 _dailyCacheLock.Release();
+            }
+        }
+
+        /// <summary>
+        /// يحفظ سجل الاستخدام في قاعدة البيانات في الخلفية دون تعطيل مسار الطلب الحرج.
+        /// </summary>
+        private async Task SaveUsageLogFireAndForgetAsync(LlmUsageLog log)
+        {
+            try
+            {
+                await SaveUsageLogAsync(log, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Failed to persist LLM usage log in background for {Operation}", log.OperationType);
             }
         }
 

@@ -110,10 +110,7 @@ public class ConversationContextService : IConversationContextService
                         .ToList();
                 }
 
-                _cache.Set(cacheKey, history, new MemoryCacheEntryOptions
-                {
-                    SlidingExpiration = TimeSpan.FromMinutes(_ttlMinutes)
-                });
+                _cache.Set(cacheKey, history, CreateCacheEntryOptions(sessionId));
                 totalTurns = history.Count;
             }
             finally
@@ -226,10 +223,7 @@ public class ConversationContextService : IConversationContextService
                 if (lastRelevant != null)
                 {
                     history.Remove(lastRelevant);
-                    _cache.Set(cacheKey, history, new MemoryCacheEntryOptions
-                    {
-                        SlidingExpiration = TimeSpan.FromMinutes(_ttlMinutes)
-                    });
+                    _cache.Set(cacheKey, history, CreateCacheEntryOptions(sessionId));
                     removedTurn = lastRelevant;
                 }
             }
@@ -293,10 +287,7 @@ public class ConversationContextService : IConversationContextService
                 if (turnToRemove != null)
                 {
                     history.Remove(turnToRemove);
-                    _cache.Set(cacheKey, history, new MemoryCacheEntryOptions
-                    {
-                        SlidingExpiration = TimeSpan.FromMinutes(_ttlMinutes)
-                    });
+                    _cache.Set(cacheKey, history, CreateCacheEntryOptions(sessionId));
                     removedTurn = turnToRemove;
                 }
             }
@@ -315,6 +306,18 @@ public class ConversationContextService : IConversationContextService
             _logger.LogWarning("[Context] ⚠️ Could not find any turn matching question \"{Question}\" to remove in session: {SessionId}", question, sessionId);
         }
     }
+
+    private MemoryCacheEntryOptions CreateCacheEntryOptions(string sessionId) =>
+        new MemoryCacheEntryOptions
+        {
+            SlidingExpiration = TimeSpan.FromMinutes(_ttlMinutes)
+        }.RegisterPostEvictionCallback((_, _, reason, _) =>
+        {
+            if (reason != EvictionReason.Replaced)
+            {
+                _sessionLocks.TryRemove(sessionId, out _);
+            }
+        });
 
     private static string BuildBoundedSampleJson(IReadOnlyList<object> resultsList)
     {
