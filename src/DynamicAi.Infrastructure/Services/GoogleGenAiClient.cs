@@ -372,6 +372,21 @@ public sealed class GoogleGenAiClient : ILlmClient
                     Type = SchemaType.STRING,
                     Description = "Detected intent: DataRetrieval, Analysis, Chat, Prediction, or PredictionWithDataRetrieval."
                 },
+                ["schema_linking"] = new Schema
+                {
+                    Type = SchemaType.ARRAY,
+                    Nullable = true,
+                    Items = new Schema
+                    {
+                        Type = SchemaType.OBJECT,
+                        Properties = new Dictionary<string, Schema>
+                        {
+                            ["user_term"] = new Schema { Type = SchemaType.STRING },
+                            ["mapped_to_column"] = new Schema { Type = SchemaType.STRING }
+                        },
+                        Required = ["user_term", "mapped_to_column"]
+                    }
+                },
                 ["content"] = new Schema
                 {
                     Type = SchemaType.OBJECT,
@@ -395,23 +410,6 @@ public sealed class GoogleGenAiClient : ILlmClient
                 {
                     Type = SchemaType.STRING,
                     Nullable = true
-                },
-                ["schema_linking"] = new Schema
-                {
-                    Type = SchemaType.ARRAY,
-                    Nullable = true,
-                    Items = new Schema
-                    {
-                        Type = SchemaType.OBJECT,
-                        Properties = new Dictionary<string, Schema>
-                        {
-                            ["user_term"] = new Schema { Type = SchemaType.STRING },
-                            ["mapped_to_column"] = new Schema { Type = SchemaType.STRING },
-                            ["ar_label"] = new Schema { Type = SchemaType.STRING },
-                            ["reason"] = new Schema { Type = SchemaType.STRING }
-                        },
-                        Required = ["user_term", "mapped_to_column", "ar_label", "reason"]
-                    }
                 }
             },
             Required = ["intent", "content", "confidence", "needs_clarification"]

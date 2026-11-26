@@ -1,8 +1,9 @@
+using System.Runtime.CompilerServices;
+using System.Text;
 using DynamicAi.Application.Models.DirectIntegration;
 using DynamicAi.Application.Services.SqlEngine;
 using DynamicAi.Domain.Entities;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
-using System.Text;
 
 namespace DynamicAi.Application.Services.Handlers;
 
@@ -13,6 +14,7 @@ namespace DynamicAi.Application.Services.Handlers;
 public static class PageContextFormatter
 {
     private static readonly TSqlParser SqlParser = new TSql160Parser(false);
+    private static readonly ConditionalWeakTable<ShippedPageContext, List<string>> TailConditionTablesCache = new();
 
     /// <summary>
     /// Returns the deterministic detail alias for a detail setup at <paramref name="index"/>.
@@ -112,11 +114,7 @@ public static class PageContextFormatter
             {
                 continue;
             }
-            bool includeDro = string.Equals(col.InsertType, "dropdown", StringComparison.OrdinalIgnoreCase)
-                && !string.IsNullOrWhiteSpace(col.DroModel)
-                && !string.Equals(col.ColumnName, "CreateBy", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(col.ColumnName, "ModifyBy", StringComparison.OrdinalIgnoreCase)
-                && !(!string.IsNullOrWhiteSpace(col.DroValue) && string.Equals(col.DroValue, col.DroText, StringComparison.OrdinalIgnoreCase));
+            bool includeDro = IsJoinableDropdown(col);
 
             var dro = includeDro
                 ? $"Dro:{col.DroModel}:{col.DroValue}:{col.DroText}"
@@ -140,7 +138,70 @@ public static class PageContextFormatter
         }
     }
 
+    private static bool IsJoinableDropdown(DynamicAi.Application.Models.DirectIntegration.ColumnDefinition col) =>
+        string.Equals(col.InsertType, "dropdown", StringComparison.OrdinalIgnoreCase)
+        && string.Equals(col.SearchName, col.ColumnName, StringComparison.OrdinalIgnoreCase)
+        && !string.IsNullOrWhiteSpace(col.DroModel)
+        && !string.Equals(col.ColumnName, "CreateBy", StringComparison.OrdinalIgnoreCase)
+        && !string.Equals(col.ColumnName, "ModifyBy", StringComparison.OrdinalIgnoreCase)
+        && !(!string.IsNullOrWhiteSpace(col.DroValue) && string.Equals(col.DroValue, col.DroText, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Extracts distinct normalized lookup view/table names (<c>DroModel</c>) across master and detail columns
+    /// for joinable dropdowns (<c>SearchName == ColumnName</c>, excluding CreateBy/ModifyBy and text-only dropdowns).
+    /// </summary>
+    public static List<string> ExtractJoinableDropdownTables(ShippedPageContext context)
+    {
+        if (context == null)
+        {
+            return new List<string>();
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<string>();
+
+        void CollectFromColumns(IEnumerable<DynamicAi.Application.Models.DirectIntegration.ColumnDefinition>? columns)
+        {
+            if (columns == null)
+            {
+                return;
+            }
+
+            foreach (var col in columns)
+            {
+                if (!IsJoinableDropdown(col))
+                {
+                    continue;
+                }
+
+                var normalized = SqlIdentifierNormalizer.NormalizeTableName(col.DroModel);
+                if (!string.IsNullOrWhiteSpace(normalized) && seen.Add(normalized))
+                {
+                    result.Add(normalized);
+                }
+            }
+        }
+
+        CollectFromColumns(context.MasterSetup?.Columns);
+        if (context.DetailSetups != null)
+        {
+            foreach (var detail in context.DetailSetups)
+            {
+                CollectFromColumns(detail?.Columns);
+            }
+        }
+
+        return result;
+    }
+
     public static List<string> ExtractTablesFromTailConditions(ShippedPageContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var cached = TailConditionTablesCache.GetValue(context, ParseTablesFromTailConditions);
+        return new List<string>(cached);
+    }
+
+    private static List<string> ParseTablesFromTailConditions(ShippedPageContext context)
     {
         var allConditions = new List<string>();
 

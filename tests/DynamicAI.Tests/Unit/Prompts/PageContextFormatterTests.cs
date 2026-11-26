@@ -40,7 +40,8 @@ public class PageContextFormatterTests
         output.Should().Contain("[MASTER] Table=ContractViewWithPaid | PK=ContractID | Alias=TM");
         output.Should().Contain("[MASTER.TailCondition] (IsResale=0 or IsResale is null)");
         output.Should().Contain("[MASTER.COLUMNS] SearchName | ColumnName | InsertType | arLabel | enLabel | DroInfo");
-        output.Should().Contain("CustomerID | CustomerAccountName | dropdown | العميل | Client | Dro:CustomerAccountView:CustomerAccountID:CustomerAccountName");
+        output.Should().Contain("CustomerID | CustomerAccountName | dropdown | العميل | Client");
+        output.Should().NotContain("CustomerID | CustomerAccountName | dropdown | العميل | Client | Dro:");
         output.Should().Contain("[DETAIL] Table=");
         output.Should().Contain("[DETAIL.COLUMNS] SearchName | ColumnName | InsertType | arLabel | enLabel | DroInfo");
         output.Should().Contain("ContractProjectID | ContractProjectID | dropdown | المشروع | Project | Dro:ProductNonInventory:ProID:ProName");
@@ -95,7 +96,8 @@ public class PageContextFormatterTests
         var output = PageContextFormatter.CompressPageContextForPrompt(request.ExplicitContext, new List<ColumnSynonym>());
         var lines = output.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
 
-        // CreateBy, ModifyBy, SalesManName (DroValue == DroText), and number/date columns emit NO Dro: metadata
+        // CreateBy, ModifyBy, SalesManName (DroValue == DroText), SearchName != ColumnName dropdowns, and number/date columns emit NO Dro: metadata
+        lines.Should().Contain(l => l.Contains("CustomerID | CustomerAccountName | dropdown |") && !l.Contains("Dro:"));
         lines.Should().Contain(l => l.Contains("CreateBy | CreateBy | dropdown |") && !l.Contains("Dro:"));
         lines.Should().Contain(l => l.Contains("ModifyBy | ModifyBy | dropdown |") && !l.Contains("Dro:"));
         lines.Should().Contain(l => l.Contains("SalesManName | SalesManName | dropdown |") && !l.Contains("Dro:"));
@@ -103,11 +105,61 @@ public class PageContextFormatterTests
         lines.Should().Contain(l => l.Contains("Discount | Discount | number |") && !l.Contains("Dro:"));
         lines.Should().Contain(l => l.Contains("ContractDate | ContractDate | date |") && !l.Contains("Dro:"));
 
-        // Real dropdowns KEEP Dro:
+        // Real joinable dropdowns (SearchName == ColumnName) KEEP Dro:
+        lines.Should().Contain(l => l.Contains("ContractProjectID | ContractProjectID | dropdown |") && l.Contains("Dro:ProductNonInventory:ProID:ProName"));
         lines.Should().Contain(l => l.Contains("ContractType | ContractType | dropdown |") && l.Contains("Dro:ConType:ContractTypeID:TypeName"));
         lines.Should().Contain(l => l.Contains("ProductID | ProductID | dropdown |") && l.Contains("Dro:ProductPurchase:"));
         lines.Should().Contain(l => l.Contains("UnitID | UnitID | dropdown |") && l.Contains("Dro:Units:"));
         lines.Should().Contain(l => l.Contains("SystemStore | SystemStore | dropdown |") && l.Contains("Dro:StoreView:SID:SName"));
+    }
+
+    [Fact]
+    public void ExtractJoinableDropdownTables_WithFixture_ShouldReturnOnlyJoinableNormalizedDroModels()
+    {
+        var request = LoadFixture();
+
+        var tables = PageContextFormatter.ExtractJoinableDropdownTables(request.ExplicitContext);
+
+        tables.Should().Contain(new[] { "ConType", "ProductNonInventory", "ProductPurchase", "Units", "StoreView", "CustomerAccountView" });
+        tables.Select(t => t.ToLowerInvariant()).Should().OnlyHaveUniqueItems();
+
+        var directOnlyCtx = new ShippedPageContext
+        {
+            MasterSetup = new PageMasterSetup
+            {
+                TableName = "OrdersView",
+                Columns = new List<ColumnDefinition>
+                {
+                    new() { SearchName = "CustomerID", ColumnName = "CustomerName", InsertType = "dropdown", DroModel = "DirectOnlyView", DroValue = "ID", DroText = "Name" },
+                    new() { SearchName = "StatusID", ColumnName = "StatusID", InsertType = "dropdown", DroModel = "[dbo].[StatusView]", DroValue = "ID", DroText = "Name" },
+                    new() { SearchName = "CreateBy", ColumnName = "CreateBy", InsertType = "dropdown", DroModel = "UsersView", DroValue = "ID", DroText = "Name" },
+                    new() { SearchName = "SalesManName", ColumnName = "SalesManName", InsertType = "dropdown", DroModel = "SalesView", DroValue = "Name", DroText = "Name" }
+                }
+            }
+        };
+
+        var directOnlyTables = PageContextFormatter.ExtractJoinableDropdownTables(directOnlyCtx);
+        directOnlyTables.Should().BeEquivalentTo(new[] { "StatusView" });
+    }
+
+    [Fact]
+    public void ExtractTablesFromTailConditions_RepeatedCallsOnSameInstance_ShouldReturnEqualDefensiveCopies()
+    {
+        var ctx = new ShippedPageContext
+        {
+            MasterSetup = new PageMasterSetup
+            {
+                TableName = "ContractViewWithPaid",
+                TailCondition = "WHERE ComID IN (SELECT CompanyId FROM AllowedCompanies)"
+            }
+        };
+
+        var first = PageContextFormatter.ExtractTablesFromTailConditions(ctx);
+        first.Add("MutatedLocally");
+
+        var second = PageContextFormatter.ExtractTablesFromTailConditions(ctx);
+
+        second.Should().BeEquivalentTo(new[] { "AllowedCompanies" });
     }
 
     [Fact]

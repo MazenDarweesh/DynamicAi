@@ -6,9 +6,7 @@ JSON SCHEMA:
   "schema_linking": [
     {
       "user_term": "Keyword or term from the user's question (Arabic or English)",
-      "mapped_to_column": "TM.ColumnName or TD.ColumnName (or TD1.ColumnName) mapped to this keyword",
-      "ar_label": "The arColumnLabel of the mapped column",
-      "reason": "Brief justification explaining why this mapping is correct"
+      "mapped_to_column": "TM.ColumnName or TD.ColumnName (or TD1.ColumnName) mapped to this keyword"
     }
   ],
   "content": {

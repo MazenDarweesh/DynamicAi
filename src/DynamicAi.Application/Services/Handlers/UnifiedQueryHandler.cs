@@ -472,7 +472,7 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
             };
         }
 
-        CaptureSchemaLinkingSynonyms(parsedResponse, finalContext, currentPageId);
+        CaptureSchemaLinkingSynonyms(parsedResponse, finalContext, currentPageId, userQuestion);
 
         // Execute Route
         if (parsedResponse.IsSqlIntent)
@@ -671,11 +671,16 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
             .Concat(finalContext.DetailSetups?.Select(d => d.TableName) ?? [])
             .Where(v => !string.IsNullOrWhiteSpace(v))
             .Select(v => v!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         var tailConditionTables = PageContextFormatter.ExtractTablesFromTailConditions(finalContext);
         var addedFromTail = tailConditionTables.Where(t => !viewNames.Contains(t, StringComparer.OrdinalIgnoreCase)).ToList();
         viewNames.AddRange(addedFromTail);
+
+        var dropdownTables = PageContextFormatter.ExtractJoinableDropdownTables(finalContext);
+        var addedFromDropdowns = dropdownTables.Where(t => !viewNames.Contains(t, StringComparer.OrdinalIgnoreCase)).ToList();
+        viewNames.AddRange(addedFromDropdowns);
 
         if (!viewNames.Any()) return null;
 
@@ -837,12 +842,56 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
             costUsd);
     }
 
-    private void CaptureSchemaLinkingSynonyms(UnifiedLlmResponse parsedResponse, ShippedPageContext finalContext, int currentPageId)
+    private void CaptureSchemaLinkingSynonyms(
+        UnifiedLlmResponse parsedResponse,
+        ShippedPageContext finalContext,
+        int currentPageId,
+        string userQuestion)
     {
-        if (parsedResponse.SchemaLinking == null || !parsedResponse.SchemaLinking.Any() || currentPageId <= 0)
+        if (parsedResponse.SchemaLinking == null ||
+            !parsedResponse.SchemaLinking.Any() ||
+            currentPageId <= 0 ||
+            string.IsNullOrWhiteSpace(userQuestion))
+        {
+            return;
+        }
+
+        var synonymsToPersist = new List<ColumnSynonym>();
+        foreach (var entry in parsedResponse.SchemaLinking)
+        {
+            if (string.IsNullOrWhiteSpace(entry.UserTerm) || string.IsNullOrWhiteSpace(entry.MappedToColumn))
+                continue;
+
+            var trimmedTerm = entry.UserTerm.Trim();
+            if (!userQuestion.Contains(trimmedTerm, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var tableName = PageContextFormatter.ResolveAliasToTable(entry.MappedToColumn, finalContext);
+            if (string.IsNullOrEmpty(tableName))
+                continue;
+
+            var parts = entry.MappedToColumn.Split('.');
+            var columnName = (parts.Length > 1 ? parts[1] : parts[0]).Trim();
+            if (string.IsNullOrEmpty(columnName))
+                continue;
+
+            var matchedColumn = FindColumnDefinition(finalContext, tableName, columnName);
+            if (matchedColumn != null && MatchesExistingColumnLabel(trimmedTerm, matchedColumn))
+                continue;
+
+            synonymsToPersist.Add(new ColumnSynonym
+            {
+                PageId = currentPageId,
+                TableName = tableName,
+                ColumnName = columnName,
+                UserTerm = trimmedTerm,
+                Language = trimmedTerm.Any(c => c >= '\u0600' && c <= '\u06FF') ? "ar" : "en"
+            });
+        }
+
+        if (synonymsToPersist.Count == 0)
             return;
 
-        var entries = parsedResponse.SchemaLinking;
         _ = Task.Run(async () =>
         {
             try
@@ -850,24 +899,9 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
                 using var scope = _scopeFactory.CreateScope();
                 var synonymRepo = scope.ServiceProvider.GetRequiredService<IColumnSynonymRepository>();
 
-                foreach (var entry in entries)
+                foreach (var synonym in synonymsToPersist)
                 {
-                    if (string.IsNullOrWhiteSpace(entry.UserTerm) || string.IsNullOrWhiteSpace(entry.MappedToColumn))
-                        continue;
-
-                    var parts = entry.MappedToColumn.Split('.');
-                    var columnName = parts.Length > 1 ? parts[1] : parts[0];
-                    var tableName = PageContextFormatter.ResolveAliasToTable(entry.MappedToColumn, finalContext);
-                    if (string.IsNullOrEmpty(tableName)) continue;
-
-                    await synonymRepo.UpsertAsync(new ColumnSynonym
-                    {
-                        PageId = currentPageId,
-                        TableName = tableName,
-                        ColumnName = columnName,
-                        UserTerm = entry.UserTerm.Trim(),
-                        Language = entry.UserTerm.Any(c => c >= '\u0600' && c <= '\u06FF') ? "ar" : "en"
-                    });
+                    await synonymRepo.UpsertAsync(synonym);
                 }
             }
             catch (Exception ex)
@@ -876,6 +910,48 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
             }
         });
     }
+
+    private static ColumnDefinition? FindColumnDefinition(
+        ShippedPageContext context,
+        string tableName,
+        string columnName)
+    {
+        var normalizedTarget = SqlIdentifierNormalizer.NormalizeTableName(tableName);
+
+        bool MatchesTable(string? setupTable) =>
+            !string.IsNullOrWhiteSpace(setupTable) &&
+            string.Equals(
+                SqlIdentifierNormalizer.NormalizeTableName(setupTable),
+                normalizedTarget,
+                StringComparison.OrdinalIgnoreCase);
+
+        if (MatchesTable(context.MasterSetup?.TableName))
+        {
+            var masterMatch = context.MasterSetup?.Columns?.FirstOrDefault(c =>
+                string.Equals(c.ColumnName, columnName, StringComparison.OrdinalIgnoreCase));
+            if (masterMatch != null) return masterMatch;
+        }
+
+        if (context.DetailSetups != null)
+        {
+            foreach (var detail in context.DetailSetups)
+            {
+                if (!MatchesTable(detail?.TableName)) continue;
+
+                var detailMatch = detail?.Columns?.FirstOrDefault(c =>
+                    string.Equals(c.ColumnName, columnName, StringComparison.OrdinalIgnoreCase));
+                if (detailMatch != null) return detailMatch;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool MatchesExistingColumnLabel(string term, ColumnDefinition col) =>
+        string.Equals(term, col.ColumnName?.Trim(), StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(term, col.SearchName?.Trim(), StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(term, col.arColumnLabel?.Trim(), StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(term, col.enColumnLabel?.Trim(), StringComparison.OrdinalIgnoreCase);
 
     private async Task<QueryExecutionResult> ExecuteSqlWithSelfHealingAsync(
         UnifiedLlmResponse parsedResponse,
