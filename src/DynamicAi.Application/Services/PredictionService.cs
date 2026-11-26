@@ -3,6 +3,7 @@ using DynamicAi.Application.Models;
 using DynamicAi.Domain.Entities;
 using Microsoft.Extensions.Logging;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace DynamicAi.Application.Services;
@@ -38,7 +39,9 @@ public class PredictionService : IPredictionService
         string? tenantId = null,
         int? companyId = null,
         Guid? queryLogId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int? pageId = null,
+        IEnumerable<dynamic>? currentData = null)
     {
         var startTime = DateTime.UtcNow;
         var isArabic = DetectArabic(userQuestion);
@@ -47,10 +50,10 @@ public class PredictionService : IPredictionService
         var recentTurns = await _contextService.GetRecentContextAsync(
             effectiveSessionId,
             limit: 3,
-            pageId: null,
+            pageId: pageId,
             cancellationToken: cancellationToken);
 
-        var mathSummary = ComputeMathSummaryFromTurns(recentTurns);
+        var mathSummary = ComputeMathSummaryFromTurns(recentTurns, currentData);
         var systemPrompt = BuildSystemPrompt(isArabic, recentTurns, mathSummary);
         var request = new LlmRequest
         {
@@ -93,10 +96,27 @@ public class PredictionService : IPredictionService
         }
     }
 
-    private PredictionMathSummary? ComputeMathSummaryFromTurns(List<ConversationTurn> recentTurns)
+    private PredictionMathSummary? ComputeMathSummaryFromTurns(
+        List<ConversationTurn> recentTurns,
+        IEnumerable<dynamic>? currentData = null)
     {
-        foreach (var turn in recentTurns)
+        if (currentData != null)
         {
+            var boundedRows = currentData.Take(200).ToList();
+            if (boundedRows.Count > 0)
+            {
+                var currentJson = JsonSerializer.Serialize(boundedRows);
+                var currentSummary = _mathService.AnalyzeFromJsonSample(currentJson);
+                if (currentSummary.Count > 0)
+                {
+                    return currentSummary;
+                }
+            }
+        }
+
+        for (int i = recentTurns.Count - 1; i >= 0; i--)
+        {
+            var turn = recentTurns[i];
             if (string.IsNullOrWhiteSpace(turn.ResultSampleJson))
             {
                 continue;

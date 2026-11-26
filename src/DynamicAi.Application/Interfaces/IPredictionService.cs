@@ -12,5 +12,7 @@ public interface IPredictionService
         string? tenantId = null,
         int? companyId = null,
         Guid? queryLogId = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        int? pageId = null,
+        IEnumerable<dynamic>? currentData = null);
 }

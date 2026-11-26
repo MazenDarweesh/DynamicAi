@@ -18,26 +18,37 @@ public static class ConversationHistoryFormatter
         if (conversationHistory == null || !conversationHistory.Any()) return string.Empty;
 
         var allSqlTurns = conversationHistory.Where(t => !string.IsNullOrEmpty(t.SqlExecuted)).ToList();
+        var samePageSqlTurnsCount = allSqlTurns.Count(t => (t.PageId ?? 0) == currentPageId);
 
-        var turnsWithSql = allSqlTurns
-            .Where(t => (t.PageId ?? 0) == currentPageId)
+        var relevantTurns = conversationHistory
+            .Where(t => (t.PageId ?? 0) == currentPageId
+                && (!string.IsNullOrEmpty(t.SqlExecuted)
+                    || (t.IsRelevantForContext && !string.IsNullOrWhiteSpace(t.Question))))
             .OrderByDescending(t => t.CreatedAt)
             .Take(5)
             .ToList();
 
-        if (allSqlTurns.Count > turnsWithSql.Count)
+        if (allSqlTurns.Count > samePageSqlTurnsCount)
         {
             logger?.LogWarning("🔪 [ConversationHistory] HISTORY SLICED: Removed {HiddenTurns} unrelated prior SQL queries from LLM context to prevent cross-page contamination (Current Context PageID: {CurrentPageId}).",
-                allSqlTurns.Count - turnsWithSql.Count, currentPageId);
+                allSqlTurns.Count - samePageSqlTurnsCount, currentPageId);
         }
 
-        if (!turnsWithSql.Any()) return string.Empty;
+        if (!relevantTurns.Any()) return string.Empty;
 
         var historyBuilder = new StringBuilder();
-        for (int i = 0; i < turnsWithSql.Count; i++)
+        for (int i = 0; i < relevantTurns.Count; i++)
         {
-            historyBuilder.AppendLine($"[Turn {i + 1}] Q: \"{turnsWithSql[i].Question}\"");
-            historyBuilder.AppendLine($"         SQL: {CompressSqlForHistory(turnsWithSql[i].SqlExecuted ?? string.Empty)}");
+            var turn = relevantTurns[i];
+            if (!string.IsNullOrEmpty(turn.SqlExecuted))
+            {
+                historyBuilder.AppendLine($"[Turn {i + 1}] Q: \"{turn.Question}\"");
+                historyBuilder.AppendLine($"         SQL: {CompressSqlForHistory(turn.SqlExecuted)}");
+            }
+            else
+            {
+                historyBuilder.AppendLine($"[Turn {i + 1}] Clarification Asked: \"{turn.Question}\"");
+            }
         }
 
         return historyBuilder.ToString().Trim();

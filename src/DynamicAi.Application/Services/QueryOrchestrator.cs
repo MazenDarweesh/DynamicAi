@@ -140,6 +140,29 @@ public class QueryOrchestrator : IQueryOrchestrator
             {
                 PersistCacheHitInBackground(request, result, queryLogId, totalDurationMs);
             }
+            else
+            {
+                PersistQueryLogInBackground(queryLogId, "failure", "Background failure logging", new QueryLog
+                {
+                    Id = queryLogId,
+                    RawQuestion = request.Question,
+                    GeneratedSql = result.RewrittenSql,
+                    WasSuccessful = false,
+                    ErrorMessage = result.ErrorMessage,
+                    SchemaContext = result.SchemaContext,
+                    TenantId = request.TenantId,
+                    CompanyId = request.ComID,
+                    PageId = request.PageId,
+                    CreatedAt = DateTime.UtcNow,
+                    LatencyMs = totalDurationMs,
+                    HandlerType = "DirectedIntegration_" + (!string.IsNullOrEmpty(result.Intent) ? result.Intent : "Failed"),
+                    InputTokens = result.InputTokens,
+                    OutputTokens = result.OutputTokens,
+                    GeminiCost = result.LlmCostUsd,
+                    ConfidenceScore = result.ConfidenceScore,
+                    SelfHealingUsed = result.SelfHealingUsed
+                });
+            }
 
             if (string.IsNullOrEmpty(result.Intent) || result.Intent == "Unknown")
             {
@@ -208,7 +231,9 @@ public class QueryOrchestrator : IQueryOrchestrator
             request.TenantId,
             request.ComID,
             queryLogId,
-            ct);
+            ct,
+            pageId: request.PageId,
+            currentData: result.Data);
 
         if (!string.IsNullOrEmpty(predictionText))
         {
@@ -231,14 +256,20 @@ public class QueryOrchestrator : IQueryOrchestrator
             var clarification = result.ErrorMessage.Replace("CLARIFICATION_REQUIRED:", "").Trim();
             var intent = !string.IsNullOrEmpty(result.Intent) && result.Intent != "Unknown" ? result.Intent : fallbackIntent;
 
-            await _contextService.SaveTurnAsync(
-                sessionId,
-                clarification,
-                intent,
-                result.RewrittenSql,
-                null,
-                result.PageId,
-                ct);
+            var isSanitizerExhaustion = result.SelfHealingUsed ||
+                clarification.Contains("أعمدة أو جداول غير موجودة", StringComparison.Ordinal);
+
+            if (!isSanitizerExhaustion)
+            {
+                await _contextService.SaveTurnAsync(
+                    sessionId,
+                    clarification,
+                    intent,
+                    result.RewrittenSql,
+                    null,
+                    result.PageId,
+                    ct);
+            }
 
             throw new InteractionRequiredException(clarification, queryLogId, result.ConfidenceScore ?? 0);
         }

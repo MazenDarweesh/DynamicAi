@@ -257,7 +257,9 @@ public class QueryOrchestratorTests
                 "default",
                 5,
                 A<Guid?>._,
-                A<CancellationToken>._))
+                A<CancellationToken>._,
+                244,
+                handlerResult.Data))
             .Returns(Task.FromResult<string?>("التوقع للشهر القادم هو زيادة بنسبة 10%"));
 
         var result = await sut.HandleDirectedPageQueryAsync(request);
@@ -265,7 +267,7 @@ public class QueryOrchestratorTests
         result.QueryInsights.Should().NotBeNull();
         result.QueryInsights!.Reasoning.Should().Be("التوقع للشهر القادم هو زيادة بنسبة 10%");
         A.CallTo(() => _predictionService.GeneratePredictionAsync(
-                request.Question, "sess_1", "default", 5, A<Guid?>._, A<CancellationToken>._))
+                request.Question, "sess_1", "default", 5, A<Guid?>._, A<CancellationToken>._, 244, handlerResult.Data))
             .MustHaveHappenedOnceExactly();
     }
 
@@ -408,5 +410,111 @@ public class QueryOrchestratorTests
         var completedTask = await Task.WhenAny(storeDone.Task, Task.Delay(TimeSpan.FromSeconds(5)));
         completedTask.Should().Be(storeDone.Task);
         (await storeDone.Task).Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(true, "CLARIFICATION_REQUIRED: تعذر تنفيذ الاستعلام")]
+    [InlineData(false, "CLARIFICATION_REQUIRED: الاستعلام يحتوي على أعمدة أو جداول غير موجودة في قاعدة البيانات")]
+    public async Task HandleDirectedPageQueryAsync_WhenSanitizerExhaustionClarification_ShouldSkipSaveTurnAsync_AndStillThrowInteractionRequiredException(
+        bool selfHealingUsed,
+        string errorMessage)
+    {
+        var sut = CreateSut(queryCacheEnabled: false);
+        var request = CreateSampleRequest(244);
+
+        A.CallTo(() => _unifiedHandler.HandleAsync(request.Question, A<IntentHandlerContext>._, A<CancellationToken>._))
+            .Returns(Task.FromResult(new QueryExecutionResult
+            {
+                ErrorMessage = errorMessage,
+                SelfHealingUsed = selfHealingUsed,
+                ConfidenceScore = 0.25f,
+                Intent = "DataRetrieval",
+                PageId = 244
+            }));
+
+        var act = async () => await sut.HandleDirectedPageQueryAsync(request);
+
+        await act.Should().ThrowAsync<InteractionRequiredException>();
+
+        A.CallTo(() => _contextService.SaveTurnAsync(
+                A<string>._, A<string>._, A<string>._, A<string?>._, A<IEnumerable<dynamic>?>._, A<int?>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
+
+    [Theory]
+    [InlineData("DataRetrieval", "DirectedIntegration_DataRetrieval")]
+    [InlineData(null, "DirectedIntegration_Failed")]
+    public async Task HandleDirectedPageQueryAsync_WhenNonClarificationFailure_ShouldPersistFailedQueryLogInBackground(
+        string? handlerIntent,
+        string expectedHandlerType)
+    {
+        var persistedLogTcs = new TaskCompletionSource<QueryLog>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queryLogRepo = A.Fake<IQueryLogRepository>();
+        A.CallTo(() => queryLogRepo.AddAsync(A<QueryLog>._, A<CancellationToken>._))
+            .Invokes(call => persistedLogTcs.TrySetResult(call.GetArgument<QueryLog>(0)!))
+            .ReturnsLazily(call => Task.FromResult(call.GetArgument<QueryLog>(0)!));
+
+        var scope = A.Fake<IServiceScope>();
+        var serviceProvider = A.Fake<IServiceProvider>();
+        A.CallTo(() => scope.ServiceProvider).Returns(serviceProvider);
+        A.CallTo(() => serviceProvider.GetService(typeof(IQueryLogRepository))).Returns(queryLogRepo);
+
+        var scopeFactory = A.Fake<IServiceScopeFactory>();
+        A.CallTo(() => scopeFactory.CreateScope()).Returns(scope);
+
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Caching:QueryCache:Enabled"] = "false"
+            })
+            .Build();
+
+        var sut = new QueryOrchestrator(
+            _unifiedHandler,
+            _predictionService,
+            _queryCacheService,
+            _contextService,
+            _usageTracker,
+            _logger,
+            config,
+            scopeFactory);
+
+        var request = CreateSampleRequest(244);
+
+        A.CallTo(() => _unifiedHandler.HandleAsync(request.Question, A<IntentHandlerContext>._, A<CancellationToken>._))
+            .Returns(Task.FromResult(new QueryExecutionResult
+            {
+                ErrorMessage = "JSON parse failure after self-healing retry",
+                RewrittenSql = "SELECT * FROM BrokenView",
+                InputTokens = 510,
+                OutputTokens = 85,
+                LlmCostUsd = 0.0034m,
+                SelfHealingUsed = true,
+                SchemaContext = "ContractViewWithPaid",
+                Intent = handlerIntent,
+                PageId = 244
+            }));
+
+        var result = await sut.HandleDirectedPageQueryAsync(request);
+
+        result.IsSuccess.Should().BeFalse();
+
+        var completed = await Task.WhenAny(persistedLogTcs.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        completed.Should().Be(persistedLogTcs.Task);
+
+        var savedLog = await persistedLogTcs.Task;
+        savedLog.RawQuestion.Should().Be(request.Question);
+        savedLog.WasSuccessful.Should().BeFalse();
+        savedLog.ErrorMessage.Should().Be("JSON parse failure after self-healing retry");
+        savedLog.GeneratedSql.Should().Be("SELECT * FROM BrokenView");
+        savedLog.InputTokens.Should().Be(510);
+        savedLog.OutputTokens.Should().Be(85);
+        savedLog.GeminiCost.Should().Be(0.0034m);
+        savedLog.SelfHealingUsed.Should().BeTrue();
+        savedLog.SchemaContext.Should().Be("ContractViewWithPaid");
+        savedLog.HandlerType.Should().Be(expectedHandlerType);
+        savedLog.TenantId.Should().Be("default");
+        savedLog.CompanyId.Should().Be(5);
+        savedLog.PageId.Should().Be(244);
     }
 }
