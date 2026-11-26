@@ -38,7 +38,8 @@ ERP Client / Angular 21 POC UI (frontend/DynamicAi.UI)
 │      schema phantom-column filtering (PageContextFormatter)          │
 │    • Optional deterministic QueryIrCompiler & Shadow Mode            │
 │      (Features:UseQueryIrCompiler / Features:QueryIrShadowMode)      │
-│    • Self-healing SQL retry loop & bounded session context samples   │
+│    • Self-healing SQL retry loop (skips connectivity/auth DB errors)  │
+│      & bounded session context samples                               │
 └──────────────────────────────────┬───────────────────────────────────┘
                                    ▼
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -91,7 +92,7 @@ DynamicAi/
 │   │                                    # SandboxedSqlExecutor, TenantConnectionResolver, EF Core
 │   └── DynamicAi.Api/                   # Controllers, Middleware, Auth, Serilog/OTel setup
 ├── tests/
-│   └── DynamicAI.Tests/                 # 414 automated tests (Unit, Security Red-Team,
+│   └── DynamicAI.Tests/                 # 437 automated tests (Unit, Security Red-Team,
 │                                        # Integration, Golden Evaluation & Shadow Mode)
 ├── frontend/
 │   └── DynamicAi.UI/                    # Angular 21 POC Tester & Admin Console
@@ -157,7 +158,7 @@ docker compose --profile observability up -d
 ```powershell
 $env:DOTNET_ROLL_FORWARD = "Major"
 
-# Main test suite (414 tests: Unit, Security Red-Team, Integration, Evaluation)
+# Main test suite (437 tests: Unit, Security Red-Team, Integration, Evaluation)
 dotnet test DynamicAi.sln
 
 # Isolated legacy schema tools smoke tests (10 tests)

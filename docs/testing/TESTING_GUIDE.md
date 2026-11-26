@@ -6,7 +6,7 @@ All automated tests run **100% offline by default** (`$0` LLM cost, zero externa
 
 ## 🧪 Test Suites
 
-### 1. Main Solution (`DynamicAi.sln`) — 414 Tests
+### 1. Main Solution (`DynamicAi.sln`) — 437 Tests
 
 Located in `tests/DynamicAI.Tests/`:
 
@@ -17,7 +17,7 @@ Located in `tests/DynamicAI.Tests/`:
 | **Integration & E2E** | `Integration/` | `DirectedPagePipelineTests`, `SecurityPipelineTests`, `LiveApiE2ETests` (offline contract check by default; opt-in live HTTP E2E) |
 | **Evaluation** | `Evaluation/` | `GoldenDatasetRunnerTests` (30 Page 244 cases), `ShadowModeComparisonTests` (50 total cases: 30 Golden + 20 Extended IR) |
 
-Run all 414 tests:
+Run all 437 tests:
 
 ```powershell
 $env:DOTNET_ROLL_FORWARD = "Major"

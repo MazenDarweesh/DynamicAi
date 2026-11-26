@@ -1,5 +1,7 @@
+using System.ComponentModel;
 using System.Data.Common;
 using System.Diagnostics;
+using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DynamicAi.Application.Exceptions;
@@ -1004,6 +1006,14 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
             }
             catch (DbException dbEx)
             {
+                if (IsNonRecoverableDatabaseError(dbEx))
+                {
+                    _logger.LogWarning(
+                        "[UnifiedHandler] 🔌 Non-recoverable database connectivity/auth error detected — skipping LLM self-healing: {Error}",
+                        dbEx.Message);
+                    throw;
+                }
+
                 lastError = $"Database error: {dbEx.Message}";
                 _logger.LogWarning("[UnifiedHandler] 💾 Database rejected SQL: {Error}", dbEx.Message);
                 if (attempt >= maxRetries)
@@ -1024,6 +1034,75 @@ public class UnifiedQueryHandler : IUnifiedQueryHandler
             CachedTokens = totalCachedTokens,
             LlmCostUsd = totalCostUsd
         };
+    }
+
+    private static readonly HashSet<int> NonRecoverableSqlErrorNumbers = new()
+    {
+        -1, 2, 40, 53, 64, 229, 233, 258, 262, 297, 1225,
+        4060, 10053, 10054, 10060, 10061, 10928, 10929,
+        18456, 40197, 40501, 40613
+    };
+
+    private static readonly string[] NonRecoverableErrorMarkers =
+    [
+        "network-related",
+        "refused the network connection",
+        "server was not found",
+        "transport-level error",
+        "connection timeout expired",
+        "pre-login handshake",
+        "connection has been broken",
+        "login failed",
+        "cannot open database",
+        "permission was denied"
+    ];
+
+    /// <summary>
+    /// Classifies database connectivity, transport, authentication, and permission errors
+    /// that cannot be fixed by rewriting SQL via LLM self-healing.
+    /// </summary>
+    public static bool IsNonRecoverableDatabaseError(DbException dbEx)
+    {
+        if (TryGetSqlErrorNumber(dbEx, out var errorNumber) &&
+            NonRecoverableSqlErrorNumbers.Contains(errorNumber))
+        {
+            return true;
+        }
+
+        Exception? current = dbEx;
+        for (int depth = 0; depth < 6 && current != null; depth++, current = current.InnerException)
+        {
+            if (current is SocketException or TimeoutException or Win32Exception)
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrEmpty(current.Message))
+            {
+                foreach (var marker in NonRecoverableErrorMarkers)
+                {
+                    if (current.Message.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryGetSqlErrorNumber(DbException dbEx, out int errorNumber)
+    {
+        var prop = dbEx.GetType().GetProperty("Number");
+        if (prop?.PropertyType == typeof(int) && prop.GetValue(dbEx) is int num)
+        {
+            errorNumber = num;
+            return true;
+        }
+
+        errorNumber = 0;
+        return false;
     }
 
     private T? ExtractAndParseJson<T>(string llmResponse) where T : class
